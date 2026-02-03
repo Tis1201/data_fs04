@@ -357,9 +357,33 @@ export async function loadDeviceList(
             logger.warn(`Failed to convert deviceInfo maps to object: ${err}`);
         }
 
+        // Post-filter devices based on connection status after real-time Redis update
+        // This ensures the filter works on actual real-time status, not stale DB values
+        let filteredDevices = devicesWithRealTimeStatus;
+        const connectedFilter = url.searchParams.get('connected');
+        if (connectedFilter) {
+            const connectedValues = connectedFilter.includes(',')
+                ? connectedFilter.split(',').filter(Boolean)
+                : [connectedFilter];
+
+            const hasOnline = connectedValues.some(v => v.toLowerCase() === 'online');
+            const hasOffline = connectedValues.some(v => v.toLowerCase() === 'offline');
+
+            // Only filter if not both (both = show all, no filter needed)
+            if (hasOnline && !hasOffline) {
+                // Show only online devices
+                filteredDevices = devicesWithRealTimeStatus.filter((d: any) => d.connected === true);
+                logger.info(`Filtered devices: showing only online (${filteredDevices.length}/${devicesWithRealTimeStatus.length})`);
+            } else if (hasOffline && !hasOnline) {
+                // Show only offline devices
+                filteredDevices = devicesWithRealTimeStatus.filter((d: any) => d.connected === false);
+                logger.info(`Filtered devices: showing only offline (${filteredDevices.length}/${devicesWithRealTimeStatus.length})`);
+            }
+        }
+
         // Ensure all required fields are present with safe defaults
         const returnData = {
-            devices: Array.isArray(devicesWithRealTimeStatus) ? devicesWithRealTimeStatus : [],
+            devices: Array.isArray(filteredDevices) ? filteredDevices : [],
             deviceInformation: deviceInformationObject,
             deviceInformationByDeviceId: deviceInformationByDeviceIdObject,
             availableTags: Array.isArray(availableTags) ? availableTags : [],

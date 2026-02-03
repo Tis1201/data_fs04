@@ -72,12 +72,12 @@
 
     function normalizeMultiSelect(next: string | string[], prev: string[]): string[] {
         const arr = Array.isArray(next) ? next : (next ? [next] : []);
-        
+
         // If "All" was just added (not in prev but in arr), select only "All"
         if (arr.includes('__all__') && !prev.includes('__all__')) {
             return ['__all__'];
         }
-        
+
         // If "All" was just removed (in prev but not in arr), keep empty (will show "Select")
         if (!arr.includes('__all__') && prev.includes('__all__')) {
             // User clicked "All" to deselect it, but we want "All" to always be selected when clicked
@@ -85,18 +85,18 @@
             if (arr.length === 0) return ['__all__'];
             return arr.filter(v => v !== '__all__');
         }
-        
+
         // If any non-All option is selected, remove "All"
         if (arr.some(v => v !== '__all__')) {
             return arr.filter(v => v !== '__all__');
         }
-        
+
         // Default: if nothing selected, show "All"
         if (arr.length === 0) return ['__all__'];
-        
+
         return arr;
     }
-    
+
     // Get actual filter values (excluding __all__ which means "no filter")
     function getActualFilterValues(values: string[]): string[] {
         if (values.includes('__all__') || values.length === 0) return [];
@@ -120,8 +120,8 @@
 
     $: connectionStatusOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
-        { id: 'Online', label: 'Connected', type: 'checkbox' as const },
-        { id: 'Offline', label: 'Disconnected', type: 'checkbox' as const }
+        { id: 'Online', label: 'Online', type: 'checkbox' as const },
+        { id: 'Offline', label: 'Offline', type: 'checkbox' as const }
     ];
 
     $: osVersionOptions = [
@@ -132,7 +132,7 @@
     // Transform server data to DeviceRow format
     function transformServerData(serverData: any): DeviceRow[] {
         if (!serverData?.devices) return [];
-        
+
         return serverData.devices.map((device: any) => {
             const mac = device.macAddress || device.lanMac || device.wifiMac;
             const deviceInfo = serverData.deviceInformation?.[mac]
@@ -188,7 +188,7 @@
     $: {
         if (data) {
             devices = transformServerData(data);
-            
+
             // Map server meta format to component format
             const serverMeta = data.meta as any;
             pagination = {
@@ -211,6 +211,9 @@
         field: (data?.meta as any)?.sort?.field || "name",
         order: (data?.meta as any)?.sort?.order || "asc"
     };
+
+    // Count active filters for badge display
+    $: activeFilterCount = Object.keys(activeFilters).length;
 
     // Reload data from server when params change
     async function reloadData() {
@@ -239,7 +242,7 @@
                 if (!values || values.length === 0) return;
                 url.searchParams.set(key, values.join(','));
             });
-            
+
             // Invalidate and reload
             await invalidate('app:userDevices');
             await goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
@@ -313,23 +316,23 @@
     // Confirm Deactivate/Reactivate action
     async function confirmToggleStatus() {
         if (!pendingActionDevice) return;
-        
+
         actionLoading = true;
         const device = pendingActionDevice;
         const nextStatus = device.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
         const actionName = device.status === 'ACTIVE' ? 'deactivated' : 'reactivated';
-        
+
         try {
             const fd = new FormData();
             fd.set('id', device.id);
             fd.set('status', nextStatus);
             const res = await fetch('?/toggleStatus', { method: 'POST', body: fd });
-            
+
             if (!res.ok) {
                 const payload = await res.json().catch(() => ({}));
                 throw new Error(payload?.error || res.statusText);
             }
-            
+
             toast.success( `Device ${actionName} successfully!`);
             await invalidate('app:userDevices');
         } catch (error) {
@@ -351,12 +354,12 @@
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ action: 'reboot' })
             });
-            
+
             if (!res.ok) {
                 const payload = await res.json().catch(() => ({}));
                 throw new Error(payload?.error || res.statusText);
             }
-            
+
             toast.success( 'Device rebooted successfully!');
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -375,20 +378,20 @@
     // Confirm Delete action
     async function confirmDelete() {
         if (!pendingActionDevice) return;
-        
+
         actionLoading = true;
         const device = pendingActionDevice;
-        
+
         try {
             const fd = new FormData();
             fd.set('id', device.id);
             const res = await fetch('?/delete', { method: 'POST', body: fd });
-            
+
             if (!res.ok) {
                 const payload = await res.json().catch(() => ({}));
                 throw new Error(payload?.error || res.statusText);
             }
-            
+
             toast.success( 'Device deleted successfully!');
             await invalidate('app:userDevices');
         } catch (error) {
@@ -424,7 +427,7 @@
         // hydrate selections from activeFilters
         // If no filter is set, show "All" as checked
         filterOsVersions = activeFilters.osVersions?.length ? [...activeFilters.osVersions] : ['__all__'];
-        filterConnection = activeFilters.connected?.length 
+        filterConnection = activeFilters.connected?.length
             ? (activeFilters.connected || []).map((v) => (v.toLowerCase() === 'offline' ? 'Offline' : 'Online')) as any
             : ['__all__'];
         filterStatuses = activeFilters.statuses?.length ? (activeFilters.statuses || []) as any : ['__all__'];
@@ -439,7 +442,7 @@
         const actualConnection = getActualFilterValues(filterConnection);
         const actualStatuses = getActualFilterValues(filterStatuses);
         const actualTags = getActualFilterValues(filterTagIds);
-        
+
         if (actualOsVersions.length) next.osVersions = [...actualOsVersions];
         if (actualConnection.length) next.connected = actualConnection.map((v) => v); // Online/Offline (server transformer)
         if (actualStatuses.length) next.statuses = actualStatuses.map((v) => v);
@@ -512,7 +515,7 @@
     $: bulkActions = (() => {
         const allInactive = selectedRows.length > 0 && selectedRows.every(row => row.status === 'INACTIVE');
         const deactivateLabel = allInactive ? 'Reactivate' : 'Deactivate';
-        
+
         return [
             { id: 'assign-tag', label: 'Assign Tag', icon: Tags },
             { id: 'assign-deployment', label: 'Assign Deployment', icon: GitFork },
@@ -539,7 +542,7 @@
     let assignTagDropdownPosition = { top: 0, left: 0, width: 0 };
 
     // Computed: filtered tags for Assign Tag modal
-    $: assignTagFilteredOptions = availableTags.filter((t) => 
+    $: assignTagFilteredOptions = availableTags.filter((t) =>
         t.name.toLowerCase().includes(assignTagSearch.toLowerCase())
     );
 
@@ -562,7 +565,7 @@
         assignTagDropdownInteracting = false;
         showAssignTagModal = true;
     }
-    
+
     async function handleAssignTagFocus(e: CustomEvent<FocusEvent>) {
         assignTagDropdownOpen = true;
         // Wait for DOM to render then compute position
@@ -585,12 +588,12 @@
         name: string;
         packageName: string;
     }
-    
+
     interface SelectedDeploymentApp {
         id: string;
         autoOpen: boolean;
     }
-    
+
     let showAssignDeploymentModal = false;
     let assignDeploymentSearch = "";
     let assignDeploymentSelectedApps: SelectedDeploymentApp[] = [];
@@ -603,11 +606,11 @@
     let assignDeploymentAppsLoading = false;
 
     // Computed: filtered apps for Assign Deployment modal
-    $: assignDeploymentFilteredOptions = availableDeploymentApps.filter((app) => 
+    $: assignDeploymentFilteredOptions = availableDeploymentApps.filter((app) =>
         app.name.toLowerCase().includes(assignDeploymentSearch.toLowerCase()) ||
         app.packageName.toLowerCase().includes(assignDeploymentSearch.toLowerCase())
     );
-    
+
     // Check if app is selected for deployment
     function isDeploymentAppSelected(appId: string): boolean {
         return assignDeploymentSelectedApps.some(a => a.id === appId);
@@ -640,7 +643,7 @@
         showAssignDeploymentModal = true;
         loadAvailableDeploymentApps();
     }
-    
+
     // Update dropdown position
     function updateAssignDeploymentDropdownPosition() {
         if (assignDeploymentInputContainer) {
@@ -659,7 +662,7 @@
         await tick();
         updateAssignDeploymentDropdownPosition();
     }
-    
+
     function handleAssignDeploymentBlur(e: CustomEvent<FocusEvent>) {
         // Only close if not interacting with dropdown
         setTimeout(() => {
@@ -682,9 +685,9 @@
     function removeAssignDeploymentApp(appId: string) {
         assignDeploymentSelectedApps = assignDeploymentSelectedApps.filter(a => a.id !== appId);
     }
-    
+
     function toggleDeploymentAutoOpen(appId: string) {
-        assignDeploymentSelectedApps = assignDeploymentSelectedApps.map(a => 
+        assignDeploymentSelectedApps = assignDeploymentSelectedApps.map(a =>
             a.id === appId ? { ...a, autoOpen: !a.autoOpen } : a
         );
     }
@@ -696,7 +699,7 @@
             // TODO: Implement actual API call to add apps to devices
             // For now, simulate API call
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             showAssignDeploymentModal = false;
             selectedRows = [];
             toast.success( 'App added successfully!');
@@ -715,7 +718,7 @@
         name: string;
         packageName: string;
     }
-    
+
     let showInstallAppModal = false;
     let installAppSearch = "";
     let installAppSelected: string[] = [];
@@ -730,7 +733,7 @@
     let availableAppsLoading = false;
 
     // Computed: filtered apps for Install App modal
-    $: installAppFilteredOptions = availableApps.filter((app) => 
+    $: installAppFilteredOptions = availableApps.filter((app) =>
         app.name.toLowerCase().includes(installAppSearch.toLowerCase()) ||
         app.packageName.toLowerCase().includes(installAppSearch.toLowerCase())
     );
@@ -741,7 +744,7 @@
         try {
             const res = await fetch('/api/user/resources/apps?pageSize=100');
             if (!res.ok) throw new Error('Failed to load apps');
-            
+
             const data = await res.json();
             availableApps = (data.items || []).map((item: any) => ({
                 id: item.id,
@@ -764,7 +767,7 @@
         showInstallAppModal = true;
         loadAvailableApps();
     }
-    
+
     // Update dropdown position
     function updateInstallAppDropdownPosition() {
         if (installAppInputContainer) {
@@ -783,7 +786,7 @@
         await tick();
         updateInstallAppDropdownPosition();
     }
-    
+
     function handleInstallAppBlur(e: CustomEvent<FocusEvent>) {
         setTimeout(() => {
             if (!installAppDropdownInteracting) {
@@ -808,15 +811,15 @@
     async function confirmInstallApp() {
         if (installAppSelected.length === 0 || selectedRows.length === 0) return;
         installAppLoading = true;
-        
+
         try {
             // Get selected apps' package names
             const selectedApps = availableApps.filter(app => installAppSelected.includes(app.id));
-            
+
             // Install apps on each selected device
             const results = await Promise.allSettled(
-                selectedRows.flatMap(device => 
-                    selectedApps.map(app => 
+                selectedRows.flatMap(device =>
+                    selectedApps.map(app =>
                         fetch(`/api/devices/${device.id}/actions`, {
                             method: 'POST',
                             headers: { 'content-type': 'application/json' },
@@ -829,13 +832,13 @@
                     )
                 )
             );
-            
+
             const successCount = results.filter(r => r.status === 'fulfilled').length;
             const failCount = results.filter(r => r.status === 'rejected').length;
-            
+
             showInstallAppModal = false;
             selectedRows = [];
-            
+
             if (failCount === 0) {
                 toast.success( 'App installation initiated successfully!');
             } else if (successCount > 0) {
@@ -843,7 +846,7 @@
             } else {
                 toast.error( 'Failed to install app on all devices.');
             }
-            
+
             await invalidate('app:userDevices');
         } catch (e) {
             toast.error( 'Unable to install New App. Please try again!');
@@ -852,7 +855,7 @@
             installAppLoading = false;
         }
     }
-    
+
     // Update Firmware Modal state (single select with radio buttons)
     interface FirmwareOption {
         id: string;
@@ -862,7 +865,7 @@
         size: string;
         createdOn: string;
     }
-    
+
     let showUpdateFirmwareModal = false;
     let updateFirmwareSearch = "";
     let updateFirmwareSelected: string | null = null;
@@ -875,18 +878,18 @@
     let availableFirmwaresLoading = false;
 
     // Computed: filtered firmwares for Update Firmware modal
-    $: updateFirmwareFilteredOptions = availableFirmwares.filter((fw) => 
+    $: updateFirmwareFilteredOptions = availableFirmwares.filter((fw) =>
         fw.name.toLowerCase().includes(updateFirmwareSearch.toLowerCase()) ||
         fw.packageName.toLowerCase().includes(updateFirmwareSearch.toLowerCase())
     );
-    
+
     // Load firmware from API
     async function loadAvailableFirmwares() {
         availableFirmwaresLoading = true;
         try {
             const res = await fetch('/api/user/resources/firmware?pageSize=100');
             if (!res.ok) throw new Error('Failed to load firmware');
-            
+
             const data = await res.json();
             availableFirmwares = (data.items || []).map((item: any) => ({
                 id: item.id,
@@ -903,7 +906,7 @@
             availableFirmwaresLoading = false;
         }
     }
-    
+
     // Helper: Format file size
     function formatFileSizeForListing(bytes: number | null): string {
         if (bytes === null || bytes === undefined) return 'N/A';
@@ -912,7 +915,7 @@
         if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
         return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
     }
-    
+
     // Helper: Format date
     function formatDateForListing(dateString: string): string {
         if (!dateString) return 'N/A';
@@ -926,7 +929,7 @@
         const hour12 = hours % 12 || 12;
         return `${month} ${day}, ${year} ${hour12}:${minutes} ${ampm}`;
     }
-    
+
     // Computed: paginated firmwares
     $: updateFirmwareTotalPages = Math.ceil(updateFirmwareFilteredOptions.length / updateFirmwarePerPage);
     $: updateFirmwarePaginatedOptions = updateFirmwareFilteredOptions.slice(
@@ -949,11 +952,11 @@
     async function confirmUpdateFirmware() {
         if (!updateFirmwareSelected || selectedRows.length === 0) return;
         updateFirmwareLoading = true;
-        
+
         try {
             // Push firmware to each selected device
             const results = await Promise.allSettled(
-                selectedRows.map(device => 
+                selectedRows.map(device =>
                     fetch(`/api/devices/${device.id}/actions`, {
                         method: 'POST',
                         headers: { 'content-type': 'application/json' },
@@ -965,13 +968,13 @@
                     })
                 )
             );
-            
+
             const successCount = results.filter(r => r.status === 'fulfilled').length;
             const failCount = results.filter(r => r.status === 'rejected').length;
-            
+
             showUpdateFirmwareModal = false;
             selectedRows = [];
-            
+
             if (failCount === 0) {
                 toast.success( 'Firmware update initiated successfully!');
             } else if (successCount > 0) {
@@ -979,7 +982,7 @@
             } else {
                 toast.error( 'Failed to update firmware on all devices.');
             }
-            
+
             await invalidate('app:userDevices');
         } catch (e) {
             toast.error( 'Unable to update Firmware. Please try again!');
@@ -1078,7 +1081,7 @@
             selectedRows = [];
             showBulkConfirmModal = false;
             await invalidate('app:userDevices');
-            
+
             // Show success toast based on action type
             if (actionType === 'reboot') {
                 toast.success( 'Device rebooted successfully!');
@@ -1087,7 +1090,7 @@
             }
         } catch (e) {
             bulkError = e instanceof Error ? e.message : String(e);
-            
+
             // Show error toast based on action type
             if (actionType === 'reboot') {
                 toast.error( 'Unable to reboot Device. Please try again!');
@@ -1131,22 +1134,47 @@
         <!-- Spacer: flex-grow: 1 -->
         <div style="flex: 1;"></div>
 
-        <!-- Filter Button: 44x44px, using design tokens -->
-        <Button 
-            variant="outline" 
-            color="gray" 
-            size="lg"
-            iconOnly={true}
-            icon={Filter}
-            iconPosition="only"
-            on:click={openFilter}
-        />
+        <!-- Filter Button: 44x44px, using design tokens with badge -->
+        <div style="position: relative;">
+            <Button
+                variant="outline"
+                color="gray"
+                size="lg"
+                iconOnly={true}
+                icon={Filter}
+                iconPosition="only"
+                on:click={openFilter}
+            />
+            {#if activeFilterCount > 0}
+                <div style="
+                    position: absolute;
+                    top: -4px;
+                    right: -4px;
+                    min-width: 20px;
+                    height: 20px;
+                    background: #D92D20;
+                    color: white;
+                    border-radius: 10px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-family: var(--ds-font-family-primary);
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 0 6px;
+                    border: 2px solid white;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+                ">
+                    {activeFilterCount}
+                </div>
+            {/if}
+        </div>
 
         <!-- Add Device Button: 156px width, height 44px, background var(--ds-color-blue-light-600) -->
-        <Button 
-            variant="filled" 
-            color="primary" 
-            size="lg" 
+        <Button
+            variant="filled"
+            color="primary"
+            size="lg"
             iconLeft={true}
             on:click={openAddDeviceModal}
             style="width: 156px; height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
@@ -1176,7 +1204,7 @@
 
     <!-- Bulk actions bar (Figma) - centered at bottom of table area -->
     {#if selectedRows.length > 0}
-        <div 
+        <div
             class="w-full flex justify-center z-10"
             style="margin-top: 24px; margin-bottom: 16px;"
         >
@@ -1267,13 +1295,14 @@
     on:close={() => (showFilterModal = false)}
 >
     <!-- Match screenshot: 4 stacked dropdown selects -->
-    <div class="w-full">
-        <div class="flex flex-col items-start" style="gap: var(--ds-space-4); width: 100%;">
+    <div class="w-full" style="max-height: 60vh; overflow-y: auto; overflow-x: hidden;">
+        <div class="flex flex-col items-start" style="gap: var(--ds-space-4); width: 100%; padding-right: 8px;">
             <div style="width: 100%; max-width: 518px;">
                 <Dropdown
                     label="Device Status"
                     placeholder="Select"
                     multiple={true}
+                    maxHeight={200}
                     options={deviceStatusOptions}
                     value={filterStatuses}
                     on:change={handleDeviceStatusChange}
@@ -1285,6 +1314,7 @@
                     label="Connection Status"
                     placeholder="Select"
                     multiple={true}
+                    maxHeight={200}
                     options={connectionStatusOptions}
                     value={filterConnection}
                     on:change={handleConnectionStatusChange}
@@ -1296,6 +1326,7 @@
                     label="OS Version"
                     placeholder="Select"
                     multiple={true}
+                    maxHeight={200}
                     options={osVersionOptions}
                     value={filterOsVersions}
                     on:change={handleOsVersionChange}
@@ -1308,7 +1339,7 @@
                     placeholder="Select"
                     multiple={true}
                     searchable={true}
-                    maxHeight={260}
+                    maxHeight={200}
                     options={tagOptions}
                     value={filterTagIds}
                     on:change={handleTagChange}
@@ -1480,8 +1511,8 @@
 >
     <!-- Search Input with Dropdown - uses InputField from design-system -->
     <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
-    <div 
-        class="w-full assign-tag-input-container" 
+    <div
+        class="w-full assign-tag-input-container"
         style="margin-bottom: var(--ds-space-4);"
         bind:this={assignTagInputContainer}
     >
@@ -1497,11 +1528,11 @@
                 <Search size={22} />
             </svelte:fragment>
         </InputField>
-        
+
         <!-- Tag Options Dropdown (only show when focused) - uses Checkbox from design-system -->
         <!-- position: fixed so it is not clipped by modal-body overflow -->
         {#if assignTagDropdownOpen}
-            <div 
+            <div
                 role="listbox"
                 tabindex="-1"
                 class="assign-tag-dropdown"
@@ -1594,8 +1625,8 @@
 >
     <!-- Search Input with Dropdown - uses InputField and Checkbox from design-system -->
     <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
-    <div 
-        class="w-full assign-deployment-input-container" 
+    <div
+        class="w-full assign-deployment-input-container"
         style="margin-bottom: var(--ds-space-4);"
         bind:this={assignDeploymentInputContainer}
     >
@@ -1611,11 +1642,11 @@
                 <Search size={22} />
             </svelte:fragment>
         </InputField>
-        
+
         <!-- App Options Dropdown (only show when focused) - uses Checkbox from design-system -->
         <!-- position: fixed so it is not clipped by modal-body overflow -->
         {#if assignDeploymentDropdownOpen}
-            <div 
+            <div
                 role="listbox"
                 tabindex="-1"
                 class="assign-deployment-dropdown"
@@ -1659,7 +1690,7 @@
             {#each assignDeploymentSelectedApps as selectedApp}
                 {@const app = availableDeploymentApps.find(a => a.id === selectedApp.id)}
                 {#if app}
-                    <div 
+                    <div
                         class="flex items-center justify-between"
                         style="
                             padding: 12px 0;
@@ -1769,8 +1800,8 @@
 >
     <!-- Search Input with Dropdown - uses InputField from design-system -->
     <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
-    <div 
-        class="w-full install-app-input-container" 
+    <div
+        class="w-full install-app-input-container"
         style="margin-bottom: var(--ds-space-4);"
         bind:this={installAppInputContainer}
     >
@@ -1786,11 +1817,11 @@
                 <Search size={22} />
             </svelte:fragment>
         </InputField>
-        
+
         <!-- App Options Dropdown (only show when focused) - uses Checkbox from design-system -->
         <!-- position: fixed so it is not clipped by modal-body overflow -->
         {#if installAppDropdownOpen}
-            <div 
+            <div
                 role="listbox"
                 tabindex="-1"
                 class="install-app-dropdown"
@@ -1925,26 +1956,26 @@
                         size="sm"
                         on:change={(e) => selectFirmware(e.detail)}
                     />
-                    
+
                     <!-- Name + Package Name (flex: 1) -->
                     <div class="firmware-list-item-content">
                         <span class="firmware-list-item-name">{firmware.name}</span>
                         <span class="firmware-list-item-package">{firmware.packageName}</span>
                     </div>
-                    
+
                     <!-- Version Column (fixed width) -->
                     <div class="firmware-list-item-column">
                         <span class="firmware-list-item-label">Version</span>
                         <span class="firmware-list-item-value">{firmware.version}</span>
                     </div>
-                    
+
                     <!-- Size Column (fixed width) -->
                     <div class="firmware-list-item-column">
                         <span class="firmware-list-item-label">Size</span>
                         <span class="firmware-list-item-value">{firmware.size}</span>
                     </div>
                 </div>
-                
+
                 <!-- Created On Row -->
                 <div class="firmware-list-item-created">
                     <span class="firmware-list-item-created-text">Created On: {firmware.createdOn}</span>
@@ -2051,7 +2082,7 @@
         line-height: var(--ds-leading-md);
         color: var(--ds-color-gray-800);
     }
-    
+
     .ds-text-body-sm {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
@@ -2059,7 +2090,7 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-gray-800);
     }
-    
+
     .ds-text-label {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-medium);
@@ -2067,7 +2098,7 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-gray-700);
     }
-    
+
     .ds-text-label-md {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-medium);
@@ -2075,7 +2106,7 @@
         line-height: var(--ds-leading-md);
         color: var(--ds-color-gray-800);
     }
-    
+
     .ds-text-supporting {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
@@ -2083,13 +2114,13 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-gray-500);
     }
-    
+
     .ds-text-error {
         font-family: var(--ds-font-family-primary);
         font-size: var(--ds-text-sm);
         color: var(--ds-color-error-500);
     }
-    
+
     /* Design System Form Elements */
     .ds-input {
         box-sizing: border-box;
@@ -2105,15 +2136,15 @@
         color: var(--ds-color-gray-800);
         outline: none;
     }
-    
+
     .ds-input:focus {
         border-color: var(--ds-color-blue-light-600);
     }
-    
+
     .ds-input-error {
         border-color: var(--ds-color-error-500);
     }
-    
+
     /* Design System Info Box */
     .ds-info-box {
         display: flex;
@@ -2124,7 +2155,7 @@
         border-radius: var(--ds-radius-lg);
         width: 100%;
     }
-    
+
     .ds-info-box-title {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-medium);
@@ -2132,7 +2163,7 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-gray-700);
     }
-    
+
     .ds-info-box-list {
         margin: 0;
         padding-left: 28px;
@@ -2141,7 +2172,7 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-gray-600);
     }
-    
+
     /* Design System Config Section */
     .ds-config-section {
         display: flex;
@@ -2151,11 +2182,11 @@
         gap: var(--ds-space-4);
         border-bottom: 1px solid var(--ds-border-default);
     }
-    
+
     .ds-config-section:last-child {
         border-bottom: none;
     }
-    
+
     .ds-config-label {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-medium);
@@ -2164,7 +2195,7 @@
         color: var(--ds-color-gray-800);
         margin: 0;
     }
-    
+
     .ds-config-description {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
@@ -2173,7 +2204,7 @@
         color: var(--ds-color-gray-500);
         margin: 0;
     }
-    
+
     /* Design System Slider */
     .ds-slider {
         width: 100%;
@@ -2183,7 +2214,7 @@
         appearance: none;
         -webkit-appearance: none;
     }
-    
+
     .ds-slider-value {
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-medium);
@@ -2191,13 +2222,13 @@
         line-height: var(--ds-leading-md);
         color: var(--ds-color-gray-800);
     }
-    
+
     .ds-slider-unit {
         font-family: var(--ds-font-family-primary);
         font-size: var(--ds-text-sm);
         color: var(--ds-color-gray-500);
     }
-    
+
     /* Design System Pagination Button */
     .ds-pagination-btn {
         width: 36px;
@@ -2210,11 +2241,11 @@
         align-items: center;
         justify-content: center;
     }
-    
+
     .ds-pagination-btn:disabled {
         cursor: not-allowed;
     }
-    
+
     /* Custom slider styles for Configuration tab */
     .config-slider::-webkit-slider-thumb {
         -webkit-appearance: none;

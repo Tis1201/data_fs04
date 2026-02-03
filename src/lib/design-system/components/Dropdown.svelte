@@ -86,12 +86,22 @@
           )
         : options;
 
-    // Update dropdown position
+    // Update dropdown position - auto-detect if should open upward or downward
     function updateDropdownPosition() {
         if (triggerRef && typeof window !== 'undefined') {
             const rect = triggerRef.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const spaceBelow = viewportHeight - rect.bottom;
+            const spaceAbove = rect.top;
+            const dropdownHeight = maxHeight + 8; // Add some buffer
+
+            // If not enough space below but enough space above, open upward
+            const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
+
             dropdownPosition = {
-                top: rect.bottom + 4, // 4px = var(--ds-space-1) margin
+                top: shouldOpenUpward
+                    ? rect.top - dropdownHeight - 4  // Position above trigger
+                    : rect.bottom + 4,                // Position below trigger (default)
                 left: rect.left,
                 width: rect.width
             };
