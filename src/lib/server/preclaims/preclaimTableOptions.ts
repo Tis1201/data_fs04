@@ -59,10 +59,11 @@ export function createPreclaimTableOptions(options?: {
         ...basePreclaimTableOptions
     };
 
-    // Note: For user routes with enhanced Prisma, ownership filtering is handled
-    // automatically by ZenStack access policies. We don't need to add baseWhere here.
-    // For admin routes, no filtering is needed.
-    // The additionalFilters function in the old code was redundant with enhanced Prisma.
+    // For user routes: explicitly filter by current account so only preclaim sets
+    // created by/for that account are shown (in addition to any ZenStack policies).
+    if (options?.checkOwnership && options?.accountId) {
+        tableOptions.baseWhere = { accountId: options.accountId };
+    }
 
     return tableOptions;
 }

@@ -274,7 +274,11 @@
             </div>
             <div class="devices-table-wrap">
                 {#key `preclaim-devices-${preclaimSet?.id ?? ''}-${totalDevices}`}
-                    <PreclaimDeviceTable preclaimId={preclaimSet?.id} hideToolbar={true} />
+                    <PreclaimDeviceTable
+                        preclaimId={preclaimSet?.id ?? ''}
+                        hideToolbar={true}
+                        initialRecords={claims}
+                    />
                 {/key}
             </div>
         </div>

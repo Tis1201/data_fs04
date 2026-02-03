@@ -8,12 +8,25 @@
 
   export let preclaimId: string;
   export let hideToolbar: boolean = false;
+  export let initialRecords: Array<Record<string, any>> | undefined = undefined;
 
   let loading = true;
   let records: Array<Record<string, any>> = [];
   let apiPagination = { page: 1, per_page: 10, total_records: 0, total_pages: 0 };
   let apiSort = { field: 'createdAt', order: 'desc' as 'asc' | 'desc' };
   let loadError: string | null = null;
+
+  $: if (initialRecords != null) {
+    records = Array.isArray(initialRecords) ? initialRecords : [];
+    apiPagination = {
+      page: 1,
+      per_page: Math.max(10, records.length),
+      total_records: records.length,
+      total_pages: Math.max(1, Math.ceil(records.length / 10))
+    };
+    loading = false;
+    loadError = null;
+  }
 
   function statusLabel(status: string | null | undefined): string {
     if (!status) return 'Unknown';
@@ -156,6 +169,7 @@
 
   async function loadData() {
     if (!browser) return;
+    if (initialRecords != null) return;
     loading = true;
     loadError = null;
     const data = await fetchData();
@@ -169,7 +183,7 @@
   }
 
   $: urlKey = browser && $page.url.pathname + $page.url.search;
-  $: if (browser && preclaimId && urlKey) {
+  $: if (browser && preclaimId && urlKey && initialRecords == null) {
     loadData();
   }
 
