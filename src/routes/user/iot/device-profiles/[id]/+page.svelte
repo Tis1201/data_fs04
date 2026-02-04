@@ -1,12 +1,13 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
-    import { Button, Card, Badge, TabGroup } from '$lib/design-system/components';
-    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
+    import { Button, Card, Badge, TabGroup, ConfirmModal } from '$lib/design-system/components';
+    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Trash2 } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
     import { toast } from '$lib/stores/alertToast';
     import AddEditProfileModal from '../components/AddEditProfileModal.svelte';
+    import DeviceSelector from '$lib/components/ui_components_sveltekit/device_profiles/DeviceSelector.svelte';
 
     export let data: PageData;
     /** From layout/route – accept to avoid "unknown prop" warning */
@@ -183,6 +184,77 @@
     }
     function devicesLastPage() {
         devicesPage = devicesTotalPages;
+    }
+
+    // Add Device modal (reuse DeviceSelector)
+    let showAddDeviceModal = false;
+    let addDeviceLoading = false;
+    function openAddDeviceModal() {
+        showAddDeviceModal = true;
+    }
+    function closeAddDeviceModal() {
+        showAddDeviceModal = false;
+    }
+    async function onAddDeviceSelect(e: CustomEvent<{ id: string; name: string }[]>) {
+        const devices = e.detail || [];
+        if (devices.length === 0) return;
+        const deviceIds = devices.map((d) => d.id);
+        addDeviceLoading = true;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                toast.success('Device added successfully!');
+                closeAddDeviceModal();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unable to add device. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to add device. Please try again!');
+        } finally {
+            addDeviceLoading = false;
+        }
+    }
+
+    // Remove Device confirmation (reuse ConfirmModal)
+    let confirmRemoveOpen = false;
+    let deviceToRemove: { id: string; name: string } | null = null;
+    let removeDeviceLoading = false;
+    function openRemoveConfirm(row: { id: string; name: string }) {
+        deviceToRemove = { id: row.id, name: row.name };
+        confirmRemoveOpen = true;
+    }
+    function closeRemoveConfirm() {
+        confirmRemoveOpen = false;
+        deviceToRemove = null;
+    }
+    async function onConfirmRemove() {
+        if (!deviceToRemove) return;
+        removeDeviceLoading = true;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/unassign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds: [deviceToRemove.id] })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                toast.success('Device removed successfully!');
+                closeRemoveConfirm();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unable to remove device. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to remove device. Please try again!');
+        } finally {
+            removeDeviceLoading = false;
+        }
     }
 </script>
 
@@ -385,6 +457,17 @@
                             <h4 class="assigned-devices-title">Devices</h4>
                             <p class="assigned-devices-subtitle">Devices assigned to this profile</p>
                         </div>
+                        <Button
+                            variant="filled"
+                            color="primary"
+                            size="lg"
+                            iconLeft={true}
+                            on:click={openAddDeviceModal}
+                            class="assigned-devices-add-btn"
+                        >
+                            <Plus size={20} slot="icon-left" />
+                            Add Device
+                        </Button>
                     </div>
 
                     <div class="assigned-devices-content">
@@ -407,12 +490,15 @@
                                         <th class="assigned-devices-th">
                                             <span class="assigned-devices-th-inner">Last Seen <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
                                         </th>
+                                        <th class="assigned-devices-th assigned-devices-th-actions">
+                                            <span class="assigned-devices-th-inner">Actions</span>
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {#if paginatedDeviceRows.length === 0}
                                         <tr>
-                                            <td colspan="5" class="assigned-devices-empty">No devices assigned to this profile</td>
+                                            <td colspan="6" class="assigned-devices-empty">No devices assigned to this profile</td>
                                         </tr>
                                     {:else}
                                         {#each paginatedDeviceRows as row}
@@ -444,6 +530,17 @@
                                                     {:else}
                                                         <span class="assigned-devices-lastseen-placeholder">—</span>
                                                     {/if}
+                                                </td>
+                                                <td class="assigned-devices-td assigned-devices-td-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="assigned-devices-remove-btn"
+                                                        on:click={() => openRemoveConfirm(row)}
+                                                        title="Remove device from profile"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                        Remove
+                                                    </button>
                                                 </td>
                                             </tr>
                                         {/each}
@@ -489,6 +586,31 @@
         on:close={closeEditProfileModal}
         on:success={onEditProfileSuccess}
         on:error={(e) => onEditProfileError(e.detail)}
+    />
+
+    <!-- Add Device modal (reuse DeviceSelector – search and select devices, then assign) -->
+    <DeviceSelector
+        open={showAddDeviceModal}
+        profileId={profileId}
+        apiPrefix="/api/v2"
+        status="available"
+        title="Add Device"
+        confirmLabel="Add"
+        on:close={closeAddDeviceModal}
+        on:select={onAddDeviceSelect}
+    />
+
+    <!-- Remove Device confirmation (reuse ConfirmModal) -->
+    <ConfirmModal
+        open={confirmRemoveOpen}
+        title="Remove Device"
+        description="Are you sure you want to remove this device? This action cannot be reversed."
+        confirmText="Remove"
+        cancelText="Cancel"
+        confirmLoading={removeDeviceLoading}
+        confirmDisabled={removeDeviceLoading}
+        on:close={closeRemoveConfirm}
+        on:confirm={onConfirmRemove}
     />
 {:else}
     <div class="flex flex-col items-center justify-center gap-4 p-8 text-center">
@@ -713,6 +835,16 @@
         gap: 2px;
         flex: 1;
         min-width: 0;
+    }
+
+    :global(.assigned-devices-add-btn) {
+        width: 156px !important;
+        min-width: 156px !important;
+        height: 44px !important;
+        flex-shrink: 0;
+        background: var(--ds-color-blue-light-600) !important;
+        border: 1px solid var(--ds-color-blue-light-600) !important;
+        box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);
     }
 
     .assigned-devices-title {
@@ -945,5 +1077,32 @@
         font-size: 14px;
         line-height: 20px;
         color: var(--ds-color-gray-800, #1D2939);
+    }
+
+    .assigned-devices-th-actions {
+        width: 100px;
+    }
+
+    .assigned-devices-td-actions {
+        padding: 12px 16px;
+        vertical-align: middle;
+    }
+
+    .assigned-devices-remove-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ds-color-error-600, #D92D20);
+        background: transparent;
+        border: 1px solid var(--ds-color-error-200, #FECDCA);
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .assigned-devices-remove-btn:hover {
+        background: var(--ds-color-error-50, #FEE4E2);
     }
 </style>

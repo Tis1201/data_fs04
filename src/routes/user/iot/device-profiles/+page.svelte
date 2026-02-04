@@ -197,6 +197,14 @@
 
     const basePath = '/user/iot';
 
+    function escapeHtml(s: string): string {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     function handleSort(event: CustomEvent<SortState>) {
         const next = event.detail;
         const url = new URL($page.url);
@@ -226,10 +234,16 @@
             id: 'name',
             header: 'Name',
             accessor: (row: DeviceProfileRow) => row.name || '',
-            supportingField: 'description',
-            type: 'textWithSupporting' as const,
+            type: 'custom' as const,
             sortable: true,
-            width: '280px'
+            width: '280px',
+            render: (_value: unknown, row: DeviceProfileRow) => {
+                const name = row.name || '—';
+                const desc = row.description || '';
+                const link = `<a href="${basePath}/device-profiles/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
+                const descLine = desc ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(desc)}</span>` : '';
+                return `<div class="flex flex-col gap-0"><span>${link}</span>${descLine ? `<span>${descLine}</span>` : ''}</div>`;
+            }
         },
         {
             id: 'assignments',
