@@ -469,7 +469,8 @@
             minWidth: '240px',
             render: (value: unknown, row: Bundle) => {
                 const label = escapeHtml(row.name || row.id || 'Unnamed');
-                return `<span class="ds-deployment-name">${label}</span>`;
+                const href = `${basePath}/${row.id}`;
+                return `<a href="${escapeHtml(href)}" class="ds-deployment-name ds-deployment-name-link">${label}</a>`;
             }
         },
         {
@@ -765,5 +766,12 @@
         font-size: var(--ds-text-sm);
         font-weight: var(--ds-font-medium);
         color: var(--ds-text-primary);
+    }
+    :global(.ds-deployment-name-link) {
+        color: var(--ds-color-blue-light-600, #2563EB);
+        text-decoration: none;
+    }
+    :global(.ds-deployment-name-link:hover) {
+        text-decoration: underline;
     }
 </style>

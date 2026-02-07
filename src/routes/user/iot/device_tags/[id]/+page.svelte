@@ -117,14 +117,15 @@
 
     function getDeviceMenuActions(row: { id: string; name: string }) {
         return [
-            { id: 'view', label: 'View', destructive: false },
+            { id: 'view', label: 'View', destructive: false, href: `/user/iot/devices/${row.id}` },
             { id: 'remove', label: 'Remove', destructive: true }
         ];
     }
 
     function handleDeviceActionSelect(row: { id: string; name: string }, itemId: string) {
         if (itemId === 'view') {
-            goto(`/user/iot/devices/${row.id}`);
+            // View is a link (href) in ActionMenu — no goto needed
+            return;
         } else if (itemId === 'remove') {
             deviceToRemove = row;
             confirmRemoveDeviceOpen = true;

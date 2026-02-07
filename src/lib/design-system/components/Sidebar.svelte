@@ -97,13 +97,20 @@
 		expandedGroups = expandedGroups;
 	}
 	
-	// Handle item click
+	// Handle item click. For Cmd/Ctrl+click or middle-click we let the browser open in new tab.
 	function handleItemClick(item: NavItem, event?: MouseEvent) {
 		if (item.children && item.children.length > 0) {
 			if (expanded) {
 				toggleGroup(item.id);
 			}
 		} else if (item.href) {
+			// Let browser handle: Cmd+click (metaKey), Ctrl+click (ctrlKey), middle-click (button === 1)
+			if (event && (event.metaKey || event.ctrlKey || event.button !== 0)) {
+				return;
+			}
+			if (event) {
+				event.preventDefault();
+			}
 			dispatch('itemClick', item);
 			dispatch('navigate', item);
 			goto(item.href);
@@ -270,7 +277,7 @@
 											href={child.href}
 											class="sub-nav-item"
 											class:active={isPathActive(child.href)}
-											on:click|preventDefault={() => handleItemClick(child)}
+											on:click={(e) => handleItemClick(child, e)}
 										>
 											<span class="sub-nav-label">{child.label}</span>
 										</a>
@@ -285,7 +292,7 @@
 							href={item.href}
 							class="nav-item"
 							class:active={itemActive}
-							on:click|preventDefault={() => handleItemClick(item)}
+							on:click={(e) => handleItemClick(item, e)}
 						>
 							<div class="nav-item-icon">
 								{#if item.icon}
@@ -325,7 +332,7 @@
 						href={item.href}
 						class="nav-item"
 						class:active={itemActive}
-						on:click|preventDefault={() => handleItemClick(item)}
+						on:click={(e) => handleItemClick(item, e)}
 					>
 						<div class="nav-item-icon">
 							{#if item.icon}
@@ -363,7 +370,7 @@
 						href={child.href}
 						class="flyout-item"
 						class:active={isPathActive(child.href)}
-						on:click|preventDefault={() => { handleItemClick(child); flyoutItem = null; }}
+						on:click={(e) => { handleItemClick(child, e); if (!e.metaKey && !e.ctrlKey && e.button === 0) flyoutItem = null; }}
 						role="menuitem"
 					>
 						{child.label}

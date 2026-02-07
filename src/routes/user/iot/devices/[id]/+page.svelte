@@ -286,7 +286,7 @@
         { id: 'startedOn', header: 'Started On', type: 'text', accessor: (row: Deployment) => formatDeploymentDate(row.startedOn), width: '200px', sortable: false },
         { id: 'endedOn', header: 'Ended On', type: 'text', accessor: (row: Deployment) => formatDeploymentDate(row.endedOn), width: '200px', sortable: false },
         { id: 'status', header: 'Status', type: 'status', accessor: 'status', statusColor: (_v: any, row: Deployment) => getDeploymentBadgeColor(row.status), width: '140px', sortable: false },
-        { id: 'action', header: 'Action', type: 'moreMenu', align: 'right', width: '85px', getMenuActions: (d: Deployment) => getDeploymentActions(d.status).map(a => ({ id: a.action, label: a.label, color: a.color === '#B42318' ? 'danger' : undefined, onClick: (row: Deployment) => handleDeploymentAction(row, a.action) })) }
+        { id: 'action', header: 'Action', type: 'moreMenu', align: 'right', width: '85px', getMenuActions: (d: Deployment) => getDeploymentActions(d.status).map(a => ({ id: a.action, label: a.label, color: a.color === '#B42318' ? 'danger' : undefined, href: a.action === 'view' ? `/user/iot/bundles/${d.id}` : undefined, onClick: (row: Deployment) => handleDeploymentAction(row, a.action) })) }
     ] as ColumnDef<Deployment>[];
 
     // Load deployments when tab changes

@@ -2,7 +2,7 @@
     import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
     import { Button, Card, Badge, TabGroup, ConfirmModal, ActionMenu, Modal } from '$lib/design-system/components';
-    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X } from 'lucide-svelte';
+    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X, UserMinus } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
     import { toast } from '$lib/stores/alertToast';
@@ -304,7 +304,7 @@
 
     function getDeviceMenuActions(row: { id: string; name: string }) {
         return [
-            { id: 'view', label: 'View', destructive: false, disabled: false },
+            { id: 'view', label: 'View', destructive: false, disabled: false, href: deviceDetailHref(row.id) },
             { id: 'reapply', label: 'Reapply', destructive: false, disabled: reapplyDeviceId === row.id },
             { id: 'remove', label: 'Remove', destructive: true, disabled: false }
         ];
@@ -312,7 +312,8 @@
 
     function handleDeviceActionSelect(row: { id: string; name: string }, itemId: string) {
         if (itemId === 'view') {
-            goto(deviceDetailHref(row.id));
+            // View is a link (href) in ActionMenu — no goto needed
+            return;
         } else if (itemId === 'reapply') {
             onReapplyDevice(row);
         } else if (itemId === 'remove') {
@@ -384,6 +385,107 @@
 
     function deviceDetailHref(deviceId: string): string {
         return `${basePath}/devices/${deviceId}`;
+    }
+
+    // Unassign all confirmation
+    let showUnassignAllConfirm = false;
+    let unassignAllLoading = false;
+    function openUnassignAllConfirm() {
+        showUnassignAllConfirm = true;
+    }
+    function closeUnassignAllConfirm() {
+        showUnassignAllConfirm = false;
+    }
+    async function onConfirmUnassignAll() {
+        unassignAllLoading = true;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/unassign-all`, { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                const count = data?.data?.unassignedCount ?? 0;
+                toast.success(count > 0 ? `Unassigned profile from ${count} device(s).` : 'No devices were assigned.');
+                closeUnassignAllConfirm();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unassign all failed. Please try again!');
+            }
+        } catch {
+            toast.error('Unassign all failed. Please try again!');
+        } finally {
+            unassignAllLoading = false;
+        }
+    }
+
+    // Unassign by tag modal (same pattern as Assign by tag)
+    let showUnassignByTagModal = false;
+    let unassignByTagLoading = false;
+    let unassignByTagTags: { id: string; name: string }[] = [];
+    let unassignByTagSelected: { id: string; name: string }[] = [];
+    let unassignByTagSearchTerm = '';
+    let unassignByTagDropdownOpen = false;
+    function openUnassignByTagModal() {
+        showUnassignByTagModal = true;
+        unassignByTagSelected = [];
+        unassignByTagSearchTerm = '';
+        unassignByTagDropdownOpen = false;
+        loadUnassignByTagTags();
+    }
+    function closeUnassignByTagModal() {
+        showUnassignByTagModal = false;
+        unassignByTagSelected = [];
+        unassignByTagSearchTerm = '';
+        unassignByTagTags = [];
+    }
+    async function loadUnassignByTagTags() {
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/assigned-device-tags`);
+            const data = await res.json().catch(() => ({}));
+            const list = data?.data?.tags ?? [];
+            unassignByTagTags = Array.isArray(list) ? list : [];
+        } catch {
+            unassignByTagTags = [];
+        }
+    }
+    $: unassignByTagFilteredTags = unassignByTagTags.filter(
+        (t) =>
+            !unassignByTagSelected.some((s) => s.id === t.id) &&
+            t.name.toLowerCase().includes(unassignByTagSearchTerm.trim().toLowerCase())
+    );
+    function addUnassignByTagTag(tag: { id: string; name: string }) {
+        if (!unassignByTagSelected.some((s) => s.id === tag.id)) {
+            unassignByTagSelected = [...unassignByTagSelected, tag];
+        }
+        unassignByTagSearchTerm = '';
+        unassignByTagDropdownOpen = false;
+    }
+    function removeUnassignByTagTag(id: string) {
+        unassignByTagSelected = unassignByTagSelected.filter((t) => t.id !== id);
+    }
+    async function onConfirmUnassignByTag() {
+        if (unassignByTagSelected.length === 0) return;
+        unassignByTagLoading = true;
+        try {
+            const tagIds = unassignByTagSelected.map((t) => t.id);
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/unassign-by-tag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tagIds })
+            });
+            const data = await res.json().catch(() => ({}));
+            const payload = data?.data ?? data;
+            if (res.ok && data?.success !== false) {
+                const count = payload?.unassignedCount ?? 0;
+                toast.success(count > 0 ? `Unassigned profile from ${count} device(s).` : 'No assigned devices with selected tags.');
+                closeUnassignByTagModal();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unassign by tag failed. Please try again!');
+            }
+        } catch {
+            toast.error('Unassign by tag failed. Please try again!');
+        } finally {
+            unassignByTagLoading = false;
+        }
     }
 </script>
 
@@ -609,6 +711,28 @@
                                 <Plus size={20} slot="icon-left" />
                                 Add Device
                             </Button>
+                            <Button
+                                variant="filled"
+                                color="primary"
+                                size="lg"
+                                iconLeft={true}
+                                on:click={openUnassignByTagModal}
+                                class="assigned-devices-add-btn assigned-devices-tag-btn"
+                            >
+                                <Tag size={20} slot="icon-left" />
+                                Unassign by tag
+                            </Button>
+                            <Button
+                                variant="filled"
+                                color="primary"
+                                size="lg"
+                                iconLeft={true}
+                                on:click={openUnassignAllConfirm}
+                                class="assigned-devices-add-btn"
+                            >
+                                <UserMinus size={20} slot="icon-left" />
+                                Unassign all
+                            </Button>
                         </div>
                     </div>
 
@@ -828,6 +952,83 @@
         on:close={closeRemoveConfirm}
         on:confirm={onConfirmRemove}
     />
+
+    <!-- Unassign all confirmation -->
+    <ConfirmModal
+        open={showUnassignAllConfirm}
+        title="Unassign all"
+        description="Unassign this profile from all devices? This action cannot be reversed."
+        confirmText="Unassign all"
+        cancelText="Cancel"
+        confirmLoading={unassignAllLoading}
+        confirmDisabled={unassignAllLoading}
+        on:close={closeUnassignAllConfirm}
+        on:confirm={onConfirmUnassignAll}
+    />
+
+    <!-- Unassign by tag modal (search + selected chips) -->
+    <Modal
+        open={showUnassignByTagModal}
+        title="Unassign by tag"
+        size="md"
+        showFooter={true}
+        confirmText="Unassign"
+        cancelText="Cancel"
+        confirmLoading={unassignByTagLoading}
+        confirmDisabled={unassignByTagSelected.length === 0 || unassignByTagLoading}
+        on:close={closeUnassignByTagModal}
+        on:confirm={onConfirmUnassignByTag}
+    >
+        <div class="tag-modal-body">
+            <div class="tag-modal-search-wrap">
+                <input
+                    type="text"
+                    class="tag-modal-search-input"
+                    placeholder="Search and select tag"
+                    bind:value={unassignByTagSearchTerm}
+                    on:focus={() => (unassignByTagDropdownOpen = true)}
+                    on:blur={() => setTimeout(() => (unassignByTagDropdownOpen = false), 150)}
+                    on:keydown={(e) => e.key === 'Escape' && (unassignByTagDropdownOpen = false)}
+                />
+                <span class="tag-modal-search-icon" aria-hidden="true"><Search size={18} /></span>
+            </div>
+            {#if unassignByTagDropdownOpen && unassignByTagFilteredTags.length > 0}
+                <ul class="tag-modal-dropdown" role="listbox">
+                    {#each unassignByTagFilteredTags as tag (tag.id)}
+                        <li
+                            class="tag-modal-dropdown-item"
+                            role="option"
+                            tabindex="0"
+                            on:click={() => addUnassignByTagTag(tag)}
+                            on:keydown={(e) => e.key === 'Enter' && addUnassignByTagTag(tag)}
+                        >
+                            {tag.name}
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
+            <div class="tag-modal-selected-section">
+                <span class="tag-modal-selected-label">Selected ({unassignByTagSelected.length} item{unassignByTagSelected.length !== 1 ? 's' : ''})</span>
+                {#if unassignByTagSelected.length > 0}
+                    <div class="tag-modal-chips">
+                        {#each unassignByTagSelected as tag (tag.id)}
+                            <span class="tag-modal-chip">
+                                <span class="tag-modal-chip-text">{tag.name}</span>
+                                <button
+                                    type="button"
+                                    class="tag-modal-chip-remove"
+                                    aria-label="Remove {tag.name}"
+                                    on:click={() => removeUnassignByTagTag(tag.id)}
+                                >
+                                    <X size={14} />
+                                </button>
+                            </span>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+        </div>
+    </Modal>
 {:else}
     <div class="flex flex-col items-center justify-center gap-4 p-8 text-center">
         <p class="text-sm text-[var(--ds-text-secondary)]">Profile not found.</p>

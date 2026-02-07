@@ -9,6 +9,7 @@
 		dividerAfter?: boolean;
 		checked?: boolean;
 		showCheckbox?: boolean;
+		href?: string;
 	}
 </script>
 
@@ -214,54 +215,76 @@
 			tabindex="-1"
 		>
 			{#each items as item}
-				<button
-					type="button"
-					class="menu-item"
-					class:destructive={item.destructive}
-					class:disabled={item.disabled}
-					disabled={item.disabled}
-					role="menuitem"
-					on:click={() => handleSelect(item)}
-				>
-					<!-- Checkbox (optional) -->
-					{#if item.showCheckbox}
-						<div class="menu-item-checkbox">
-							<Checkbox 
-								checked={item.checked} 
-								size="sm"
-								on:change={() => handleSelect(item)}
-							/>
-						</div>
-					{/if}
-					
-					<!-- Icon (optional) -->
-					{#if item.icon && !item.showCheckbox}
-						<div class="menu-item-icon" class:destructive={item.destructive}>
-							<svelte:component 
-								this={item.icon} 
-								size={20} 
-								strokeWidth={1.67} 
-							/>
-						</div>
-					{/if}
-					
-					<!-- Content -->
-					<div class="menu-item-content">
-						<span class="menu-item-label" class:destructive={item.destructive}>
-							{item.label}
-						</span>
-						{#if item.shortcut}
-							<span class="menu-item-shortcut">{item.shortcut}</span>
+				{#if item.href && !item.disabled}
+					<a
+						href={item.href}
+						class="menu-item"
+						class:destructive={item.destructive}
+						role="menuitem"
+						on:click={() => close()}
+					>
+						{#if item.icon}
+							<div class="menu-item-icon" class:destructive={item.destructive}>
+								<svelte:component this={item.icon} size={20} strokeWidth={1.67} />
+							</div>
 						{/if}
-					</div>
-					
-					<!-- Check mark (for selected items without checkbox) -->
-					{#if item.checked && !item.showCheckbox}
-						<div class="menu-item-check">
-							<Check size={20} strokeWidth={2} />
+						<div class="menu-item-content">
+							<span class="menu-item-label" class:destructive={item.destructive}>{item.label}</span>
+							{#if item.shortcut}
+								<span class="menu-item-shortcut">{item.shortcut}</span>
+							{/if}
 						</div>
-					{/if}
-				</button>
+					</a>
+				{:else}
+					<button
+						type="button"
+						class="menu-item"
+						class:destructive={item.destructive}
+						class:disabled={item.disabled}
+						disabled={item.disabled}
+						role="menuitem"
+						on:click={() => handleSelect(item)}
+					>
+						<!-- Checkbox (optional) -->
+						{#if item.showCheckbox}
+							<div class="menu-item-checkbox">
+								<Checkbox 
+									checked={item.checked} 
+									size="sm"
+									on:change={() => handleSelect(item)}
+								/>
+							</div>
+						{/if}
+						
+						<!-- Icon (optional) -->
+						{#if item.icon && !item.showCheckbox}
+							<div class="menu-item-icon" class:destructive={item.destructive}>
+								<svelte:component 
+									this={item.icon} 
+									size={20} 
+									strokeWidth={1.67} 
+								/>
+							</div>
+						{/if}
+						
+						<!-- Content -->
+						<div class="menu-item-content">
+							<span class="menu-item-label" class:destructive={item.destructive}>
+								{item.label}
+							</span>
+							{#if item.shortcut}
+								<span class="menu-item-shortcut">{item.shortcut}</span>
+							{/if}
+						</div>
+						
+						<!-- Check mark (for selected items without checkbox) -->
+						{#if item.checked && !item.showCheckbox}
+							<div class="menu-item-check">
+								<Check size={20} strokeWidth={2} />
+							</div>
+						{/if}
+					</button>
+				{/if}
 				
 				{#if item.dividerAfter}
 					<div class="menu-divider" />
@@ -319,7 +342,7 @@
 		left: auto;
 	}
 	
-	/* Menu Item */
+	/* Menu Item (button and link) */
 	.menu-item {
 		display: flex;
 		flex-direction: row;
@@ -335,6 +358,12 @@
 		cursor: pointer;
 		text-align: left;
 		transition: background-color 0.15s ease;
+		box-sizing: border-box;
+	}
+
+	a.menu-item {
+		text-decoration: none;
+		color: inherit;
 	}
 	
 	/* Hover: #FAFAFA (Neutral - True/50) */
