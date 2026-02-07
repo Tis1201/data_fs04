@@ -1,185 +1,837 @@
 <script lang="ts">
-    import { goto } from '$app/navigation';
-    import { ArrowLeft, Save, Trash2, Key, Calendar } from 'lucide-svelte';
+    import { goto, invalidate } from '$app/navigation';
+    import { page } from '$app/stores';
+    import { Pencil, Info, HardDrive, Save, Trash2, X, Plus, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
     import { toast } from 'svelte-sonner';
     import { api_delete } from '$lib/utils/ApiUtils';
-    import { writable } from 'svelte/store';
-    
-    // Import layout components
-    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
-    import AdminCard from "$lib/components/admin/layout/AdminCard.svelte";
+    import { Button, Card, InputField, Badge, ActionMenu, ConfirmModal } from '$lib/design-system/components';
     import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
-    import MetadataFooter from "$lib/components/ui_components_sveltekit/metadata/MetadataFooter.svelte";
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
-    
-    // Import form components
-    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
-    import { Input } from "$lib/components/ui/input";
-    import { Textarea } from "$lib/components/ui/textarea";
-    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
-    import * as Select from "$lib/components/ui/select";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
-    import DeviceComponent from "$lib/components/ui_components_sveltekit/device_tags/DeviceComponent.svelte";
-    
+    import AddDeviceToTagModal from "$lib/components/ui_components_sveltekit/device_tags/AddDeviceToTagModal.svelte";
+
     export let data;
-    const { deviceTag } = data;
-    
-    // Create form handler
+    $: deviceTag = data?.deviceTag;
+
     const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
-        successRedirect: '/user/iot/device_tags',
+        successRedirect: `/user/iot/device_tags/${data?.deviceTag?.id ?? ''}`,
         validateOnInput: true,
-        onSuccess: (result) => {
-            toast.success(result.data?.message || 'Device Tag updated successfully');
+        onSuccess: () => {
+            toast.success('Tag updated successfully');
+            goto($page.url.pathname, { replaceState: true });
         }
     });
-    
-    // Define breadcrumbs for this page
-    const pageCrumbs = [
-        ["User", "/user"],
-        ["IOT", ""],
-        ["Device Tags", "/user/iot/device_tags"],
-    ];
-    
-    // Delete dialog state
-    const state = writable({
-        confirmationOpen: false,
-        selectedRecord: null
-    });
-    
-    // Handle delete using api_delete utility
-    function deleteDeviceTag() {
-        $state.selectedRecord = deviceTag;
-        $state.confirmationOpen = true;
+
+    $: isEditMode = $page.url.searchParams.get('edit') === '1';
+
+    let confirmationOpen = false;
+
+    function openDeleteConfirm() {
+        confirmationOpen = true;
     }
-    
-    // Handle delete confirmation
+
     async function handleDeleteConfirm() {
         try {
             await api_delete('/user/iot/device_tags', deviceTag.id);
-            toast.success('Device Tag deleted successfully');
+            toast.success('Tag deleted successfully');
             goto('/user/iot/device_tags');
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to delete Device Tag');
+            toast.error(error instanceof Error ? error.message : 'Failed to delete tag');
         }
     }
-    
-    const title = deviceTag.name;
+
+    function submitSave() {
+        const formEl = document.querySelector('form[action="?/updateTag"]') as HTMLFormElement | null;
+        formEl?.requestSubmit();
+    }
+
+    function formatDate(d: Date | string | null | undefined): string {
+        if (!d) return '—';
+        const date = typeof d === 'string' ? new Date(d) : d;
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    $: nameErr = Array.isArray($errors.name) ? $errors.name.join(', ') : ($errors.name || '');
+    $: descErr = Array.isArray($errors.description) ? $errors.description.join(', ') : ($errors.description || '');
+
+    let showAddDeviceModal = false;
+    function openAddDeviceModal() { showAddDeviceModal = true; }
+    function closeAddDeviceModal() { showAddDeviceModal = false; }
+    async function onAddDeviceAdded() {
+        await invalidate('app:deviceTag');
+    }
+    $: excludeDeviceIds = (deviceTag?.devices || []).map((d: { id: string }) => d.id);
+
+    function formatLastSeen(d: Date | string | null | undefined): string {
+        if (!d) return '—';
+        const date = typeof d === 'string' ? new Date(d) : d;
+        if (Number.isNaN(date.getTime())) return '—';
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+        if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+        if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+        return formatDate(d);
+    }
+
+    const DEVICES_PAGE_SIZE = 10;
+    let devicesPage = 1;
+    let deviceSearchTerm = '';
+    let openMoreMenuKey: string | null = null;
+    let deviceToRemove: { id: string; name: string } | null = null;
+    let confirmRemoveDeviceOpen = false;
+    let removeDeviceLoading = false;
+
+    $: deviceRows = (deviceTag?.devices || []).map((d: { id: string; name: string; deviceType?: string | null; status?: string; macAddress?: string | null; connected?: boolean; lastUsedAt?: Date | string | null }) => ({
+        id: d.id,
+        name: d.name,
+        deviceType: d.deviceType ?? '—',
+        status: d.connected ? 'ACTIVE' : 'INACTIVE',
+        macAddress: d.macAddress || '—',
+        lastUsedAt: d.lastUsedAt ?? null
+    }));
+    $: filteredDeviceRows = deviceSearchTerm.trim()
+        ? deviceRows.filter((r: { name: string; macAddress: string }) =>
+            r.name.toLowerCase().includes(deviceSearchTerm.toLowerCase()) ||
+            r.macAddress.toLowerCase().includes(deviceSearchTerm.toLowerCase())
+        )
+        : deviceRows;
+    $: devicesTotalItems = filteredDeviceRows.length;
+    $: devicesTotalPages = Math.max(1, Math.ceil(devicesTotalItems / DEVICES_PAGE_SIZE));
+    $: paginatedDeviceRows = filteredDeviceRows.slice(
+        (devicesPage - 1) * DEVICES_PAGE_SIZE,
+        devicesPage * DEVICES_PAGE_SIZE
+    );
+    $: devicesRangeStart = devicesTotalItems === 0 ? 0 : (devicesPage - 1) * DEVICES_PAGE_SIZE + 1;
+    $: devicesRangeEnd = Math.min(devicesPage * DEVICES_PAGE_SIZE, devicesTotalItems);
+
+    function devicesPrevPage() { if (devicesPage > 1) devicesPage -= 1; }
+    function devicesNextPage() { if (devicesPage < devicesTotalPages) devicesPage += 1; }
+    function devicesFirstPage() { devicesPage = 1; }
+    function devicesLastPage() { devicesPage = devicesTotalPages; }
+
+    function getDeviceMenuActions(row: { id: string; name: string }) {
+        return [
+            { id: 'view', label: 'View', destructive: false },
+            { id: 'remove', label: 'Remove', destructive: true }
+        ];
+    }
+
+    function handleDeviceActionSelect(row: { id: string; name: string }, itemId: string) {
+        if (itemId === 'view') {
+            goto(`/user/iot/devices/${row.id}`);
+        } else if (itemId === 'remove') {
+            deviceToRemove = row;
+            confirmRemoveDeviceOpen = true;
+        }
+    }
+
+    async function handleConfirmRemoveDevice() {
+        if (!deviceToRemove || !deviceTag?.id) return;
+        removeDeviceLoading = true;
+        try {
+            const res = await fetch(`/api/v2/devices/${deviceToRemove.id}/tags/${deviceTag.id}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed to remove device from tag');
+            toast.success('Device removed from tag');
+            confirmRemoveDeviceOpen = false;
+            deviceToRemove = null;
+            await invalidate('app:deviceTag');
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Failed to remove device from tag');
+        } finally {
+            removeDeviceLoading = false;
+        }
+    }
 </script>
 
-<AdminPageLayout
-    {title}
-    crumbs={pageCrumbs}
-    actionButtons={[
-      {
-        label: "Back",
-        icon: ArrowLeft,
-        onClick: () => goto('/user/iot/device_tags'),
-        variant: "outline",
-        class: "h-9"
-      },
-      {
-        label: "Delete",
-        icon: Trash2,
-        onClick: deleteDeviceTag,
-        variant: "destructive",
-        class: "h-9"
-      },
-      {
-        label: "Save",
-        icon: Save,
-        onClick: () => {
-          const form = document.querySelector('form[action="?/updateTag"]');
-          if (form) form.requestSubmit();
-        },
-        class: "h-9",
-        disabled: $submitting
-      }
-    ]}
-    compact={true}
-    contentSpacing="space-y-6"
->
-    <div class="w-full space-y-6">
-        <FormContainer
-            method="POST"
-            action="?/updateTag"
-            {enhance}
-            novalidate
-            errorMessage={$errorMessage}
-        >
-            <AdminCard
-                title="Device Tag Details"
-                description="Manage Device Tag settings"
-                icon={Key}
-                compact={true}
+<div class="tag-detail">
+    <div class="detail-buttons">
+        {#if isEditMode}
+            <div class="detail-buttons-row">
+                <Button
+                    variant="outline"
+                    color="gray"
+                    size="lg"
+                    on:click={() => goto($page.url.pathname)}
+                    style="height: 44px;"
+                >
+                    <X size={20} slot="icon" />
+                    Cancel
+                </Button>
+                <Button
+                    variant="filled"
+                    color="danger"
+                    size="lg"
+                    on:click={openDeleteConfirm}
+                    style="height: 44px;"
+                >
+                    <Trash2 size={20} slot="icon" />
+                    Delete
+                </Button>
+                <Button
+                    variant="filled"
+                    color="primary"
+                    size="lg"
+                    disabled={$submitting}
+                    on:click={submitSave}
+                    style="height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+                >
+                    <Save size={20} slot="icon" />
+                    Save
+                </Button>
+            </div>
+        {:else}
+            <Button
+                variant="filled"
+                color="primary"
+                size="lg"
+                iconLeft={true}
+                on:click={() => goto($page.url.pathname + '?edit=1')}
+                style="height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
             >
-                <!-- Basic Information -->
-                <div class="space-y-6">
-                    <FormRow columns={2}>
-                        <FormField 
-                            id="name" 
-                            label="Name" 
-                            error={$errors.name}
-                        >
-                            <Input 
-                                id="name" 
-                                name="name" 
-                                bind:value={$form.name}
-                                placeholder="Enter name"
-                                disabled={$submitting}
-                            />
-                        </FormField>
-                        
-                        <FormField 
-                            id="description" 
-                            label="Description"
-                            error={$errors.description}
-                            required={true}
-                        >
-                            <Input 
-                                id="description" 
-                                name="description" 
-                                bind:value={$form.description}
-                                placeholder="Enter description"
-                                disabled={$submitting}
-                            />
-                        </FormField>
-                    </FormRow>
-                </div>
-            </AdminCard>
-
-            <!-- Devices -->
-            <AdminCard>
-                <svelte:fragment slot="header">
-                    <h3 class="text-lg font-medium">Device Tags</h3>
-                    <p class="text-sm text-muted-foreground">Device Tags attached to this device</p>
-                </svelte:fragment>
-                
-                <DeviceComponent 
-                    devices={deviceTag.devices || []}
-                    loading={false}
-                    deviceLinkPrefix='/user/iot/devices'
-                />
-            </AdminCard>
-        </FormContainer>
+                <Pencil size={20} slot="icon-left" />
+                Edit Tag
+            </Button>
+        {/if}
     </div>
-</AdminPageLayout>
 
-<!-- Delete confirmation dialog -->
+    <div class="detail-grid">
+        <Card variant="default" padding="none" radius="2xl" showHeader={true} fullWidth={true}>
+            <div slot="header" class="overview-header">
+                <div class="overview-header-left">
+                    <div class="overview-header-icon">
+                        <Info size={20} />
+                    </div>
+                    <div class="overview-header-text">
+                        <h3 class="overview-title">Tag Overview</h3>
+                        <p class="overview-subtitle">
+                            {#if isEditMode}
+                                Update name and description.
+                            {:else}
+                                Key information about this tag.
+                            {/if}
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {#if isEditMode}
+                <div class="overview-body">
+                    <FormContainer method="POST" action="?/updateTag" {enhance} novalidate errorMessage={$errorMessage}>
+                        {#if $errorMessage}
+                            <div class="form-error-message">
+                                {$errorMessage.error?.message || 'Please try again.'}
+                            </div>
+                        {/if}
+                        <div class="overview-grid overview-grid-edit">
+                            <div class="overview-field">
+                                <label class="overview-label" for="tag-name">Name</label>
+                                <InputField
+                                    id="tag-name"
+                                    name="name"
+                                    type="text"
+                                    placeholder="Enter name"
+                                    bind:value={$form.name}
+                                    disabled={$submitting}
+                                    state={nameErr ? 'error' : 'default'}
+                                    helperText={nameErr || undefined}
+                                />
+                            </div>
+                            <div class="overview-field overview-field-desc">
+                                <label class="overview-label" for="tag-description">Description</label>
+                                <InputField
+                                    id="tag-description"
+                                    name="description"
+                                    type="text"
+                                    placeholder="Enter description"
+                                    bind:value={$form.description}
+                                    disabled={$submitting}
+                                    state={descErr ? 'error' : 'default'}
+                                    helperText={descErr || undefined}
+                                />
+                            </div>
+                        </div>
+                    </FormContainer>
+                </div>
+            {:else}
+                <div class="overview-body">
+                    <div class="overview-grid">
+                        <div class="overview-field">
+                            <span class="overview-label">Tag Name</span>
+                            <span class="overview-value">{deviceTag?.name || '—'}</span>
+                        </div>
+                        <div class="overview-field overview-field-desc">
+                            <span class="overview-label">Description</span>
+                            <span class="overview-value">{deviceTag?.description || '—'}</span>
+                        </div>
+                        <div class="overview-field">
+                            <span class="overview-label">Account</span>
+                            <span class="overview-value">{deviceTag?.account?.name ?? '—'}</span>
+                        </div>
+                        <div class="overview-field">
+                            <span class="overview-label">Created</span>
+                            <span class="overview-value">{formatDate(deviceTag?.createdAt)}</span>
+                        </div>
+                        <div class="overview-field">
+                            <span class="overview-label">Last updated</span>
+                            <span class="overview-value">{formatDate(deviceTag?.updatedAt)}</span>
+                        </div>
+                    </div>
+                </div>
+            {/if}
+        </Card>
+    </div>
+
+    <Card variant="default" padding="none" radius="2xl" showHeader={true} fullWidth={true} headerDivider={false}>
+        <div slot="header" class="devices-header">
+            <div class="devices-header-icon">
+                <HardDrive size={20} />
+            </div>
+            <div class="devices-header-text">
+                <h3 class="overview-title">Devices</h3>
+                <p class="overview-subtitle">Devices assigned to this tag.</p>
+            </div>
+            <div class="devices-header-actions">
+                <Button
+                    variant="filled"
+                    color="primary"
+                    size="lg"
+                    iconLeft={true}
+                    on:click={openAddDeviceModal}
+                    style="height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+                >
+                    <Plus size={20} slot="icon-left" />
+                    Add device
+                </Button>
+            </div>
+        </div>
+        <div class="devices-body assigned-devices-content">
+            <div class="tag-devices-search">
+                <InputField
+                    type="text"
+                    placeholder="Search by device name or MAC address"
+                    value={deviceSearchTerm}
+                    on:input={(e) => (deviceSearchTerm = e.detail)}
+                    suffixIcon={true}
+                />
+            </div>
+            <div class="assigned-devices-table-wrap">
+                <table class="assigned-devices-table">
+                    <thead>
+                        <tr class="assigned-devices-thead-tr">
+                            <th class="assigned-devices-th assigned-devices-th-name">
+                                <span class="assigned-devices-th-inner">Device Name <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            </th>
+                            <th class="assigned-devices-th">
+                                <span class="assigned-devices-th-inner">MAC Address <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            </th>
+                            <th class="assigned-devices-th">
+                                <span class="assigned-devices-th-inner">Operating System <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            </th>
+                            <th class="assigned-devices-th">
+                                <span class="assigned-devices-th-inner">Status <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            </th>
+                            <th class="assigned-devices-th">
+                                <span class="assigned-devices-th-inner">Last Seen <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            </th>
+                            <th class="assigned-devices-th assigned-devices-th-actions">
+                                <span class="assigned-devices-th-inner">Actions</span>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {#if paginatedDeviceRows.length === 0}
+                            <tr>
+                                <td colspan="6" class="assigned-devices-empty">No devices assigned to this tag</td>
+                            </tr>
+                        {:else}
+                            {#each paginatedDeviceRows as row}
+                                <tr class="assigned-devices-tbody-tr">
+                                    <td class="assigned-devices-td assigned-devices-td-name">
+                                        <div class="assigned-devices-name-cell">
+                                            <span class="assigned-devices-name-text">{row.name}</span>
+                                            {#if row.deviceType && row.deviceType !== '—'}
+                                                <div class="assigned-devices-tags">
+                                                    <span class="assigned-devices-tag">{row.deviceType}</span>
+                                                </div>
+                                            {/if}
+                                        </div>
+                                    </td>
+                                    <td class="assigned-devices-td">{row.macAddress}</td>
+                                    <td class="assigned-devices-td">{row.deviceType}</td>
+                                    <td class="assigned-devices-td assigned-devices-td-status">
+                                        <Badge
+                                            label={row.status === 'ACTIVE' ? 'Online' : 'Offline'}
+                                            color={row.status === 'ACTIVE' ? 'success' : 'gray'}
+                                            variant="filled"
+                                            size="md"
+                                            showDot={false}
+                                        />
+                                    </td>
+                                    <td class="assigned-devices-td">{formatLastSeen(row.lastUsedAt)}</td>
+                                    <td class="assigned-devices-td assigned-devices-td-actions">
+                                        <div on:click|stopPropagation>
+                                            <ActionMenu
+                                                open={openMoreMenuKey === row.id}
+                                                items={getDeviceMenuActions(row)}
+                                                triggerIcon="dots-vertical"
+                                                align="right"
+                                                size="sm"
+                                                triggerVariant="text"
+                                                width="auto"
+                                                on:open={() => { openMoreMenuKey = row.id; }}
+                                                on:close={() => { openMoreMenuKey = null; }}
+                                                on:select={(e) => handleDeviceActionSelect(row, e.detail.id)}
+                                            />
+                                        </div>
+                                    </td>
+                                </tr>
+                            {/each}
+                        {/if}
+                    </tbody>
+                </table>
+            </div>
+            {#if devicesTotalItems > 0}
+                <div class="assigned-devices-pagination">
+                    <span class="assigned-devices-pagination-details">
+                        {devicesRangeStart} - {devicesRangeEnd} of {devicesTotalItems}
+                    </span>
+                    <div class="assigned-devices-pagination-buttons">
+                        <button type="button" class="assigned-devices-pagination-btn" on:click={devicesFirstPage} disabled={devicesPage <= 1} aria-label="First page">
+                            <ChevronsLeft size={20} />
+                        </button>
+                        <button type="button" class="assigned-devices-pagination-btn" on:click={devicesPrevPage} disabled={devicesPage <= 1} aria-label="Previous page">
+                            <ChevronLeft size={20} />
+                        </button>
+                        <span class="assigned-devices-pagination-page">{devicesPage}</span>
+                        <button type="button" class="assigned-devices-pagination-btn" on:click={devicesNextPage} disabled={devicesPage >= devicesTotalPages} aria-label="Next page">
+                            <ChevronRight size={20} />
+                        </button>
+                        <button type="button" class="assigned-devices-pagination-btn" on:click={devicesLastPage} disabled={devicesPage >= devicesTotalPages} aria-label="Last page">
+                            <ChevronsRight size={20} />
+                        </button>
+                    </div>
+                </div>
+            {/if}
+        </div>
+    </Card>
+</div>
+
+<ConfirmModal
+    open={confirmRemoveDeviceOpen}
+    title="Remove device from tag"
+    description={deviceToRemove ? `Remove "${deviceToRemove.name}" from this tag?` : ''}
+    confirmText="Remove"
+    cancelText="Cancel"
+    confirmLoading={removeDeviceLoading}
+    on:confirm={handleConfirmRemoveDevice}
+    on:close={() => { if (!removeDeviceLoading) { confirmRemoveDeviceOpen = false; deviceToRemove = null; } }}
+/>
+
+<AddDeviceToTagModal
+    open={showAddDeviceModal}
+    tagId={deviceTag?.id ?? ''}
+    excludeDeviceIds={excludeDeviceIds}
+    on:close={closeAddDeviceModal}
+    on:added={onAddDeviceAdded}
+/>
+
 <RecordDeleteDialog
     state={{
-        selectedRecord: $state.selectedRecord,
-        confirmationOpen: $state.confirmationOpen,
-        title: 'Delete Device Tag',
-        message: $state.selectedRecord ? `Are you sure you want to delete Device Tag ${$state.selectedRecord.name}?` : '',
+        selectedRecord: deviceTag,
+        confirmationOpen,
+        title: 'Delete Tag',
+        message: confirmationOpen ? `Are you sure you want to delete tag "${deviceTag.name}"?` : '',
         confirmButtonText: 'Delete',
         cancelButtonText: 'Cancel'
     }}
     useFormSubmission={false}
     onConfirm={handleDeleteConfirm}
-    on:close={() => {
-        $state.confirmationOpen = false;
-        $state.selectedRecord = null;
-    }}
+    on:close={() => { confirmationOpen = false; }}
 />
 
+<style>
+    .tag-detail {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 24px;
+        gap: 16px;
+        width: 100%;
+    }
+    .detail-buttons {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        width: 100%;
+    }
+    .detail-buttons-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+    }
+    .detail-grid {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: 16px;
+        width: 100%;
+        min-width: 0;
+    }
+    .detail-grid > :global(.ds-card) {
+        flex: 1;
+        min-width: 0;
+    }
+    .overview-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 16px;
+        gap: 8px;
+        border-bottom: 1px solid #E5E5E5;
+        width: 100%;
+        min-width: 0;
+    }
+    .overview-header-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        flex: 1;
+    }
+    .devices-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: var(--ds-card-padding-md);
+        gap: 8px;
+        border-bottom: 0;
+        width: 100%;
+    }
+    .devices-header-actions {
+        flex-shrink: 0;
+    }
+    .overview-header-icon,
+    .devices-header-icon {
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        color: #A3A3A3;
+        flex-shrink: 0;
+    }
+    .overview-header-icon:hover,
+    .devices-header-icon:hover {
+        background: var(--ds-color-neutral-true-100);
+    }
+    .overview-header-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+    .devices-header .devices-header-text {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+    .overview-title {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 18px;
+        line-height: 24px;
+        color: #141414;
+        margin: 0;
+    }
+    .overview-subtitle {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: #475467;
+        margin: 0;
+    }
+    .overview-body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 16px;
+        gap: 16px;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
+    }
+    .overview-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        width: 100%;
+        min-width: 0;
+    }
+    .overview-grid-edit {
+        grid-template-columns: 1fr 1fr;
+    }
+    .overview-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+    }
+    .overview-field-desc {
+        grid-column: 2 / -1;
+    }
+    .overview-grid-edit .overview-field-desc {
+        grid-column: 1 / -1;
+    }
+    @media (max-width: 900px) {
+        .overview-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .overview-field-desc {
+            grid-column: 1 / -1;
+        }
+    }
+    @media (max-width: 600px) {
+        .overview-grid {
+            grid-template-columns: 1fr;
+        }
+        .overview-field-desc {
+            grid-column: 1;
+        }
+    }
+    .overview-label {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: #525252;
+    }
+    .overview-value {
+        font-family: var(--ds-font-family-primary);
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 24px;
+        color: #141414;
+    }
+    .devices-body {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0;
+        width: 100%;
+        min-width: 0;
+    }
+    .tag-devices-search {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--ds-color-gray-200, #EAECF0);
+    }
+    .tag-devices-search :global(.ds-input-field) {
+        max-width: 320px;
+    }
+    .assigned-devices-content {
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        width: 100%;
+        overflow: hidden;
+    }
+    .assigned-devices-table-wrap {
+        width: 100%;
+        overflow-x: auto;
+    }
+    .assigned-devices-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+    .assigned-devices-thead-tr {
+        display: table-row;
+    }
+    .assigned-devices-th {
+        box-sizing: border-box;
+        display: table-cell;
+        padding: 12px 16px;
+        background: var(--ds-color-neutral-true-100, #F5F5F5);
+        border-bottom: 1px solid var(--ds-color-gray-200, #EAECF0);
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-color-gray-600, #475467);
+        text-align: left;
+        height: 44px;
+        vertical-align: middle;
+    }
+    .assigned-devices-th-inner {
+        display: inline-flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 4px;
+    }
+    .assigned-devices-th-icon {
+        display: inline-flex;
+        flex-shrink: 0;
+        color: var(--ds-color-gray-600, #475467);
+    }
+    .assigned-devices-th-name {
+        min-width: 200px;
+        width: 42%;
+    }
+    .assigned-devices-th:not(.assigned-devices-th-name) {
+        width: 14%;
+    }
+    .assigned-devices-tbody-tr {
+        display: table-row;
+        background: var(--ds-color-white, #FFFFFF);
+    }
+    .assigned-devices-td {
+        box-sizing: border-box;
+        display: table-cell;
+        padding: 16px;
+        border-bottom: 1px solid var(--ds-color-gray-200, #EAECF0);
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-900, #141414);
+        vertical-align: middle;
+        min-height: 52px;
+    }
+    .assigned-devices-td-name {
+        padding: 12px 16px;
+        vertical-align: top;
+    }
+    .assigned-devices-td-status {
+        padding: 12px 16px;
+    }
+    .assigned-devices-name-cell {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    .assigned-devices-name-text {
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-900, #141414);
+    }
+    .assigned-devices-tags {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 4px;
+        flex-wrap: wrap;
+    }
+    .assigned-devices-tag {
+        box-sizing: border-box;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        padding: 4px;
+        background: var(--ds-color-white, #FFFFFF);
+        border: 1px solid var(--ds-color-neutral-true-300, #D6D6D6);
+        border-radius: 6px;
+        font-weight: 500;
+        font-size: 12px;
+        line-height: 16px;
+        color: var(--ds-color-neutral-true-700, #424242);
+    }
+    .assigned-devices-td-status :global(button.badge) {
+        padding: 4px 8px;
+        border-radius: 16px;
+    }
+    .assigned-devices-empty {
+        padding: 24px 16px;
+        text-align: center;
+        color: var(--ds-text-secondary);
+        font-size: 14px;
+    }
+    .assigned-devices-pagination {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 8px 24px;
+        gap: 8px;
+        width: 100%;
+        min-height: 56px;
+        border-top: 1px solid var(--ds-color-gray-200, #EAECF0);
+    }
+    .assigned-devices-pagination-details {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-600, #525252);
+    }
+    .assigned-devices-pagination-buttons {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 2px;
+    }
+    .assigned-devices-pagination-btn {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 36px;
+        height: 36px;
+        padding: 8px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--ds-color-neutral-true-800, #292929);
+        cursor: pointer;
+    }
+    .assigned-devices-pagination-btn:hover:not(:disabled) {
+        background: var(--ds-color-gray-50, #F9FAFB);
+    }
+    .assigned-devices-pagination-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .assigned-devices-pagination-page {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-width: 40px;
+        height: 36px;
+        padding: 0 12px;
+        background: var(--ds-color-gray-50, #F9FAFB);
+        border-radius: 8px;
+        font-family: var(--ds-font-family-secondary, 'Inter');
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-color-gray-800, #1D2939);
+    }
+    .assigned-devices-th-actions {
+        width: 85px;
+    }
+    .assigned-devices-td-actions {
+        padding: 12px 16px;
+        vertical-align: middle;
+    }
+    .form-error-message {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--ds-color-error-200);
+        background: var(--ds-color-error-50);
+        color: var(--ds-color-error-700);
+        margin-bottom: 8px;
+    }
+</style>

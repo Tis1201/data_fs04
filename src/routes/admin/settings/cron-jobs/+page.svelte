@@ -210,9 +210,18 @@
                             </Table.Cell>
                             <Table.Cell>
                                 {#if !job.isRecurring}
-                                    <Badge variant="outline" class="text-xs">
-                                        One-time job
-                                    </Badge>
+                                    <div class="flex flex-col gap-0.5">
+                                        <Badge variant="outline" class="text-xs w-fit">
+                                            One-time
+                                        </Badge>
+                                        {#if job.nextRunAt}
+                                            <span class="text-xs text-muted-foreground" title="Scheduled run time">
+                                                {formatDate(job.nextRunAt)}
+                                            </span>
+                                        {:else}
+                                            <span class="text-xs text-muted-foreground">—</span>
+                                        {/if}
+                                    </div>
                                 {:else if job.cronExpression}
                                     <code class="text-xs">{job.cronExpression}</code>
                                 {:else}
@@ -253,8 +262,32 @@
                             </Table.Cell>
                             <Table.Cell>
                                 {#if !job.isRecurring}
-                                    <!-- One-time jobs: No actions - auto-managed by system -->
-                                    <span class="text-muted-foreground text-xs">Auto-managed</span>
+                                    <!-- One-time jobs: Run Now only -->
+                                    <form
+                                        method="POST"
+                                        action="?/trigger"
+                                        use:enhance={() => {
+                                            isSubmitting = true;
+                                            return async ({ update }) => {
+                                                await update();
+                                                isSubmitting = false;
+                                            };
+                                        }}
+                                    >
+                                        <input type="hidden" name="id" value={job.id} />
+                                        <Button
+                                            type="submit"
+                                            variant="outline"
+                                            size="sm"
+                                            class="gap-1.5"
+                                            disabled={isSubmitting || job.isRunning}
+                                        >
+                                            {#if job.isRunning}
+                                                <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                                            {/if}
+                                            <Play class="w-3.5 h-3.5" /> Run Now
+                                        </Button>
+                                    </form>
                                 {:else}
                                     <!-- Recurring jobs: Show all actions -->
                                     <DropdownMenu.Root>

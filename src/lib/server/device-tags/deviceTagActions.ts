@@ -89,10 +89,11 @@ export function createDeviceTagActions(options: {
                 // Create update object
                 const { name, description } = form.data;
 
-                // Check if name changed and if new name already exists
+                // Check if name changed and if new name already exists (unique per account, case-insensitive)
                 if (name.toLowerCase() !== deviceTag.name.toLowerCase()) {
                     const existingDeviceTag = await locals.prisma.deviceTag.findFirst({
                         where: {
+                            id: { not: id },
                             accountId: deviceTag.accountId,
                             name: {
                                 equals: name,

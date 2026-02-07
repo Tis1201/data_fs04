@@ -17,4 +17,4 @@ export { registerJob, getHandler, hasHandler, listRegisteredJobs } from './regis
 export { createWorker, stopWorker } from './worker';
 
 // CronSync
-export { syncCronJobs, removeCronJob, triggerCronJob } from './cron-sync';
+export { syncCronJobs, reconcileCronJobsWithRedis, removeCronJob, triggerCronJob } from './cron-sync';

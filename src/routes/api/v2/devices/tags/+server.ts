@@ -113,14 +113,14 @@ export const POST = unifiedEndpoint(
 			);
 		}
 
-		// Check for duplicate name in the same account
+		// Check for duplicate name in the same account (case-insensitive; tag names are unique per account)
 		const existing = await context.prisma.deviceTag.findFirst({
 			where: {
-				name: data.name,
-				accountId
+				accountId,
+				name: { equals: data.name, mode: 'insensitive' }
 			}
 		});
-		
+
 		if (existing) {
 			throw Object.assign(
 				new Error('A tag with this name already exists'),

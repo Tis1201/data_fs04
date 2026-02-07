@@ -52,14 +52,15 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		}
 	}
 
-	// Find devices with the specified tags
+	// Find devices with the specified tags (Device.tags -> DeviceTag[]) that are not yet assigned
 	const devices = await prisma.device.findMany({
 		where: {
-			deviceTags: {
+			tags: {
 				some: {
-					tagId: { in: tagIds }
+					id: { in: tagIds }
 				}
 			},
+			...(deviceProfile.accountId && { accountId: deviceProfile.accountId }),
 			profileAssignment: null
 		},
 		select: {

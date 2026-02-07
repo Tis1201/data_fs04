@@ -6,8 +6,9 @@ import { logger } from '$lib/server/logger';
 import { registerMqttTransport } from '$lib/server/mqtt/core/transport';
 import { registerDeviceHandlers } from '$lib/server/mqtt/handlers/device';
 import { registerWebHandlers } from '$lib/server/mqtt/handlers/web';
-import { subscribeToQueue } from '$lib/server/mqtt/core/queue';
+import { subscribeToQueue, ACTION_LOG_BROADCAST_TYPE } from '$lib/server/mqtt/core/queue';
 import { sendNotificationWithTicket } from '$lib/server/mqtt/core/publish';
+import { ActionLogEventBroadcaster } from '$lib/server/mqtt/broadcasters/actionLogEventBroadcaster';
 import {
   client,
   connectWorkerClient,
@@ -77,8 +78,17 @@ export function startMqttListener(): void {
     await subscribeToQueue(async (notification) => {
       try {
         logger.info(`[MQTT Queue] Processing notification: type=${notification.type}, recipient=${notification.recipient}`);
-        
-        // Send the queued notification via MQTT
+
+        if (notification.type === ACTION_LOG_BROADCAST_TYPE) {
+          const { logId, eventType } = (notification.params || {}) as { logId?: string; eventType?: 'created' | 'updated' };
+          if (logId && eventType) {
+            await ActionLogEventBroadcaster.runBroadcastFromQueue(adminPrisma, logId, eventType);
+            logger.debug(`[MQTT Queue] Successfully broadcast action log: ${logId}`);
+          }
+          return;
+        }
+
+        // Send the queued notification via MQTT (device/user notifications)
         await sendNotificationWithTicket({
           prisma: adminPrisma,
           sub: notification.sub,
@@ -88,7 +98,7 @@ export function startMqttListener(): void {
           params: notification.params,
           expiresIn: notification.expiresIn
         });
-        
+
         logger.debug(`[MQTT Queue] Successfully sent notification: type=${notification.type}`);
       } catch (error) {
         logger.error(`[MQTT Queue] Failed to send notification: ${String(error)}`);

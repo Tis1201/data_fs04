@@ -102,11 +102,12 @@
         return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
     }
 
-    /** Draft (INACTIVE): View, Edit, Delete. In Progress (ACTIVE, valid date not met): View only. Completed (ACTIVE, valid date met): View only. */
+    /** Draft (INACTIVE): View, Edit, Delete. In Progress (ACTIVE, valid date not met): View only. Completed (ACTIVE, valid date met): View only. Expired: gray. */
     $: isDraft = (preclaimSet?.status || '').toUpperCase() === 'INACTIVE';
     $: setDisplayStatus = (() => {
         const s = (preclaimSet?.status || '').toUpperCase();
         if (s === 'INACTIVE') return 'Draft';
+        if (s === 'EXPIRED') return 'Expired';
         if (s === 'ACTIVE') {
             const exp = preclaimSet?.expiresAt ? new Date(preclaimSet.expiresAt) : null;
             const now = new Date();
@@ -115,7 +116,7 @@
         }
         return preclaimSet?.status || '—';
     })();
-    $: setStatusBadgeClass = setDisplayStatus === 'Draft' ? 'gray' : setDisplayStatus === 'In Progress' ? 'warning' : 'success';
+    $: setStatusBadgeClass = setDisplayStatus === 'Draft' || setDisplayStatus === 'Expired' ? 'gray' : setDisplayStatus === 'In Progress' ? 'warning' : 'success';
 
     function onSearchInput(e: CustomEvent<string>) {
         const v = e.detail ?? '';

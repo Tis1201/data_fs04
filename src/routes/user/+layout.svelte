@@ -248,6 +248,20 @@
                 subtitle: 'Deployment contains a grouped set of resources or deployments to devices'
             };
         }
+        // Device Tags (Tags page - match Devices style)
+        if (pathname.includes('/iot/device_tags') || pathname.includes('/devices/tags')) {
+            const isNew = pathname === '/user/iot/device_tags/new' || pathname === '/user/iot/device_tags/new/';
+            const isDetail = /^\/user\/iot\/device_tags\/[^/]+\/?$/.test(pathname.replace(/\/$/, ''));
+            return {
+                headerStyle: 'page',
+                title: isNew ? 'Add Tag' : isDetail ? 'Tag Details' : 'Tags',
+                subtitle: isNew
+                    ? 'Create a new tag for organizing devices'
+                    : isDetail
+                        ? 'Key information about this tag'
+                        : 'Manage tags for organizing devices'
+            };
+        }
         // Default
         return {
             headerStyle: 'page',

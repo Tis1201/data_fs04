@@ -90,6 +90,7 @@ export const GET = unifiedEndpoint(
 					status: true,
 					model: true,
 					description: true,
+					macAddress: true,
 					// Keep DB field for backwards compatibility, but we'll override with Redis presence below
 					connected: true,
 					lastUsedAt: true
