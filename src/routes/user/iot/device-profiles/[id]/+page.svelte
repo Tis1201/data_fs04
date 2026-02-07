@@ -1,6 +1,7 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
+    import { onMount, onDestroy } from 'svelte';
     import { Button, Card, Badge, TabGroup, ConfirmModal, ActionMenu, Modal } from '$lib/design-system/components';
     import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X, UserMinus } from 'lucide-svelte';
     import type { PageData } from './$types';
@@ -8,6 +9,7 @@
     import { toast } from '$lib/stores/alertToast';
     import AddEditProfileModal from '../components/AddEditProfileModal.svelte';
     import DeviceSelector from '$lib/components/ui_components_sveltekit/device_profiles/DeviceSelector.svelte';
+    import { useDeviceProfileMqtt } from '$lib/composables/useDeviceProfileMqtt';
 
     export let data: PageData;
     /** From layout/route – accept to avoid "unknown prop" warning */
@@ -18,6 +20,35 @@
     const basePath = '/user/iot';
     const listPath = '/user/iot/device-profiles';
     $: profileId = profile?.id ?? '';
+
+    // Real-time apply status: when device reports success/fail, refresh so Apply status column updates
+    const { setup: setupProfileMqtt } = useDeviceProfileMqtt({
+        profileId,
+        onStatusUpdate: () => invalidate('app:deviceProfile'),
+        onProgressUpdate: () => invalidate('app:deviceProfile'),
+        onProfileUpdate: () => invalidate('app:deviceProfile')
+    });
+    // When timeout job marks APPLYING as FAILED (no MQTT is sent), poll so UI eventually shows Failed
+    let applyingPollIntervalId = 0;
+    function startApplyingPoll() {
+        if (applyingPollIntervalId) return;
+        applyingPollIntervalId = setInterval(() => invalidate('app:deviceProfile'), 10_000);
+    }
+    function stopApplyingPoll() {
+        if (applyingPollIntervalId) {
+            clearInterval(applyingPollIntervalId);
+            applyingPollIntervalId = 0;
+        }
+    }
+    $: if (activeTab === 'devices' && (deviceRows?.some((r) => r.applyStatus === 'APPLYING') ?? false)) {
+        startApplyingPoll();
+    } else {
+        stopApplyingPoll();
+    }
+    onMount(() => {
+        if (profileId) setupProfileMqtt();
+    });
+    onDestroy(() => stopApplyingPoll());
 
     let showEditProfileModal = false;
     function openEditProfileModal() {

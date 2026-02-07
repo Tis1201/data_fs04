@@ -18,7 +18,7 @@ import { timeoutProfileApplying } from '$lib/server/jobs/handlers/timeout-profil
 import '$lib/server/jobs/registry';
 
 const RECONCILE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const PROFILE_APPLYING_TIMEOUT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+const PROFILE_APPLYING_TIMEOUT_INTERVAL_MS = 1 * 60 * 1000; // 1 minute (so timeout job runs often; handler marks APPLYING older than 3 min as FAILED)
 
 let isShuttingDown = false;
 let reconcileIntervalId: ReturnType<typeof setInterval> | null = null;

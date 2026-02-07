@@ -29,7 +29,9 @@
         ChevronDown,
         ChevronLeft,
         ChevronRight,
-        Expand
+        Expand,
+        Search,
+        Tag as TagIcon
 
     } from 'lucide-svelte';
     import { postV2 } from '$lib/utils/v2ApiHandler';
@@ -45,6 +47,7 @@
     import BundleAppsComponent from "$lib/components/bundles_ui/bundle_apps/BundleAppsComponent.svelte";
     import BundleDeviceComponent from "$lib/components/bundles_ui/bundle_device/BundleDeviceComponent.svelte";
     import BatchProgressModal from '$lib/components/bundles/BatchProgressModal.svelte';
+    import DeviceSelector from '$lib/components/ui_components_sveltekit/device_profiles/DeviceSelector.svelte';
 
     // Utilities
     import { useBundleDetail } from '$lib/composables/useBundleDetail';
@@ -129,6 +132,110 @@
     let importCsvFile: File | null = null;
     let importCsvProgress = 0;
     let fileInput: HTMLInputElement | null = null;
+
+    // Assign by tag modal (same pattern as device-profiles)
+    let showAssignByTagModal = false;
+    let assignByTagLoading = false;
+    let assignByTagTags: { id: string; name: string }[] = [];
+    let assignByTagSelected: { id: string; name: string }[] = [];
+    let assignByTagSearchTerm = '';
+    let assignByTagDropdownOpen = false;
+    function openAssignByTagModal() {
+        showAssignByTagModal = true;
+        assignByTagSelected = [];
+        assignByTagSearchTerm = '';
+        assignByTagDropdownOpen = false;
+        loadAssignByTagTags();
+    }
+    function closeAssignByTagModal() {
+        showAssignByTagModal = false;
+        assignByTagSelected = [];
+        assignByTagSearchTerm = '';
+        assignByTagTags = [];
+    }
+    async function loadAssignByTagTags() {
+        try {
+            const res = await fetch('/api/v2/devices/tags');
+            const data = await res.json().catch(() => ({}));
+            const list = data?.data ?? data;
+            assignByTagTags = Array.isArray(list) ? list : [];
+        } catch {
+            assignByTagTags = [];
+        }
+    }
+    $: assignByTagFilteredTags = assignByTagTags.filter(
+        (t) =>
+            !assignByTagSelected.some((s) => s.id === t.id) &&
+            t.name.toLowerCase().includes(assignByTagSearchTerm.trim().toLowerCase())
+    );
+    function addAssignByTagTag(tag: { id: string; name: string }) {
+        if (!assignByTagSelected.some((s) => s.id === tag.id)) {
+            assignByTagSelected = [...assignByTagSelected, tag];
+        }
+        assignByTagSearchTerm = '';
+        assignByTagDropdownOpen = false;
+    }
+    function removeAssignByTagTag(id: string) {
+        assignByTagSelected = assignByTagSelected.filter((t) => t.id !== id);
+    }
+    async function onConfirmAssignByTag() {
+        if (assignByTagSelected.length === 0) return;
+        assignByTagLoading = true;
+        try {
+            const tagIds = assignByTagSelected.map((t) => t.id);
+            const res = await fetch(`/api/v2/bundles/${bundle.id}/assign-by-tag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tagIds })
+            });
+            const data = await res.json().catch(() => ({}));
+            const payload = data?.data ?? data;
+            if (res.ok && data?.success !== false) {
+                const count = payload?.assignedCount ?? 0;
+                toast.success(count > 0 ? `Added ${count} device(s) to deployment by tag.` : 'No devices found with selected tags (or all are already in this deployment).');
+                closeAssignByTagModal();
+                invalidate('app:bundle');
+            } else {
+                toast.error(data?.error?.message || 'Assign by tag failed. Please try again!');
+            }
+        } catch {
+            toast.error('Assign by tag failed. Please try again!');
+        } finally {
+            assignByTagLoading = false;
+        }
+    }
+
+    // Add Device modal (reuse device-profiles DeviceSelector with bundleId)
+    let showAddDeviceModal = false;
+    let addDeviceLoading = false;
+    function closeAddDeviceModal() {
+        showAddDeviceModal = false;
+    }
+    async function onAddDeviceSelect(e: CustomEvent<{ id: string; name: string }[]>) {
+        const selected = e.detail || [];
+        if (selected.length === 0) return;
+        addDeviceLoading = true;
+        try {
+            const res = await fetch(`/api/v2/bundles/${bundle.id}/devices`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds: selected.map((d) => d.id) })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                const count = data?.data?.addedCount ?? selected.length;
+                toast.success(count === 1 ? 'Device added successfully!' : `${count} devices added successfully!`);
+                closeAddDeviceModal();
+                invalidate('app:bundle');
+            } else {
+                toast.error(data?.error?.message || 'Unable to add device(s). Please try again!');
+            }
+        } catch {
+            toast.error('Unable to add device(s). Please try again!');
+        } finally {
+            addDeviceLoading = false;
+        }
+    }
 
     // Stop waves state
     let stoppingWaves = false;
@@ -740,8 +847,10 @@
         }
     }
 
-    // Show Import CSV / Add Device only when Deployment = Draft | Scheduled | Failed | Stopped
+    // Edit Bundle button: show when Draft | Scheduled | Failed | Stopped
     $: showDeploymentDeviceActions = ['DRAFT', 'SCHEDULED', 'FAILED', 'STOPPED'].includes((bundle?.status || '').toUpperCase());
+    // Add Device and Import CSV only when status is Draft
+    $: canAddOrImportDevices = (bundle?.status || '').toUpperCase() === 'DRAFT';
 </script>
 
 <div class="bundle-detail-page">
@@ -859,14 +968,42 @@
                                     </div>
                                 </div>
                                 <div class="deployment-device-card-actions">
-                                    {#if showDeploymentDeviceActions}
-                                        <Button variant="outline" color="primary" size="md" icon={Download} iconSize={18} on:click={() => (showImportCsvModal = true)}>
-                                            Import CSV
-                                        </Button>
-                                        <Button variant="filled" color="primary" size="md" icon={Plus} iconSize={18} on:click={() => deviceComponentRef?.openAddDialog?.()}>
-                                            Add Device
-                                        </Button>
-                                    {/if}
+                                    <Button
+                                        variant="outline"
+                                        color="primary"
+                                        size="md"
+                                        icon={Download}
+                                        iconSize={18}
+                                        disabled={!canAddOrImportDevices}
+                                        title={!canAddOrImportDevices ? 'Only editable when deployment is in Draft' : undefined}
+                                        on:click={() => canAddOrImportDevices && (showImportCsvModal = true)}
+                                    >
+                                        Import CSV
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        color="primary"
+                                        size="md"
+                                        icon={TagIcon}
+                                        iconSize={18}
+                                        disabled={!canAddOrImportDevices}
+                                        title={!canAddOrImportDevices ? 'Only editable when deployment is in Draft' : undefined}
+                                        on:click={() => canAddOrImportDevices && openAssignByTagModal()}
+                                    >
+                                        Assign by tag
+                                    </Button>
+                                    <Button
+                                        variant="filled"
+                                        color="primary"
+                                        size="md"
+                                        icon={Plus}
+                                        iconSize={18}
+                                        disabled={!canAddOrImportDevices}
+                                        title={!canAddOrImportDevices ? 'Only editable when deployment is in Draft' : undefined}
+                                        on:click={() => canAddOrImportDevices && (showAddDeviceModal = true)}
+                                    >
+                                        Add Device
+                                    </Button>
                                 </div>
                             </div>
                         </svelte:fragment>
@@ -878,7 +1015,7 @@
                             apiPrefix={context === 'admin' ? '/api/admin' : '/api/user'}
                             deviceLinkPrefix={context === 'admin' ? '/admin/iot/devices' : '/user/iot/devices'}
                             hideHeaderAddButton={true}
-                            showActionsColumn={showDeploymentDeviceActions}
+                            showActionsColumn={canAddOrImportDevices}
                             on:viewDevice={handleViewDevice}
                         />
                     </Card>
@@ -920,7 +1057,7 @@
                             apiPrefix={context === 'admin' ? '/api/admin' : '/api/user'}
                             resourceLinkPrefix={context === 'admin' ? '/admin/iot/resources' : '/user/iot/resources'}
                             hideHeader={true}
-                            showActionsColumn={showDeploymentDeviceActions}
+                            showActionsColumn={canAddOrImportDevices}
                         />
                     </Card>
                 {:else if $activeTab === 'batches'}
@@ -1092,6 +1229,81 @@
         {/if}
     </div>
 </Modal>
+
+<!-- Assign by tag modal (same pattern as device-profiles: search tags, selected chips, Add) -->
+<Modal
+    open={showAssignByTagModal}
+    title="Assign by tag"
+    size="md"
+    showFooter={true}
+    confirmText="Add"
+    cancelText="Cancel"
+    confirmLoading={assignByTagLoading}
+    confirmDisabled={assignByTagSelected.length === 0 || assignByTagLoading}
+    on:close={closeAssignByTagModal}
+    on:confirm={onConfirmAssignByTag}
+>
+    <div class="tag-modal-body">
+        <div class="tag-modal-search-wrap">
+            <input
+                type="text"
+                class="tag-modal-search-input"
+                placeholder="Search and select tag"
+                bind:value={assignByTagSearchTerm}
+                on:focus={() => (assignByTagDropdownOpen = true)}
+                on:blur={() => setTimeout(() => (assignByTagDropdownOpen = false), 150)}
+                on:keydown={(e) => e.key === 'Escape' && (assignByTagDropdownOpen = false)}
+            />
+            <span class="tag-modal-search-icon" aria-hidden="true"><Search size={18} /></span>
+        </div>
+        {#if assignByTagDropdownOpen && assignByTagFilteredTags.length > 0}
+            <ul class="tag-modal-dropdown" role="listbox">
+                {#each assignByTagFilteredTags as tag (tag.id)}
+                    <li
+                        class="tag-modal-dropdown-item"
+                        role="option"
+                        tabindex="0"
+                        on:click={() => addAssignByTagTag(tag)}
+                        on:keydown={(e) => e.key === 'Enter' && addAssignByTagTag(tag)}
+                    >
+                        {tag.name}
+                    </li>
+                {/each}
+            </ul>
+        {/if}
+        <div class="tag-modal-selected-section">
+            <span class="tag-modal-selected-label">Selected ({assignByTagSelected.length} item{assignByTagSelected.length !== 1 ? 's' : ''})</span>
+            {#if assignByTagSelected.length > 0}
+                <div class="tag-modal-chips">
+                    {#each assignByTagSelected as tag (tag.id)}
+                        <span class="tag-modal-chip">
+                            <span class="tag-modal-chip-text">{tag.name}</span>
+                            <button
+                                type="button"
+                                class="tag-modal-chip-remove"
+                                aria-label="Remove {tag.name}"
+                                on:click={() => removeAssignByTagTag(tag.id)}
+                            >
+                                <X size={14} />
+                            </button>
+                        </span>
+                    {/each}
+                </div>
+            {/if}
+        </div>
+    </div>
+</Modal>
+
+<!-- Add Device modal (reuse device-profiles DeviceSelector – table, search, pagination, select) -->
+<DeviceSelector
+    open={showAddDeviceModal}
+    bundleId={bundle.id}
+    apiPrefix="/api/v2"
+    title="Add Device"
+    confirmLabel="Add"
+    on:close={closeAddDeviceModal}
+    on:select={onAddDeviceSelect}
+/>
 
 <!-- View Details modal (Design: "By clicking View Device action > open modal View Details; similar data as Device Details page; expand icon > open Device Details full page"). -->
 <Modal
@@ -2132,6 +2344,123 @@
     }
     .batches-table-wrap :global(.batches-batch-name-link:hover) {
         text-decoration: underline;
+    }
+
+    /* Assign by tag modal – search + selected chips (same as device-profiles) */
+    .tag-modal-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+        width: 100%;
+        font-family: var(--ds-font-family-primary);
+    }
+
+    .tag-modal-search-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+    }
+
+    .tag-modal-search-input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 40px 10px 12px;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-text-primary);
+        background: var(--ds-color-white);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-input-radius);
+    }
+
+    .tag-modal-search-input::placeholder {
+        color: var(--ds-text-secondary);
+    }
+
+    .tag-modal-search-icon {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--ds-text-secondary);
+        pointer-events: none;
+    }
+
+    .tag-modal-dropdown {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-md);
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .tag-modal-dropdown-item {
+        padding: 10px 12px;
+        font-size: var(--ds-text-sm);
+        color: var(--ds-text-primary);
+        cursor: pointer;
+    }
+
+    .tag-modal-dropdown-item:hover {
+        background: var(--ds-color-gray-50, #f9fafb);
+    }
+
+    .tag-modal-selected-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-2);
+    }
+
+    .tag-modal-selected-label {
+        font-weight: var(--ds-font-medium);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-text-primary);
+    }
+
+    .tag-modal-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ds-space-2);
+    }
+
+    .tag-modal-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        font-size: var(--ds-text-sm);
+        color: var(--ds-text-primary);
+        background: var(--ds-color-gray-100, #f3f4f6);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-md);
+    }
+
+    .tag-modal-chip-text {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .tag-modal-chip-remove {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        margin: 0;
+        background: none;
+        border: none;
+        color: var(--ds-text-secondary);
+        cursor: pointer;
+        border-radius: 2px;
+    }
+
+    .tag-modal-chip-remove:hover {
+        color: var(--ds-text-primary);
     }
 
     /* Import CSV modal body – full width; Figma: padding 16px, gap 16px (modal body provides padding) */
