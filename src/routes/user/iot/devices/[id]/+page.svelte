@@ -16,6 +16,8 @@
     import { subscribeActionLogUpdates } from "$lib/client/mqtt/handlers/data/actionLogHandler";
     import { mqttClient } from "$lib/client/mqtt/mqttClient";
     import { createModalHandler } from "$lib/client/mqtt/handlers/ui/modalHandler";
+    import { initializeDeviceRealtime, deviceRealtimeStore } from "$lib/stores/deviceRealtimeStore";
+    import { browser } from "$app/environment";
     import { createProgressBarHandler } from "$lib/client/mqtt/handlers/ui/progressBarHandler";
     import { toast } from "$lib/stores/alertToast";
     import {
@@ -809,6 +811,7 @@
     let mqttUnsubscribes: (() => void)[] = [];
 
     onMount(() => {
+        if (browser) initializeDeviceRealtime();
         // Refresh device info periodically to get latest metrics from ClickHouse
         healthRefreshInterval = setInterval(() => {
             invalidate('app:device-detail');
@@ -1073,8 +1076,14 @@
         goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
-    // Connection status
-    $: isOnline = device?.connected ?? false;
+    // Connection status: use real-time MQTT store when we have an update, else server data
+    $: isOnline = (() => {
+        const store = $deviceRealtimeStore;
+        if (!store || !device?.id) return device?.connected ?? false;
+        const known = store.getDevice(device.id);
+        if (known === null) return device?.connected ?? false;
+        return store.isDeviceConnected(device.id);
+    })();
     $: isActive = (device?.status || '').toUpperCase() === 'ACTIVE';
 
     // Action handlers

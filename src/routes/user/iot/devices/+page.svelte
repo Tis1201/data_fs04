@@ -1,6 +1,7 @@
 <script lang="ts">
-    import { tick } from "svelte";
+    import { tick, onMount } from "svelte";
     import { DeviceTable, Button, InputField, Modal, ConfirmModal, Checkbox, BulkActionsBar, Dropdown, Tag, Radio } from "$lib/design-system/components";
+    import { initializeDeviceRealtime, deviceRealtimeStore } from "$lib/stores/deviceRealtimeStore";
     import type { DeviceRow, DeviceTablePagination, DeviceTableSort } from "$lib/design-system/components/DeviceTable.svelte";
     import { goto, invalidate } from "$app/navigation";
     import { page } from "$app/stores";
@@ -10,6 +11,7 @@
     import type { PageData } from "./$types";
     import EditDeviceModal from "$lib/components/devices/EditDeviceModal.svelte";
     import { toast } from "$lib/stores/alertToast";
+    import { browser } from "$app/environment";
 
     // Type for available tags
     interface AvailableTag {
@@ -201,6 +203,20 @@
             };
         }
     }
+
+    // Real-time device connection: init store (so MQTT updates populate it) and merge into table data
+    onMount(() => {
+        if (browser) initializeDeviceRealtime();
+    });
+    $: displayData = (() => {
+        const store = $deviceRealtimeStore;
+        if (!store) return devices;
+        return devices.map((row) => {
+            const known = store.getDevice(row.id);
+            const connected = known !== null ? store.isDeviceConnected(row.id) : row.connected;
+            return { ...row, connected };
+        });
+    })();
 
     let pagination: DeviceTablePagination = {
         page: (data?.meta as any)?.pagination?.page || (data?.meta as any)?.page || 1,
@@ -1195,7 +1211,7 @@
 
     <!-- Device Table -->
     <DeviceTable
-        data={devices}
+        data={displayData}
         {pagination}
         {sort}
         {loading}
