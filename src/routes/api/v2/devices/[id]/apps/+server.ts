@@ -18,6 +18,10 @@ import { logger } from '$lib/server/logger';
  * Query params:
  * - page: page number (default: 1)
  * - pageSize: items per page (default: 20, max: 100)
+ * - search: filter by package_name or app_name (partial match, case-insensitive)
+ * - filter: app_type filter (e.g. 'all', 'system', 'user')
+ * - sortBy: name | package | version | size | modified (default: name)
+ * - sortOrder: asc | desc (default: asc)
  */
 export const GET = unifiedEndpoint(
 	async ({ context, params, event }) => {
@@ -28,6 +32,10 @@ export const GET = unifiedEndpoint(
 			parseInt(url.searchParams.get('pageSize') || '20'),
 			100
 		);
+		const search = url.searchParams.get('search') || '';
+		const filter = url.searchParams.get('filter') || 'all';
+		const sortBy = url.searchParams.get('sortBy') || 'name';
+		const sortOrder = url.searchParams.get('sortOrder') || 'asc';
 		
 		// Get device and check access
 		const device = await prisma.device.findUnique({
@@ -65,9 +73,14 @@ export const GET = unifiedEndpoint(
 			);
 		}
 		
-		// Get apps from ClickHouse
+		// Get apps from ClickHouse (with search/filter/sort from query params)
 		try {
-			const result = await deviceAppService.getDeviceApps(deviceId, page, pageSize);
+			const result = await deviceAppService.getDeviceApps(deviceId, page, pageSize, {
+				search,
+				filter,
+				sortBy,
+				sortOrder
+			});
 			
 			return paginatedResponse(
 				result.apps,

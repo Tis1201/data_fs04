@@ -190,6 +190,7 @@ export async function findDeviceProgress(
       bundleId,
       bundleDeviceId: bundleDevice.id
     },
+    orderBy: [{ completedAt: 'desc' }, { id: 'asc' }],
     select: {
       id: true,
       waveId: true,

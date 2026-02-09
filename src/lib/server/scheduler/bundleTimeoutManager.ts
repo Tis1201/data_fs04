@@ -6,6 +6,7 @@ import { SystemUser } from '$lib/server/messaging/interfaces/message';
 import { checkAndAutoStartNextWave } from '$lib/server/messaging/handlers/device/bundleUtils';
 import { updateBundleStatus } from './bundleEventProcessor';
 import { getStateManager } from '$lib/server/state/stateManagerFactory';
+import { compareProgressOrder } from '$lib/bundles/progressOrder';
 import { TimeoutConfig, calculateBundleTimeout, getTimeoutMinutes } from '$lib/server/config/timeoutConfig';
 import crypto from 'crypto';
 
@@ -397,7 +398,25 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
         
         // Publish real-time update for already-terminal wave so UI can update via MQTT
         try {
-          const all = await (prisma as any).bundleDeviceProgress.findMany({ where: { waveId: waveInfo.waveId } });
+          const all = await (prisma as any).bundleDeviceProgress.findMany({
+            where: { waveId: waveInfo.waveId },
+            include: { bundleDevice: { select: { deviceId: true } } },
+            orderBy: [{ completedAt: 'desc' }, { id: 'asc' }]
+          });
+          const deviceIds = [...new Set(all.map((r: any) => r.bundleDevice.deviceId))];
+          const devices = await (prisma as any).device.findMany({
+            where: { id: { in: deviceIds } },
+            select: { id: true, name: true }
+          });
+          const deviceMap = new Map(devices.map((d: any) => [d.id, d.name]));
+          all.sort((a: any, b: any) =>
+            compareProgressOrder(
+              a.completedAt ? a.completedAt.getTime() : 0,
+              String(deviceMap.get(a.bundleDevice.deviceId) ?? ''),
+              b.completedAt ? b.completedAt.getTime() : 0,
+              String(deviceMap.get(b.bundleDevice.deviceId) ?? '')
+            )
+          );
           const devicesTotal = all.length;
           const devicesCompleted = all.filter((r: any) => r.status === 'COMPLETED').length;
           const devicesFailed = all.filter((r: any) => r.status === 'FAILED').length;
@@ -486,8 +505,26 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
         logger.info(`[BundleTimeoutManager] Bundle ${bundleId} - Wave ${waveInfo.waveId}: marked ${res.count} device(s) FAILED due to timeout`);
       }
 
-      // Recompute wave aggregates and publish
-      const all = await (prisma as any).bundleDeviceProgress.findMany({ where: { waveId: waveInfo.waveId } });
+      // Recompute wave aggregates and publish (order: completedAt desc, name asc — same as progress API)
+      const all = await (prisma as any).bundleDeviceProgress.findMany({
+        where: { waveId: waveInfo.waveId },
+        include: { bundleDevice: { select: { deviceId: true } } },
+        orderBy: [{ completedAt: 'desc' }, { id: 'asc' }]
+      });
+      const deviceIds = [...new Set(all.map((r: any) => r.bundleDevice.deviceId))];
+      const devices = await (prisma as any).device.findMany({
+        where: { id: { in: deviceIds } },
+        select: { id: true, name: true }
+      });
+      const deviceMap = new Map(devices.map((d: any) => [d.id, d.name]));
+      all.sort((a: any, b: any) =>
+        compareProgressOrder(
+          a.completedAt ? a.completedAt.getTime() : 0,
+          String(deviceMap.get(a.bundleDevice.deviceId) ?? ''),
+          b.completedAt ? b.completedAt.getTime() : 0,
+          String(deviceMap.get(b.bundleDevice.deviceId) ?? '')
+        )
+      );
       const devicesTotal = all.length;
       const devicesCompleted = all.filter((r: any) => r.status === 'COMPLETED').length;
       const devicesFailed = all.filter((r: any) => r.status === 'FAILED').length;

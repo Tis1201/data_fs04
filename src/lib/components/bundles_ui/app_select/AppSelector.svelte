@@ -71,7 +71,9 @@
         filterFormats = [];
         if (currentPage < 1) currentPage = 1;
         hasLoadedForSession = true;
+        resultsPanelOpen = true; // show results by default when opening (bundle mode)
         loadApps();
+        tick().then(() => updateResultsMenuPosition());
     }
 
     $: if (!open) hasLoadedForSession = false;
@@ -148,6 +150,7 @@
     function closeDialog() {
         open = false;
         selectedItems = [];
+        resultsPanelOpen = false; // Reset panel state
         dispatch('close');
     }
 
@@ -188,6 +191,7 @@
         filterFormats = [];
         currentPage = 1;
         hasLoadedForSession = false;
+        resultsPanelOpen = false; // Reset panel state when closing
         closeDialog();
     }
 
@@ -217,17 +221,27 @@
         updateResultsMenuPosition();
     }
 
-    $: if (resourceMode && open) {
-        resultsPanelOpen = true;
+    $: if ((resourceMode || resultsPanelOpen) && open) {
         updateResultsMenuPosition();
     }
 
-    $: if (!open) resultsPanelOpen = false;
+
+    let clickOutsideEnabled = false;
 
     function handleClickOutside(e: MouseEvent) {
+        if (!clickOutsideEnabled) return; // Don't handle clicks until enabled
         if (open && resultsPanelOpen && searchComboRef && !searchComboRef.contains(e.target as Node)) {
             resultsPanelOpen = false;
         }
+    }
+
+    // Enable click-outside handler after a short delay when modal opens
+    $: if (open && resultsPanelOpen) {
+        setTimeout(() => {
+            clickOutsideEnabled = true;
+        }, 100);
+    } else {
+        clickOutsideEnabled = false;
     }
 
     onMount(() => {
@@ -248,7 +262,7 @@
 >
     <div class="add-app-modal-body">
         <!-- 1. Search + results dropdown (design: like Dropdown – results in a panel under the input, not a separate block) -->
-        <div class="add-app-search-combo" class:add-app-results-open={filterSearch && resultsPanelOpen} bind:this={searchComboRef}>
+        <div class="add-app-search-combo" class:add-app-results-open={resultsPanelOpen} bind:this={searchComboRef}>
             <div class="add-app-search-wrap">
                 <InputField
                     type="search"
@@ -270,7 +284,7 @@
                     </span>
                 </InputField>
             </div>
-            {#if (resourceMode && open) || (filterSearch && resultsPanelOpen)}
+            {#if open && (resourceMode || resultsPanelOpen)}
                 <div
                     class="add-app-results-menu add-app-results-menu-fixed"
                     role="listbox"

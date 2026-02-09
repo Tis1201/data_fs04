@@ -29,13 +29,19 @@ export function subscribeBundleWave(bundleId: string, onWaveUpdate: (payload: Wa
     
     // Filter by bundleId
     if (payload.bundleId === bundleId && payload.waveId) {
-      console.log('[BundleRealtime] Calling onWaveUpdate with payload:', payload);
+      console.log('[BundleRealtime] Matched bundleId, calling onWaveUpdate with payload:', payload);
       try {
         onWaveUpdate(payload as WaveStatusPayload);
         console.log('[BundleRealtime] onWaveUpdate completed successfully');
       } catch (e) {
         console.error('[BundleRealtime] Error in onWaveUpdate callback:', e);
       }
+    } else {
+      console.log('[BundleRealtime] Notification ignored - bundleId mismatch or missing waveId', {
+        expectedBundleId: bundleId,
+        receivedBundleId: payload.bundleId,
+        waveId: payload.waveId
+      });
     }
   });
 

@@ -1,5 +1,6 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
+import { compareProgressOrder } from '$lib/bundles/progressOrder';
 
 /**
  * GET /api/v2/bundles/[id]/waves/[waveId]/progress
@@ -58,6 +59,16 @@ export const GET = unifiedEndpoint(
         retryCount: r.retryCount || 0
       };
     });
+
+    // Order: End On (completedAt) desc, device name asc (same as job so order never mixes up)
+    data.sort((a: any, b: any) =>
+      compareProgressOrder(
+        a.completedAt ? new Date(a.completedAt).getTime() : 0,
+        a.deviceName || '',
+        b.completedAt ? new Date(b.completedAt).getTime() : 0,
+        b.deviceName || ''
+      )
+    );
 
     return successResponse({ data });
   },

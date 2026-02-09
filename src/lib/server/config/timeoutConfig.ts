@@ -5,8 +5,8 @@
 
 // Default timeout values (in milliseconds)
 const DEFAULT_TIMEOUTS = {
-  BUNDLE_WAVE: 10 * 60 * 1000, // 10 minutes
-  BUNDLE_APP: 10 * 60 * 1000, // 10 minutes per app
+  BUNDLE_WAVE: 1 * 10 * 1000, // 10 minutes
+  BUNDLE_APP: 1 * 10 * 1000, // 10 minutes per app
   DEVICE_ACTION: 10 * 60 * 1000, // 10 minutes
   DEVICE_APP: 5 * 60 * 1000, // 5 minutes
   DEVICE_APP_MONITORING: 5 * 60 * 1000, // 5 minutes

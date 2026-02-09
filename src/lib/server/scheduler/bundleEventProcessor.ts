@@ -16,6 +16,7 @@ import {
   validateWaveCanAcceptEvents,
   getBundleData
 } from './bundleEventHelpers';
+import { compareProgressOrder } from '$lib/bundles/progressOrder';
 
 export type FileStatusEvent = {
   deviceId: string;
@@ -167,7 +168,25 @@ export async function processEvent(evt: FileStatusEvent) {
 async function recomputeWaveAndPublish(waveId: string, bundleId: string, waveName: string) {
   try {
     logger.info(`[BundleEventProcessor] Starting wave recompute for wave ${waveId}`);
-    const all = await (prisma as any).bundleDeviceProgress.findMany({ where: { waveId } });
+    const all = await (prisma as any).bundleDeviceProgress.findMany({
+      where: { waveId },
+      include: { bundleDevice: { select: { deviceId: true } } },
+      orderBy: [{ completedAt: 'desc' }, { id: 'asc' }]
+    });
+    const deviceIds = [...new Set(all.map((r: any) => r.bundleDevice.deviceId))];
+    const devices = await (prisma as any).device.findMany({
+      where: { id: { in: deviceIds } },
+      select: { id: true, name: true }
+    });
+    const deviceMap = new Map(devices.map((d: any) => [d.id, d.name]));
+    all.sort((a: any, b: any) =>
+      compareProgressOrder(
+        a.completedAt ? a.completedAt.getTime() : 0,
+        String(deviceMap.get(a.bundleDevice.deviceId) ?? ''),
+        b.completedAt ? b.completedAt.getTime() : 0,
+        String(deviceMap.get(b.bundleDevice.deviceId) ?? '')
+      )
+    );
     const devicesTotal = all.length;
     const devicesCompleted = all.filter((r: any) => r.status === 'COMPLETED').length;
     const devicesFailed = all.filter((r: any) => r.status === 'FAILED').length;
