@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Modal from './Modal.svelte';
+  import type { ModalType } from './Modal.svelte';
 
   export let open: boolean = false;
   export let title: string = '';
@@ -9,6 +10,8 @@
   export let cancelText: string = 'Cancel';
   export let confirmLoading: boolean = false;
   export let confirmDisabled: boolean = false;
+  /** Icon style: 'error' | 'warning' for destructive/caution, 'info' for informational (e.g. Reactivate). */
+  export let type: ModalType = 'error';
 
   const dispatch = createEventDispatcher<{ close: void; confirm: void }>();
 </script>
@@ -16,7 +19,7 @@
 <Modal
   {open}
   {title}
-  type="error"
+  {type}
   size="md"
   {cancelText}
   {confirmText}

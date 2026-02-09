@@ -1,11 +1,13 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
+    import { enhance } from '$app/forms';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
     import { toast } from '$lib/stores/alertToast';
-    import { Button, InputField, DataTable, Modal, Dropdown } from '$lib/design-system/components';
+    import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
+    import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
     import type { BadgeColor, SortState } from '$lib/design-system/components';
-    import { Search, Filter, Plus } from 'lucide-svelte';
+    import { Search, Filter, Plus, Info, Trash2 } from 'lucide-svelte';
     import { canCreate } from '$lib/utils/permissions';
     import type { PageData } from './$types';
     import type { Sensor } from '@prisma/client';
@@ -20,7 +22,6 @@
     let searchValue = $page.url.searchParams.get('search') || '';
     let searchTimeout: ReturnType<typeof setTimeout>;
 
-    let selectedRows: SensorRow[] = [];
 
     // Delete confirmation modal (per design: red icon, title, message, Cancel + Delete)
     let sensorToDelete: SensorRow | null = null;
@@ -109,6 +110,238 @@
         showFilterModal = true;
     }
 
+    // Add Device modal – 2-step flow; claim by PIN (independent from Devices module)
+    let showAddDeviceModal = false;
+    let addDeviceStep: 1 | 2 = 1;
+    let addDeviceLoading = false;
+    let addDeviceError = ''; // Server/API errors only – shown with Alert
+    let addDevicePinError = ''; // Field validation – shown on PIN InputField
+    let addDeviceNameError = ''; // Field validation – shown on Sensor Name InputField
+    let addDeviceForm = {
+        pin: '',
+        status: 'ACTIVE',
+        name: '',
+        serialNumber: '',
+        description: '',
+        location: '',
+        firmware: '',
+        accountId: ''
+    };
+    // Step 2: config + zones (max 5). Zone: id, name, active (toggle).
+    const MAX_ZONES = 5;
+    let addDeviceStep2 = {
+        configTemplate: 'CUSTOM',
+        trackingXMin: '',
+        trackingXMax: '',
+        trackingYMin: '',
+        trackingYMax: '',
+        deviceMode: 'LIVE_PREVIEW',
+        timezone: 'UTC',
+        pathTracking: true,
+        dwellThreshold: '30',
+        zones: [] as { id: string; name: string; active: boolean }[]
+    };
+    let addDeviceZoneErrors: Record<string, string> = {}; // zone id -> error message
+    $: if (data.currentAccountId) addDeviceForm.accountId = data.currentAccountId;
+    $: if (addDeviceForm.pin !== undefined) addDevicePinError = '';
+    $: if (addDeviceForm.name !== undefined) addDeviceNameError = '';
+    $: if (addDeviceStep2.zones?.length) {
+        const toClear = addDeviceStep2.zones.filter((z) => z.name?.trim() && addDeviceZoneErrors[z.id]).map((z) => z.id);
+        if (toClear.length) {
+            const next = { ...addDeviceZoneErrors };
+            toClear.forEach((id) => delete next[id]);
+            addDeviceZoneErrors = next;
+        }
+    }
+    const configTemplateOptions = [
+        { id: 'CUSTOM', label: 'Custom Configuration' }
+    ];
+    const timezoneOptions = [
+        { id: 'UTC', label: 'UTC (GMT +0)' },
+        { id: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho Chi Minh (GMT +7)' },
+        { id: 'America/New_York', label: 'America/New York (GMT -5)' },
+        { id: 'Europe/London', label: 'Europe/London (GMT +0/+1)' }
+    ];
+
+    function openAddDeviceModal() {
+        addDeviceError = '';
+        addDevicePinError = '';
+        addDeviceNameError = '';
+        addDeviceStep = 1;
+        addDeviceForm = {
+            pin: '',
+            status: 'ACTIVE',
+            name: '',
+            serialNumber: '',
+            description: '',
+            location: '',
+            firmware: '',
+            accountId: data.currentAccountId || ''
+        };
+        addDeviceStep2 = {
+            configTemplate: 'CUSTOM',
+            trackingXMin: '',
+            trackingXMax: '',
+            trackingYMin: '',
+            trackingYMax: '',
+            deviceMode: 'LIVE_PREVIEW',
+            timezone: 'UTC',
+            pathTracking: true,
+            dwellThreshold: '30',
+            zones: [{ id: 'zone-1', name: 'Zone 1', active: true }]
+        };
+        addDeviceZoneErrors = {};
+        showAddDeviceModal = true;
+    }
+
+    function closeAddDeviceModal() {
+        showAddDeviceModal = false;
+        addDeviceStep = 1;
+        addDeviceError = '';
+        addDevicePinError = '';
+        addDeviceNameError = '';
+    }
+
+    // Edit Device modal – shared with Detail page (EditDeviceModal)
+    let sensorToEdit: SensorRow | null = null;
+    let showEditDeviceModal = false;
+
+    function openEditDeviceModal(row: SensorRow) {
+        sensorToEdit = row;
+        showEditDeviceModal = true;
+    }
+
+    function closeEditDeviceModal() {
+        showEditDeviceModal = false;
+        sensorToEdit = null;
+    }
+
+    async function submitEditDeviceFromModal(payload: { name: string; location: string }) {
+        if (!sensorToEdit) return;
+        const fd = new FormData();
+        fd.set('sensorId', sensorToEdit.id);
+        fd.set('name', payload.name);
+        fd.set('location', payload.location);
+        const res = await fetch('?/updateSensor', { method: 'POST', body: fd });
+        const result = await res.json().catch(() => ({}));
+        if (result.type === 'success') {
+            toast.success('Device updated successfully!');
+            closeEditDeviceModal();
+            await invalidate('app:userControllersRadar');
+        } else {
+            toast.error(result.message || 'Unable to update device. Please try again!');
+        }
+    }
+
+    function addDeviceStep1Next() {
+        addDeviceError = '';
+        addDevicePinError = '';
+        addDeviceNameError = '';
+        const pinNorm = addDeviceForm.pin?.trim().replace(/\s/g, '') ?? '';
+        if (!pinNorm) {
+            addDevicePinError = 'Device registration code (PIN) is required.';
+            return;
+        }
+        if (pinNorm.length < 6) {
+            addDevicePinError = 'Please enter the full 6-digit code from your device.';
+            return;
+        }
+        if (!addDeviceForm.name?.trim()) {
+            addDeviceNameError = 'Sensor name is required.';
+            return;
+        }
+        const slug = addDeviceForm.name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') || 'sensor';
+        addDeviceForm.serialNumber = `RADAR-${slug}-${Date.now().toString(36)}`;
+        if (!addDeviceStep2.zones?.length) {
+            addDeviceStep2.zones = [{ id: 'zone-1', name: 'Zone 1', active: true }];
+        }
+        addDeviceStep = 2;
+    }
+
+    function setDwellThresholdFromInput(el: HTMLInputElement | null) {
+        if (!el) return;
+        const v = el.value;
+        addDeviceStep2.dwellThreshold = v;
+        addDeviceStep2 = addDeviceStep2;
+    }
+    function addDeviceStep2Back() {
+        addDeviceError = '';
+        addDevicePinError = '';
+        addDeviceNameError = '';
+        addDeviceZoneErrors = {};
+        addDeviceStep = 1;
+    }
+
+    function addDeviceAddZone() {
+        if (addDeviceStep2.zones.length >= MAX_ZONES) return;
+        addDeviceStep2.zones = [...addDeviceStep2.zones, { id: `zone-${Date.now()}`, name: '', active: true }];
+        addDeviceZoneErrors = {};
+    }
+
+    function addDeviceRemoveZone(id: string) {
+        if (addDeviceStep2.zones.length <= 1) return;
+        addDeviceStep2.zones = addDeviceStep2.zones.filter((z) => z.id !== id);
+        const next = { ...addDeviceZoneErrors };
+        delete next[id];
+        addDeviceZoneErrors = next;
+    }
+
+    function addDeviceToggleZoneActive(id: string) {
+        const z = addDeviceStep2.zones.find((x) => x.id === id);
+        if (z) z.active = !z.active;
+        addDeviceStep2 = addDeviceStep2;
+    }
+
+
+    function addDeviceSubmit(input: {
+        action: URL;
+        formData: FormData;
+        formElement: HTMLFormElement;
+        controller: AbortController;
+        submitter: HTMLElement | null;
+        cancel: () => void;
+    }) {
+        // Validate zone names before submit (Step 2). Default zone (zone-1) is not required per design note.
+        if (addDeviceStep === 2 && addDeviceStep2.zones) {
+            const errors: Record<string, string> = {};
+            for (const z of addDeviceStep2.zones) {
+                if (z.id === 'zone-1') continue; // Default zone: do not require
+                if (!z.name?.trim()) errors[z.id] = 'This field is required';
+            }
+            if (Object.keys(errors).length > 0) {
+                addDeviceZoneErrors = errors;
+                input.cancel();
+                toast.error('Please fill out all zone names.');
+                return () => {};
+            }
+            addDeviceZoneErrors = {};
+        }
+        addDeviceLoading = true;
+        return async (opts: {
+            result: { type: string; location?: string; data?: { error?: string } };
+        }) => {
+            addDeviceLoading = false;
+            const { result } = opts;
+            if (result.type === 'redirect' && result.location) {
+                toast.success('Device registered successfully!');
+                closeAddDeviceModal();
+                await invalidate('app:userControllersRadar');
+                goto(result.location, { noScroll: true });
+            } else if (result.type === 'failure' && result.data?.error) {
+                const err = result.data.error;
+                const isPinRelated = /PIN|registration code|resolve device/i.test(err);
+                if (isPinRelated) {
+                    addDeviceStep = 1;
+                    addDevicePinError = err;
+                    addDeviceError = '';
+                } else {
+                    addDeviceError = err;
+                }
+                toast.error(err || 'Unable to register device. Please try again!');
+            }
+        };
+    }
+
     // Debounced search: only goto when search param actually changed (avoids resetting page after pagination click)
     $: if (browser && typeof searchValue !== 'undefined') {
         clearTimeout(searchTimeout);
@@ -143,6 +376,16 @@
 
     // Table data
     $: tableData = (data.radarSensors || []) as unknown as SensorRow[];
+
+    // Open Edit Device modal when navigated from detail page with ?editSensorId=
+    let openedEditFromQuery = false;
+    $: if (browser && (data as { editSensor?: unknown }).editSensor && !openedEditFromQuery) {
+        openedEditFromQuery = true;
+        openEditDeviceModal((data as unknown as { editSensor: SensorRow }).editSensor);
+        const u = new URL($page.url);
+        u.searchParams.delete('editSensorId');
+        goto(u.pathname + u.search, { replaceState: true, noScroll: true });
+    }
 
     function handleSort(event: CustomEvent<SortState>) {
         const next = event.detail;
@@ -239,7 +482,7 @@
                     {
                         id: 'edit',
                         label: 'Edit',
-                        onClick: () => goto(`/user/controllers/radar/${controllerId}`)
+                        onClick: (row: SensorRow) => openEditDeviceModal(row)
                     },
                     {
                         id: 'delete',
@@ -259,9 +502,9 @@
 </script>
 
 <!-- Main wrap: same layout as devices listing (padding 24px, gap 16px) -->
-<div class="flex flex-col items-start" style="padding: 24px; gap: 16px;">
+<div class="sensors-listing-wrap">
     <!-- Search & filter bar: gap 16px, height 48px -->
-    <div class="flex flex-row items-center" style="gap: 16px; height: 48px; width: 100%;">
+    <div class="sensors-listing-toolbar">
         <div style="width: 500px; height: 48px;">
             <InputField
                 type="search"
@@ -291,8 +534,7 @@
                 color="primary"
                 size="lg"
                 iconLeft={true}
-                on:click={() => goto('/user/controllers/radar/new')}
-                style="width: 156px; height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+                on:click={openAddDeviceModal}
             >
                 <Plus size={20} slot="icon-left" />
                 Register Device
@@ -300,21 +542,20 @@
         {/if}
     </div>
 
-    <!-- Table width per design: ~70–80% of content area, not full width -->
+    <!-- Table per design -->
     <div class="w-full">
         <DataTable
             {columns}
             data={tableData}
             keyField="id"
-            selectable={true}
-            checkboxColumnWidth="48px"
-            bind:selectedRows
             sortable={true}
             bind:sort
             paginated={true}
             {pagination}
             loading={false}
-            emptyMessage="No sensors found"
+            emptyMessage={showCreateButton
+                ? 'No sensors found. Use "Register Device" to add a sensor by entering your device\'s 6-digit registration code (PIN).'
+                : 'No sensors found. Register a device with its PIN to create a sensor.'}
             on:sort={handleSort}
             on:pageChange={handlePageChange}
             on:rowClick={handleRowClick}
@@ -364,6 +605,348 @@
     </div>
 </Modal>
 
+<!-- Add Device modal – Figma: header / body (scrollable) / footer (fixed). Footer in Modal footer slot, not inside body. -->
+<Modal
+    open={showAddDeviceModal}
+    title="Add Device"
+    size="xl"
+    showFooter={false}
+    on:close={closeAddDeviceModal}
+>
+    <form
+        id="add-device-form"
+        method="POST"
+        action="?/create"
+        use:enhance={addDeviceSubmit}
+        class="add-device-form"
+    >
+        <input type="hidden" name="accountId" value={addDeviceForm.accountId} />
+        <input type="hidden" name="pin" value={addDeviceForm.pin} />
+        <input type="hidden" name="status" value={addDeviceForm.status} />
+        <input type="hidden" name="name" value={addDeviceForm.name} />
+        <input type="hidden" name="location" value={addDeviceForm.location} />
+        <input type="hidden" name="serialNumber" value={addDeviceForm.serialNumber} />
+        <input type="hidden" name="description" value={addDeviceForm.description ?? ''} />
+        <input type="hidden" name="firmware" value={addDeviceForm.firmware ?? ''} />
+
+        {#if addDeviceError}
+            <Alert
+                severity="error"
+                variant="outline"
+                message={addDeviceError}
+                dismissible={true}
+                on:dismiss={() => (addDeviceError = '')}
+            />
+        {/if}
+
+        {#if addDeviceStep === 1}
+            <!-- Step 1: Device Registration Code (PIN) *, Sensor Name *, Location -->
+            <div class="add-device-fields">
+                <div class="add-device-field add-device-field-full add-device-field-with-pin-help">
+                    <InputField
+                        label="Device Registration Code"
+                        type="text"
+                        bind:value={addDeviceForm.pin}
+                        placeholder="000 000"
+                        required={true}
+                        disabled={addDeviceLoading}
+                        align="center"
+                        state={addDevicePinError ? 'error' : 'default'}
+                        helperText={addDevicePinError}
+                    />
+                    <div class="add-device-pin-help">
+                        <div class="add-device-pin-help-row">
+                            <span class="add-device-pin-help-icon" aria-hidden="true">
+                                <Info size={20} strokeWidth={2} />
+                            </span>
+                            <span class="add-device-pin-help-title">Need help finding your device PIN?</span>
+                        </div>
+                        <ul class="add-device-pin-help-list">
+                            <li>The PIN is a 6-digit code displayed on your device or terminal during setup</li>
+                            <li>For camera devices, the code may appear on the device's screen</li>
+                            <li>If you can't find the code, try resetting the device</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="add-device-field add-device-field-full">
+                    <InputField
+                        label="Sensor Name"
+                        type="text"
+                        bind:value={addDeviceForm.name}
+                        placeholder="Enter"
+                        required={true}
+                        disabled={addDeviceLoading}
+                        state={addDeviceNameError ? 'error' : 'default'}
+                        helperText={addDeviceNameError}
+                    />
+                </div>
+                <div class="add-device-field add-device-field-full">
+                    <InputField
+                        label="Location"
+                        type="text"
+                        bind:value={addDeviceForm.location}
+                        placeholder="Enter"
+                        disabled={addDeviceLoading}
+                    />
+                </div>
+            </div>
+        {:else}
+            <!-- Step 2: Configuration Template, Tracking Area, Zones, Device Settings -->
+            <div class="add-device-fields">
+                <div class="add-device-field add-device-field-full">
+                    <Dropdown
+                        label="Configuration Template"
+                        placeholder="Select"
+                        options={configTemplateOptions}
+                        value={addDeviceStep2.configTemplate}
+                        width="100%"
+                    />
+                </div>
+                <div class="add-device-section">
+                    <h3 class="add-device-section-title">Tracking Area</h3>
+                    <div class="add-device-row">
+                        <div class="add-device-field">
+                            <InputField
+                                label="X Min (m)"
+                                type="text"
+                                bind:value={addDeviceStep2.trackingXMin}
+                                placeholder="Enter"
+                                disabled={addDeviceLoading}
+                            />
+                        </div>
+                        <div class="add-device-field">
+                            <InputField
+                                label="Y Min (m)"
+                                type="text"
+                                bind:value={addDeviceStep2.trackingYMin}
+                                placeholder="Enter"
+                                disabled={addDeviceLoading}
+                            />
+                        </div>
+                        <div class="add-device-field">
+                            <InputField
+                                label="X Max (m)"
+                                type="text"
+                                bind:value={addDeviceStep2.trackingXMax}
+                                placeholder="Enter"
+                                disabled={addDeviceLoading}
+                            />
+                        </div>
+                        <div class="add-device-field">
+                            <InputField
+                                label="Y Max (m)"
+                                type="text"
+                                bind:value={addDeviceStep2.trackingYMax}
+                                placeholder="Enter"
+                                disabled={addDeviceLoading}
+                            />
+                        </div>
+                    </div>
+                </div>
+                <!-- Zones: Frame 54 = title + Add Zone (disabled at 5 with tooltip); zone wrap = Toggle + Input + Trash -->
+                <div class="add-device-section">
+                    <div class="add-device-zones-header">
+                        <h3 class="add-device-section-title">Zones</h3>
+                        <div class="add-device-add-zone-right">
+                            {#if addDeviceStep2.zones.length >= MAX_ZONES}
+                                <span class="add-device-add-zone-trigger-wrap">
+                                    <Tooltip text="Maximum 5 zones per device" position="bottom" arrow="top" theme="dark" portal={true}>
+                                        <Button
+                                            type="button"
+                                            variant="text"
+                                            color="primary"
+                                            size="sm"
+                                            disabled={true}
+                                            icon={Plus}
+                                            iconPosition="left"
+                                            class="add-device-add-zone-btn add-device-add-zone-btn-disabled"
+                                        >
+                                            Add Zone
+                                        </Button>
+                                    </Tooltip>
+                                </span>
+                            {:else}
+                                <Button
+                                    type="button"
+                                    variant="text"
+                                    color="primary"
+                                    size="sm"
+                                    icon={Plus}
+                                    iconPosition="left"
+                                    on:click={addDeviceAddZone}
+                                    disabled={addDeviceLoading}
+                                    class="add-device-add-zone-btn"
+                                >
+                                    Add Zone
+                                </Button>
+                            {/if}
+                        </div>
+                    </div>
+                    {#each addDeviceStep2.zones as zone (zone.id)}
+                        <div class="add-device-zone-wrap">
+                            <div class="add-device-zone-toggle">
+                                <Tooltip text={zone.active ? 'Active Zone' : 'Inactive Zone'} position="top" theme="dark" portal={true}>
+                                    <Toggle
+                                        size="sm"
+                                        checked={zone.active}
+                                        disabled={addDeviceLoading}
+                                        on:change={() => addDeviceToggleZoneActive(zone.id)}
+                                    />
+                                </Tooltip>
+                            </div>
+                            <div class="add-device-zone-input">
+                                <InputField
+                                    type="text"
+                                    bind:value={zone.name}
+                                    placeholder="Enter"
+                                    disabled={addDeviceLoading}
+                                    state={addDeviceZoneErrors[zone.id] ? 'error' : 'default'}
+                                    helperText={addDeviceZoneErrors[zone.id] || ''}
+                                />
+                            </div>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                color="danger"
+                                size="md"
+                                icon={Trash2}
+                                iconPosition="only"
+                                iconSize={20}
+                                aria-label="Delete zone"
+                                disabled={addDeviceLoading || addDeviceStep2.zones.length <= 1}
+                                on:click={() => addDeviceRemoveZone(zone.id)}
+                                class="add-device-zone-delete"
+                            />
+                        </div>
+                    {/each}
+                </div>
+                <div class="add-device-section">
+                    <h3 class="add-device-section-title">Device Settings</h3>
+                    <div class="add-device-row add-device-row-device-settings">
+                        <div class="add-device-field">
+                            <Dropdown
+                                label="Device Mode"
+                                placeholder="Select"
+                                options={[{ id: 'LIVE_PREVIEW', label: 'Live Preview' }]}
+                                value={addDeviceStep2.deviceMode}
+                                width="100%"
+                                preferPlacement="bottom"
+                                disabled={addDeviceLoading}
+                                on:change={(e) => {
+                                    const v = e.detail;
+                                    addDeviceStep2.deviceMode = Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+                                    addDeviceStep2 = addDeviceStep2;
+                                }}
+                            />
+                        </div>
+                        <div class="add-device-field">
+                            <Dropdown
+                                label="Timezone"
+                                placeholder="Select"
+                                options={timezoneOptions}
+                                value={addDeviceStep2.timezone}
+                                width="100%"
+                                preferPlacement="bottom"
+                                disabled={addDeviceLoading}
+                                on:change={(e) => {
+                                    const v = e.detail;
+                                    addDeviceStep2.timezone = Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+                                    addDeviceStep2 = addDeviceStep2;
+                                }}
+                            />
+                        </div>
+                    </div>
+                    <div class="add-device-path-tracking-row">
+                        <div class="add-device-path-tracking-cell-text">
+                            <span class="add-device-path-tracking-title">Path Tracking</span>
+                            <span class="add-device-path-tracking-desc">Enable movement path recording</span>
+                        </div>
+                        <div class="add-device-path-tracking-cell-toggle">
+                            <Toggle
+                                size="sm"
+                                checked={addDeviceStep2.pathTracking}
+                                disabled={addDeviceLoading}
+                                on:change={() => {
+                                    addDeviceStep2.pathTracking = !addDeviceStep2.pathTracking;
+                                    addDeviceStep2 = addDeviceStep2;
+                                }}
+                            />
+                        </div>
+                    </div>
+                    <div class="add-device-dwell-row">
+                        <label class="add-device-dwell-label" for="add-device-dwell-threshold">Dwell Threshold</label>
+                        <div class="add-device-dwell-control">
+                            <div class="add-device-dwell-slider-wrap">
+                                <ProgressBar
+                                    value={Math.min(100, (parseFloat(addDeviceStep2.dwellThreshold) || 0) / 60 * 100)}
+                                    showThumb={true}
+                                    size="md"
+                                    color="gray"
+                                />
+                                <input
+                                    id="add-device-dwell-threshold"
+                                    type="range"
+                                    class="add-device-dwell-range"
+                                    min="0"
+                                    max="60"
+                                    step="1"
+                                    value={parseFloat(addDeviceStep2.dwellThreshold) || 30}
+                                    disabled={addDeviceLoading}
+                                    on:input={(e) => setDwellThresholdFromInput(e.currentTarget)}
+                                />
+                            </div>
+                            <div class="add-device-dwell-value-wrap">
+                                <span class="add-device-dwell-value">{addDeviceStep2.dwellThreshold || '30'}</span>
+                                <span class="add-device-dwell-unit">sec</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {/if}
+    </form>
+
+    <!-- Footer: rendered in Modal footer slot (sibling of body), not inside form/body -->
+    <svelte:fragment slot="footer">
+        {#if addDeviceStep === 1}
+            <div class="add-device-actions">
+                <Button type="button" variant="outline" color="primary" size="lg" on:click={closeAddDeviceModal} disabled={addDeviceLoading}>
+                    Cancel
+                </Button>
+                <Button type="button" variant="filled" color="primary" size="lg" on:click={addDeviceStep1Next} disabled={addDeviceLoading}>
+                    Next
+                </Button>
+            </div>
+        {:else}
+            <div class="add-device-actions add-device-actions-step2">
+                <Button type="button" variant="text" color="primary" size="lg" on:click={addDeviceStep2Back} disabled={addDeviceLoading}>
+                    Back
+                </Button>
+                <div class="add-device-actions-right">
+                    <Button type="button" variant="outline" color="primary" size="lg" on:click={closeAddDeviceModal} disabled={addDeviceLoading}>
+                        Cancel
+                    </Button>
+                    <Button type="submit" form="add-device-form" variant="filled" color="primary" size="lg" disabled={addDeviceLoading}>
+                        {#if addDeviceLoading}
+                            Registering…
+                        {:else}
+                            Register
+                        {/if}
+                    </Button>
+                </div>
+            </div>
+        {/if}
+    </svelte:fragment>
+</Modal>
+
+<!-- Edit Device modal – shared with Detail page -->
+<EditDeviceModal
+    bind:open={showEditDeviceModal}
+    sensor={sensorToEdit}
+    onSave={submitEditDeviceFromModal}
+    onClose={closeEditDeviceModal}
+/>
+
 <!-- Delete confirmation modal (per design: red icon, title, message, Cancel + Delete) -->
 <Modal
     open={showDeleteModal}
@@ -381,3 +964,673 @@
         Are you sure you want to delete this sensor? This action cannot be reversed.
     </p>
 </Modal>
+
+<style>
+    .sensors-listing-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: var(--ds-space-6, 24px);
+        gap: var(--ds-space-4, 16px);
+    }
+    .sensors-listing-toolbar {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-4, 16px);
+        height: 48px;
+        width: 100%;
+    }
+
+    /* Edit Device modal – body padding 16px gap 16px, tabs underline */
+    .edit-device-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+        width: 100%;
+        min-width: 0;
+        font-family: var(--ds-font-family-primary);
+    }
+    .edit-device-tabs-wrap {
+        width: 100%;
+        border-bottom: 1px solid var(--ds-color-neutral-true-200, #E5E5E5);
+    }
+    /* Alert tab: section = title + desc outside, cards with gap between them */
+    .edit-device-alert-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-3, 12px);
+        width: 100%;
+    }
+    .edit-device-alert-section-header {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        width: 100%;
+    }
+    .edit-device-alert-desc {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--ds-color-gray-600, #475467);
+        margin: 0;
+    }
+    .edit-device-alert-table-wrap {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-3, 12px);
+    }
+    /* One card per rule: title row + optional divider + input row stay grouped */
+    .edit-device-alert-card {
+        width: 100%;
+        background: var(--ds-color-neutral-true-50, #FAFAFA);
+        border-radius: 8px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+    .edit-device-alert-card-divider {
+        width: 100%;
+        height: 0;
+        border: none;
+        border-top: 1px solid var(--ds-color-gray-200, #EAECF0);
+        flex-shrink: 0;
+        margin: 0;
+    }
+    .edit-device-alert-table-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--ds-space-4);
+        padding: 16px;
+        min-height: 52px;
+        box-sizing: border-box;
+    }
+    /* Clear vertical gap between divider and input row (toggle content); row height fits 52px field */
+    .edit-device-alert-table-row.edit-device-alert-input-row {
+        align-items: center;
+        min-height: 0;
+        padding: 16px;
+        margin-top: var(--ds-space-2, 8px);
+    }
+    /* Threshold / label-field rows: InputField from design-system, horizontal layout (label left, input right) */
+    .edit-device-alert-threshold-row,
+    .edit-device-alert-label-field-row {
+        align-items: center;
+        gap: var(--ds-space-4, 16px);
+    }
+    /* Email / Webhook: label left, input right (space-between) */
+    .edit-device-alert-label-field-row.edit-device-alert-field-row-end {
+        justify-content: space-between;
+    }
+    .edit-device-alert-threshold-row :global(.input-field-wrapper),
+    .edit-device-alert-label-field-row :global(.input-field-wrapper) {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+    }
+    .edit-device-alert-threshold-row :global(.input-label),
+    .edit-device-alert-label-field-row :global(.input-label) {
+        margin-bottom: 0;
+        margin-right: var(--ds-space-3, 12px);
+        flex-shrink: 0;
+    }
+    .edit-device-alert-threshold-row :global(.input-container),
+    .edit-device-alert-label-field-row :global(.input-container) {
+        flex: 1;
+        min-width: 0;
+    }
+    .edit-device-alert-threshold-label {
+        flex-shrink: 0;
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-600, #525252);
+    }
+    /* Single white box (328px, 52px height, 8px radius per Figma Base/Input) for Threshold + unit/dropdown */
+    .edit-device-alert-field-box {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        align-self: center;
+        width: 100%;
+        max-width: 328px;
+        height: 52px;
+        min-height: 52px;
+        max-height: 52px;
+        padding: 0;
+        background: var(--ds-color-gray-1-9, #FEFEFE);
+        border: 1px solid var(--ds-color-neutral-true-300, #D6D6D6);
+        border-radius: var(--ds-radius-lg, 8px);
+        overflow: hidden;
+        flex-shrink: 0;
+        box-sizing: border-box;
+    }
+    .edit-device-alert-field-box :global(.input-field-wrapper) {
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+        border: none;
+        min-height: 0;
+        align-self: stretch;
+    }
+    /* Content wrap: padding 12px 14px per Figma; keep height within 52px box */
+    .edit-device-alert-field-box :global(.input-container) {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        border-radius: 0;
+        height: 100%;
+        min-height: 0;
+        max-height: 52px;
+        padding: 12px 14px;
+    }
+    /* Suffix (inline unit e.g. "minutes"): padding 14px, Text Neutral True/800 */
+    .edit-device-alert-field-box .edit-device-alert-unit-inline {
+        flex-shrink: 0;
+        padding: 14px;
+        font-family: var(--ds-font-family-primary);
+        font-size: 16px;
+        line-height: 24px;
+        color: var(--ds-color-neutral-true-800, #292929);
+    }
+    /* Suffix (unit dropdown): _Base/ Prefix & Suffix – padding 14px, gap 8px; ensure "minutes"/"hours" not truncated */
+    .edit-device-alert-field-box .edit-device-alert-unit-dropdown {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        min-width: 120px;
+        max-width: 140px;
+        padding: 14px;
+        gap: 8px;
+        box-sizing: border-box;
+    }
+    .edit-device-alert-field-box .edit-device-alert-unit-dropdown :global(.dropdown-container) {
+        flex: 1;
+        min-width: 0;
+    }
+    .edit-device-alert-field-box .edit-device-alert-unit-dropdown :global(.dropdown-trigger) {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        border-radius: 0;
+        min-height: 24px;
+        padding: 0;
+        min-width: 0;
+    }
+    .edit-device-alert-field-box .edit-device-alert-unit-dropdown :global(.dropdown-trigger-text) {
+        min-width: 4.5em;
+        flex: 1 1 auto;
+    }
+    .edit-device-alert-unit-inline {
+        flex-shrink: 0;
+        font-family: var(--ds-font-family-primary);
+        font-size: 16px;
+        line-height: 24px;
+        color: var(--ds-color-neutral-true-500, #737373);
+    }
+    /* Dwell field: InputField inside white box – no border so it blends */
+    .edit-device-alert-dwell-input-wrap {
+        flex: 1;
+        min-width: 80px;
+        max-width: 120px;
+    }
+    .edit-device-alert-dwell-input-wrap :global(.input-field-wrapper) {
+        margin: 0;
+        border: none;
+        min-height: 0;
+        align-self: stretch;
+    }
+    /* Middle segment: content wrap – padding 12px 14px per Figma; keep within 52px */
+    .edit-device-alert-dwell-input-wrap :global(.input-container) {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 12px 14px;
+        height: 100%;
+        min-height: 0;
+        max-height: 52px;
+    }
+    /* Zone & Threshold: one white box (328px, 52px height, 8px radius per Figma Base/Input) */
+    .edit-device-alert-dwell-field {
+        flex: 1;
+        min-width: 0;
+        max-width: 328px;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        align-self: center;
+        height: 52px;
+        min-height: 52px;
+        max-height: 52px;
+        padding: 0;
+        background: var(--ds-color-gray-1-9, #FEFEFE);
+        border: 1px solid var(--ds-color-neutral-true-300, #D6D6D6);
+        border-radius: var(--ds-radius-lg, 8px);
+        box-sizing: border-box;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    /* Zone segment: _Base/ Prefix & Suffix – padding 14px, gap 4px, border-right divider */
+    .edit-device-alert-dwell-zone-wrap {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 140px;
+        display: flex;
+        align-items: center;
+        padding: 14px;
+        gap: 4px;
+        border-right: 1px solid var(--ds-color-neutral-true-300, #D6D6D6);
+        box-sizing: border-box;
+    }
+    .edit-device-alert-dwell-zone-wrap :global(.dropdown-container) {
+        width: 100%;
+        border: none;
+    }
+    .edit-device-alert-dwell-zone-wrap :global(.dropdown-trigger) {
+        border: none !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        border-radius: 0;
+        min-height: 24px;
+        padding: 0;
+    }
+    .edit-device-alert-field-divider {
+        width: 1px;
+        align-self: stretch;
+        background: var(--ds-color-neutral-true-300, #D6D6D6);
+        flex-shrink: 0;
+    }
+    /* Right segment (seconds): padding 14px, width 96px, Body/16px, Neutral True/400 */
+    .edit-device-alert-dwell-field .edit-device-alert-unit-inline {
+        flex: none;
+        min-width: 96px;
+        padding: 14px;
+        font-family: var(--ds-font-family-primary);
+        font-size: 16px;
+        line-height: 24px;
+        color: var(--ds-color-neutral-true-400, #A3A3A3);
+    }
+    .edit-device-alert-divider {
+        width: 100%;
+        height: 0;
+        border: none;
+        border-top: 1px solid var(--ds-color-neutral-true-200, #E5E5E5);
+        margin: var(--ds-space-6, 24px) 0;
+        flex-shrink: 0;
+    }
+    .edit-device-alert-rule-label-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .edit-device-alert-rule-title {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 20px;
+        color: var(--ds-text-primary);
+    }
+    .edit-device-alert-rule-desc {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-500, #737373);
+    }
+    .edit-device-alert-table-row.edit-device-alert-input-row {
+        flex-wrap: wrap;
+    }
+    .edit-device-alert-table-row .edit-device-alert-unit-text {
+        align-self: center;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-base);
+        line-height: 24px;
+        color: var(--ds-text-tertiary);
+        padding-bottom: 10px;
+    }
+    .edit-device-alert-unit-dropdown {
+        min-width: 120px;
+        max-width: 140px;
+    }
+    .edit-device-alert-table-row.edit-device-alert-input-row :global(.input-field-wrapper) {
+        flex: 1;
+        min-width: 0;
+    }
+    /* Email / Webhook: cap input area at 328px per design */
+    .edit-device-alert-label-field-row > :global(.input-field-wrapper) {
+        max-width: 328px;
+    }
+
+    /* Form must take full width of modal body and allow shrink (min-width: 0) to prevent flex overflow / content collapse */
+    .add-device-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+        font-family: var(--ds-font-family-primary);
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+    /* Sync all field labels in Add Device form: Body/14px/14-Regular, line-height 20px, Neutral True/600 */
+    .add-device-form :global(.dropdown-label .label-text),
+    .add-device-form :global(.input-field-wrapper .input-label .input-label-text),
+    .add-device-path-tracking-title,
+    .add-device-dwell-label {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-600, #525252);
+    }
+    .add-device-fields {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+        width: 100%;
+        min-width: 0;
+    }
+    .add-device-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--ds-space-4, 16px);
+        width: 100%;
+        min-width: 0;
+    }
+    /* Device Settings: align two dropdowns to same height (48px trigger) */
+    .add-device-row-device-settings {
+        align-items: start;
+    }
+    .add-device-row-device-settings .add-device-field {
+        min-width: 0;
+    }
+    .add-device-row-device-settings .add-device-field :global(button[class*="dropdown-trigger"]) {
+        min-height: 48px;
+        height: 48px;
+    }
+    .add-device-row-full {
+        grid-template-columns: 1fr;
+    }
+    .add-device-row-4 {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    /* Section wrap – Figma: Neutral True/50 #FAFAFA, padding 16px, gap 16px, radius 8px */
+    .add-device-section {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        padding: var(--ds-space-4);
+        gap: var(--ds-space-4);
+        width: 100%;
+        min-width: 0;
+        background: var(--ds-color-neutral-true-50);
+        border-radius: var(--ds-radius-lg);
+    }
+    .add-device-section-title {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-base, 1rem);
+        font-weight: 600;
+        line-height: 24px;
+        color: var(--ds-color-neutral-true-700);
+        margin: 0;
+    }
+    /* Zones – Frame 54: row title + Add Zone; zone wrap: Toggle 36px + Input flex-1 + Trash 40px, gap 16px */
+    .add-device-zones-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+    }
+    .add-device-zones-header .add-device-section-title {
+        flex: 0 0 auto;
+    }
+    .add-device-add-zone-right {
+        margin-left: auto;
+        flex: none;
+    }
+    .add-device-add-zone-trigger-wrap {
+        display: inline-flex;
+        width: fit-content;
+    }
+    .add-device-zones-header :global(.add-device-add-zone-btn) {
+        min-width: 130px;
+        padding-left: var(--ds-space-4);
+        padding-right: var(--ds-space-4);
+    }
+    .add-device-zones-header :global(.add-device-add-zone-btn-disabled) :global(svg),
+    .add-device-zones-header :global(.add-device-add-zone-btn-disabled) :global(span) {
+        color: var(--ds-color-neutral-true-400) !important;
+        stroke: var(--ds-color-neutral-true-400);
+    }
+    .add-device-zone-wrap {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-4);
+        width: 100%;
+        min-height: 48px;
+    }
+    .add-device-zone-toggle {
+        flex: none;
+        width: 36px;
+        display: flex;
+        align-items: center;
+    }
+    .add-device-zone-input {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+    .add-device-zone-wrap :global(.add-device-zone-delete) {
+        flex: none;
+    }
+    .add-device-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-1);
+        min-width: 0;
+        width: 100%;
+    }
+    .add-device-field-full {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+    .add-device-field-with-pin-help {
+        gap: 16px;
+    }
+    /* Path Tracking row – Figma: Device record 816×52, table cell text (flex 1) + table cell toggle 36×52 */
+    .add-device-path-tracking-row {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        padding: 0;
+        width: 100%;
+        height: 52px;
+        flex: none;
+    }
+    .add-device-path-tracking-cell-text {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0;
+        gap: 0;
+        min-height: 40px;
+        justify-content: center;
+        flex: 1;
+        min-width: 0;
+    }
+    .add-device-path-tracking-desc {
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-500, #737373);
+    }
+    .add-device-path-tracking-cell-toggle {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 16px 0;
+        gap: 12px;
+        width: 36px;
+        height: 52px;
+        min-height: 52px;
+        flex: none;
+    }
+    /* Dwell Threshold – Figma: fields wrap 816×80, label 14px Regular #525252, control row 52px, progress flex-1 8px, value box 130×52 */
+    .add-device-dwell-row {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0;
+        gap: 4px;
+        width: 100%;
+    }
+    .add-device-dwell-control {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 0;
+        gap: 16px;
+        width: 100%;
+        height: 52px;
+    }
+    .add-device-dwell-slider-wrap {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        min-height: 12px;
+    }
+    .add-device-dwell-slider-wrap :global(.progress-container) {
+        width: 100%;
+    }
+    .add-device-dwell-range {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        opacity: 0;
+        cursor: pointer;
+        z-index: 2;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+    .add-device-dwell-value-wrap {
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 12px 14px;
+        gap: 4px;
+        width: 130px;
+        height: 52px;
+        min-height: 52px;
+        background: var(--ds-color-gray-1-9, #FEFEFE);
+        border: 1px solid var(--ds-color-neutral-true-300, #D6D6D6);
+        border-radius: 8px;
+        flex: none;
+    }
+    .add-device-dwell-value {
+        font-family: var(--ds-font-family-primary);
+        font-size: 16px;
+        line-height: 24px;
+        font-weight: 400;
+        color: var(--ds-color-neutral-true-900, #141414);
+    }
+    .add-device-dwell-unit {
+        font-family: var(--ds-font-family-primary);
+        font-size: 16px;
+        line-height: 24px;
+        font-weight: 400;
+        color: var(--ds-color-neutral-true-400, #A3A3A3);
+    }
+    /* Footer actions – now inside Modal footer slot (modal-footer provides border-top + padding). Step 1: buttons right; Step 2: Back left, Cancel+Register right */
+    .add-device-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: var(--ds-space-4);
+        flex: none;
+        width: 100%;
+    }
+    .add-device-actions-step2 {
+        justify-content: space-between;
+    }
+    .add-device-actions-right {
+        display: flex;
+        align-items: center;
+        gap: var(--ds-space-4);
+    }
+
+    /* PIN help – Figma Frame 34: flex column, justify-content center, align-items center, padding 12px, gap 8px, bg Neutral True/50, radius 8px */
+    .add-device-pin-help {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        padding: var(--ds-space-3); /* 12px */
+        gap: var(--ds-space-2); /* 8px */
+        width: 100%;
+        box-sizing: border-box;
+        background: var(--ds-color-neutral-true-50); /* #FAFAFA */
+        border-radius: var(--ds-radius-lg); /* 8px */
+        flex: none;
+        align-self: stretch;
+    }
+    /* Frame 35: row, gap 10px, icon 20px, title 14px semibold Neutral True/800 */
+    .add-device-pin-help-row {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-start;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+    }
+    .add-device-pin-help-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        color: var(--ds-color-neutral-true-600); /* #525252 */
+    }
+    .add-device-pin-help-title {
+        font-family: var(--ds-font-family-primary);
+        font-style: normal;
+        font-weight: 600;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-800); /* #292929 */
+    }
+    /* Body: 14px regular, line-height 20px, Neutral True/500 #737373; list on separate lines */
+    .add-device-pin-help-list {
+        display: block;
+        margin: 0;
+        padding-left: var(--ds-space-6);
+        font-family: var(--ds-font-family-primary);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        color: var(--ds-color-neutral-true-500); /* #737373 */
+        list-style-type: disc;
+    }
+    .add-device-pin-help-list li {
+        display: list-item;
+        margin-bottom: var(--ds-space-1);
+    }
+    .add-device-pin-help-list li:last-child {
+        margin-bottom: 0;
+    }
+</style>

@@ -22,6 +22,8 @@
     export let showClearButton: boolean = false;
     export let prefixIcon: boolean = false;
     export let suffixIcon: boolean = false;
+    /** Optional suffix text (e.g. unit "m") rendered inside the input container. */
+    export let suffixText: string = '';
     export let maxlength: number | undefined = undefined;
     export let align: 'left' | 'center' | 'right' = 'left'; // Text alignment for label and input content
 
@@ -148,6 +150,7 @@
     <div 
         class="input-container"
         class:input-disabled={disabled}
+        class:input-has-suffix-text={suffixText}
         style="
             background-color: {config.bg};
             border-color: {config.border};
@@ -205,6 +208,11 @@
                     />
                 </svg>
             </button>
+        {/if}
+
+        <!-- Suffix Text (e.g. unit "m") - inside same box per Figma -->
+        {#if suffixText}
+            <span class="input-suffix-text" style="color: {config.placeholderColor};">{suffixText}</span>
         {/if}
 
         <!-- Suffix Icon Slot -->
@@ -304,6 +312,21 @@
         
         transition: all 0.15s ease;
         box-sizing: border-box;
+    }
+
+    /* With suffix text (e.g. unit): 52px height per Figma */
+    .input-container.input-has-suffix-text {
+        height: 52px;
+        gap: 8px;
+    }
+
+    .input-suffix-text {
+        flex-shrink: 0;
+        font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-md);
+        line-height: var(--ds-leading-md);
+        padding-left: 0;
     }
 
     .input-disabled {

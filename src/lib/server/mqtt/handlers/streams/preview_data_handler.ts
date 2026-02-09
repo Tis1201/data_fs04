@@ -29,14 +29,20 @@ export async function handlePreviewDataMessage(
                 const userNotificationTopic = `user/${claims.sub}/notifications`;
                 const transport = getMqttTransport();
 
+                const frameData = data.data || data;
+                const timestamp = data.timestamp || Date.now();
                 const notification = {
                     type: 'preview.data',
                     flowId: claims.flowId,
+                    timestamp,
+                    frameNumber: data.frameNumber,
+                    data: frameData,
                     params: {
                         sessionId: claims.params?.sessionId,
                         sensorId: claims.params?.sensorId,
-                        timestamp: data.timestamp || Date.now(),
-                        data: data.data || data
+                        timestamp,
+                        frameNumber: data.frameNumber,
+                        data: frameData
                     }
                 };
 

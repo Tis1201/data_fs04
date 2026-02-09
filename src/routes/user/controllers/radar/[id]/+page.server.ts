@@ -20,6 +20,8 @@ interface Zone {
     endY: number;
     description?: string;
     color?: string;
+    /** When false, zone is deactivated (not used for detection). Default true when omitted. */
+    active?: boolean;
 }
 
 interface TrackingArea {
@@ -93,6 +95,11 @@ const dwellBucketSchema = z.object({
     maxDuration: z.coerce.number().int().min(0).optional().nullable(),
     description: z.string().optional().nullable(),
     color: z.string().optional().default('#10b981') // Default emerald color
+});
+
+const updateSensorInfoSchema = z.object({
+    name: z.string().min(1, { message: 'Sensor name is required' }).max(100, { message: 'Name must be 100 characters or less' }),
+    location: z.string().max(200, { message: 'Location must be 200 characters or less' }).optional().nullable()
 });
 
 function generateId() {
@@ -650,7 +657,7 @@ export const actions: Actions = {
                 const config = (sensor.config as unknown as RadarConfig) || {};
                 if (!config.zones) return fail(400, { error: 'No zones found' });
 
-                config.zones = config.zones.filter(z => z.id !== zoneId);
+                config.zones = config.zones.filter((z) => (z.id ?? `zone-${z.zoneNumber}`) !== zoneId);
 
                 await locals.prisma.sensor.update({
                     where: { id: sensor.id },
@@ -670,6 +677,61 @@ export const actions: Actions = {
                 }
                 logger.error(`Error deleting zone: ${err}`);
                 return fail(500, { error: 'Failed to delete zone' });
+            }
+        },
+        'USER_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
+    ),
+
+    setZoneActive: restrictModule(
+        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+            const { id } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) {
+                return fail(403, { error: 'User account not found' });
+            }
+
+            const formData = await request.formData();
+            const zoneId = formData.get('zoneId')?.toString();
+            const activeRaw = formData.get('active')?.toString();
+
+            if (!zoneId) return fail(400, { error: 'Zone ID is required' });
+            const active = activeRaw === 'true';
+
+            try {
+                await checkAccountAccess(id, currentAccountId as string, locals.prisma);
+
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+
+                const config = (sensor.config as unknown as RadarConfig) || {};
+                if (!config.zones) return fail(400, { error: 'No zones found' });
+
+                const zoneIndex = config.zones.findIndex(
+                    (z) => (z.id ?? `zone-${z.zoneNumber}`) === zoneId
+                );
+                if (zoneIndex === -1) return fail(404, { error: 'Zone not found' });
+
+                config.zones[zoneIndex] = { ...config.zones[zoneIndex], active };
+
+                await locals.prisma.sensor.update({
+                    where: { id: sensor.id },
+                    data: {
+                        config: config as Prisma.InputJsonValue,
+                        configVersion: sensor.configVersion + 1,
+                        syncStatus: 'PENDING',
+                        lastSyncError: null,
+                        updatedAt: new Date()
+                    }
+                });
+
+                return { success: true };
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
+                    throw err;
+                }
+                logger.error(`Error setting zone active: ${err}`);
+                return fail(500, { error: 'Failed to update zone status' });
             }
         },
         'USER_CONTROLLERS_RADAR',
@@ -1000,6 +1062,35 @@ export const actions: Actions = {
                 }
                 logger.error(`Error deleting dwell bucket: ${err}`);
                 return fail(500, { error: 'Failed to delete dwell bucket' });
+            }
+        },
+        'USER_CONTROLLERS_RADAR',
+        { action: 'EDIT' }
+    ),
+    updateSensorInfo: restrictModule(
+        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+            const { id: controllerId } = params;
+            const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+            if (!currentAccountId) return fail(403, { error: 'User account not found' });
+            const form = await superValidate(request, zod(updateSensorInfoSchema));
+            if (!form.valid) return fail(400, { updateSensorInfo: form });
+            try {
+                await checkAccountAccess(controllerId, currentAccountId as string, locals.prisma);
+                const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, controllerId);
+                if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
+                await locals.prisma.sensor.update({
+                    where: { id: sensor.id },
+                    data: {
+                        name: form.data.name,
+                        location: form.data.location ?? null,
+                        updatedAt: new Date()
+                    }
+                });
+                return { success: true };
+            } catch (err: unknown) {
+                if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) throw err;
+                logger.error('Error updating sensor info:', err);
+                return fail(500, { error: 'Failed to update sensor. Please try again.' });
             }
         },
         'USER_CONTROLLERS_RADAR',

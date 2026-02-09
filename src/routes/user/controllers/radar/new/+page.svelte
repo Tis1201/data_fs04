@@ -3,33 +3,12 @@
     import { superForm } from "sveltekit-superforms/client";
     import { zod } from "sveltekit-superforms/adapters";
     import { toast } from "svelte-sonner";
-    import {
-        ArrowLeft,
-        Save,
-        Radio,
-        CheckCircle2,
-        Wifi,
-        WifiOff,
-        Info,
-    } from "lucide-svelte";
-    import { Input } from "$lib/components/ui/input";
-    import { Textarea } from "$lib/components/ui/textarea";
-    import { Button } from "$lib/components/ui/button";
-    import { Badge } from "$lib/components/ui/badge";
-
-    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
-    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
-    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
+    import { ArrowLeft, Save } from "lucide-svelte";
+    import { Button, InputField, TextareaField, Dropdown, Alert } from "$lib/design-system/components";
 
     import type { PageData } from "./$types";
     import { radarSensorSchema } from "../../../../admin/controllers/radar/new/radar-sensor";
-    import {
-        getDetailPageFormConfig,
-        getFieldProps,
-        getSelectProps,
-        processFormMessages,
-    } from "$lib/utils/formHelpers";
+    import { getDetailPageFormConfig, processFormMessages } from "$lib/utils/formHelpers";
 
     export let data: PageData;
     const title = "Register Radar Controller";
@@ -110,13 +89,24 @@
         if (serverError) serverError = "";
     }
 
+    // Always bind form to current account (required by schema; avoids "Account is required" when device not yet selected)
+    $: if (data.currentAccountId) {
+        $form.accountId = data.currentAccountId;
+    }
+
     // Auto-fill logic when device is selected
     $: if ($form.deviceId) {
-        selectedDevice = data.devices.find((d: DeviceWithAccount) => d.id === $form.deviceId) || null;
-        if (selectedDevice) {
-            // Auto-assign to current account (security)
-            $form.accountId = data.currentAccountId;
-            
+        // Find device by ID and coerce to DeviceWithAccount, normalizing accountId to string
+        const rawDevice = data.devices.find((d: any) => d.id === $form.deviceId) || null;
+        if (rawDevice) {
+            // Defensive: device.accountId may be null, so default to empty string if missing
+            selectedDevice = {
+                id: rawDevice.id,
+                name: rawDevice.name,
+                hardwareId: rawDevice.hardwareId,
+                accountId: typeof rawDevice.accountId === "string" ? rawDevice.accountId : "",
+                account: rawDevice.account ?? null
+            };
             // Auto-fill serial number
             if (!$form.serialNumber) {
                 if (selectedDevice.hardwareId) {
@@ -143,220 +133,289 @@
     }
 
     const statusOptions = [
-        { value: "ACTIVE", label: "Active" },
-        { value: "INACTIVE", label: "Inactive" },
-        { value: "MAINTENANCE", label: "Maintenance" },
+        { id: "ACTIVE", label: "Active" },
+        { id: "INACTIVE", label: "Inactive" },
+        { id: "MAINTENANCE", label: "Maintenance" },
     ];
 
-    // Device options for select
-    $: deviceOptions = data.devices.map((device: DeviceWithAccount) => {
-        const label = device.hardwareId 
-            ? `${device.name} (${device.hardwareId})` 
+    // Device options for Dropdown (id + label)
+    $: deviceOptions = data.devices.map((device: { id: string; name: string; hardwareId: string | null }) => {
+        const label = device.hardwareId
+            ? `${device.name} (${device.hardwareId})`
             : device.name;
-        return {
-            value: device.id,
-            label: label
-        };
+        return { id: device.id, label };
     });
+
+    // Type-safe error access (SuperFormErrors type is strict; runtime has field keys)
+    type ErrorsRecord = Record<string, string | string[] | null | undefined>;
+    $: errorsRecord = $errors as ErrorsRecord;
+    const err = (o: ErrorsRecord, key: string) => o?.[key];
+
+    function handleDeviceChange(e: CustomEvent<string | string[]>) {
+        $form.deviceId = (e.detail as string) || null;
+    }
+    function handleStatusChange(e: CustomEvent<string | string[]>) {
+        const v = e.detail;
+        const next = (typeof v === "string" ? v : v?.[0]) || "ACTIVE";
+        $form.status = next as "ACTIVE" | "INACTIVE" | "MAINTENANCE";
+    }
+
+    $: serialNumberHelper = (err(errorsRecord, "serialNumber") as string) || "Must be unique across all controllers";
 </script>
 
-<div class="container mx-auto py-6 space-y-6">
-    <div class="flex items-center justify-between">
+<div class="register-radar-wrap">
+    <div class="register-radar-header">
         <div>
-            <h1 class="text-2xl font-bold">{title}</h1>
-            <p class="text-muted-foreground">
+            <h1 class="register-radar-title">{title}</h1>
+            <p class="register-radar-subtitle">
                 Register a new radar controller for your account
             </p>
         </div>
         <Button
             variant="outline"
+            color="gray"
+            size="md"
             on:click={() => goto("/user/controllers/radar")}
-            class="flex items-center gap-2"
         >
-            <ArrowLeft class="h-4 w-4" />
+            <ArrowLeft size={18} slot="icon-left" />
             Cancel
         </Button>
     </div>
 
-    <div class="w-full space-y-6">
-        <FormContainer
-            method="POST"
-            action="?/create"
-            {enhance}
-            novalidate
-            {errorMessage}
-            showAlerts={true}
-            disabled={isLoading}
-            {hasTimeout}
-            {isLoading}
-            delayed={$delayed}
-        >
-            {#if serverError}
-                <div
-                    class="bg-destructive/10 border border-destructive/20 rounded-lg p-4 mb-4"
-                >
-                    <div class="flex items-start gap-3">
-                        <Info class="h-5 w-5 text-destructive mt-0.5" />
-                        <div class="space-y-2 flex-1">
-                            <p class="text-sm font-medium text-destructive">
-                                {serverError}
-                            </p>
-                            <div class="text-xs text-muted-foreground">
-                                <ul class="list-disc list-inside space-y-1">
-                                    <li>Select a different device</li>
-                                    <li>Use a unique serial number</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+    <form
+        method="POST"
+        action="?/create"
+        use:enhance
+        novalidate
+        class="register-radar-form"
+    >
+        {#if serverError}
+            <div class="register-radar-alert">
+                <Alert
+                    severity="error"
+                    variant="outline"
+                    title="Registration failed"
+                    message={serverError + " Select a different device or use a unique serial number."}
+                    dismissible={false}
+                />
+            </div>
+        {/if}
+
+        <div class="register-radar-fields">
+            <div class="register-radar-row">
+                <div class="register-radar-field">
+                    <label class="register-radar-label" for="deviceId">Device <span class="required">*</span></label>
+                    <Dropdown
+                        label=""
+                        placeholder="Select a device"
+                        options={deviceOptions}
+                        value={$form.deviceId ?? ""}
+                        required={true}
+                        disabled={isLoading}
+                        error={!!err(errorsRecord, "deviceId")}
+                        errorMessage={String(err(errorsRecord, "deviceId") || "")}
+                        width="100%"
+                        on:change={handleDeviceChange}
+                    />
+                    <input type="hidden" name="deviceId" value={$form.deviceId ?? ""} />
+                    {#if selectedDevice}
+                        <p class="register-radar-helper">Device from your account will be used</p>
+                    {/if}
                 </div>
-            {/if}
-
-            <div class="grid gap-6">
-                <FormRow columns={2}>
-                    <FormField
-                        id="device"
-                        label="Device"
-                        error={errors.deviceId}
-                        required
-                        {...getFieldProps("deviceId", $form, errors)}
-                    >
-                        <EnhancedSelect
-                            name="deviceId"
-                            options={deviceOptions}
-                            bind:value={$form.deviceId}
-                            placeholder="Select a device"
-                            required={true}
-                            {...getSelectProps("deviceId", $form, errors)}
-                        />
-                        {#if selectedDevice}
-                            <p class="text-xs text-muted-foreground mt-1">
-                                Device from your account will be used
-                            </p>
-                        {/if}
-                    </FormField>
-
-                    <FormField
-                        id="status"
-                        label="Status"
-                        error={errors.status}
-                        {...getFieldProps("status", $form, errors)}
-                    >
-                        <EnhancedSelect
-                            name="status"
-                            options={statusOptions}
-                            bind:value={$form.status}
-                            {...getSelectProps("status", $form, errors)}
-                        />
-                    </FormField>
-                </FormRow>
-
-                <FormRow columns={2}>
-                    <FormField
-                        id="name"
-                        label="Sensor Name"
-                        error={errors.name}
-                        required
-                        {...getFieldProps("name", $form, errors)}
-                    >
-                        <Input
-                            name="name"
-                            bind:value={$form.name}
-                            placeholder="e.g., Main Hall Radar"
-                            required
-                        />
-                    </FormField>
-
-                    <FormField
-                        id="serialNumber"
-                        label="Serial Number"
-                        error={errors.serialNumber}
-                        required
-                        {...getFieldProps("serialNumber", $form, errors)}
-                    >
-                        <Input
-                            name="serialNumber"
-                            bind:value={$form.serialNumber}
-                            placeholder="e.g., RADAR-001"
-                            required
-                        />
-                        <p class="text-xs text-muted-foreground mt-1">
-                            Must be unique across all controllers
-                        </p>
-                    </FormField>
-                </FormRow>
-
-                <FormRow columns={1}>
-                    <FormField
-                        id="description"
-                        label="Description"
-                        error={errors.description}
-                        {...getFieldProps("description", $form, errors)}
-                    >
-                        <Textarea
-                            name="description"
-                            bind:value={$form.description}
-                            placeholder="Optional description"
-                            rows={3}
-                        />
-                    </FormField>
-                </FormRow>
-
-                <FormRow columns={2}>
-                    <FormField
-                        id="location"
-                        label="Location"
-                        error={errors.location}
-                        {...getFieldProps("location", $form, errors)}
-                    >
-                        <Input
-                            name="location"
-                            bind:value={$form.location}
-                            placeholder="e.g., Building A, Floor 2"
-                        />
-                    </FormField>
-
-                    <FormField
-                        id="firmware"
-                        label="Firmware Version"
-                        error={errors.firmware}
-                        {...getFieldProps("firmware", $form, errors)}
-                    >
-                        <Input
-                            name="firmware"
-                            bind:value={$form.firmware}
-                            placeholder="e.g., v1.0.0"
-                        />
-                    </FormField>
-                </FormRow>
-
-                <!-- Hidden accountId field (auto-assigned) -->
-                <input type="hidden" name="accountId" bind:value={$form.accountId} />
-
-                <div class="flex justify-end gap-3 pt-4">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        on:click={() => goto("/user/controllers/radar")}
+                <div class="register-radar-field">
+                    <label class="register-radar-label" for="status">Status</label>
+                    <Dropdown
+                        label=""
+                        placeholder="Select"
+                        options={statusOptions}
+                        value={$form.status ?? "ACTIVE"}
                         disabled={isLoading}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        type="submit"
-                        disabled={isLoading}
-                        class="flex items-center gap-2"
-                    >
-                        {#if isLoading}
-                            <span class="loading loading-spinner loading-sm"></span>
-                        {:else}
-                            <Save class="h-4 w-4" />
-                        {/if}
-                        Register Controller
-                    </Button>
+                        error={!!err(errorsRecord, "status")}
+                        errorMessage={String(err(errorsRecord, "status") || "")}
+                        width="100%"
+                        on:change={handleStatusChange}
+                    />
+                    <input type="hidden" name="status" value={$form.status ?? ""} />
                 </div>
             </div>
-        </FormContainer>
-    </div>
+
+            <div class="register-radar-row">
+                <div class="register-radar-field">
+                    <InputField
+                        id="name"
+                        name="name"
+                        label="Sensor Name"
+                        type="text"
+                        bind:value={$form.name}
+                        placeholder="e.g., Main Hall Radar"
+                        required={true}
+                        disabled={isLoading}
+                        state={err(errorsRecord, "name") ? "error" : "default"}
+                        helperText={String(err(errorsRecord, "name") || "")}
+                    />
+                </div>
+                <div class="register-radar-field">
+                    <InputField
+                        id="serialNumber"
+                        name="serialNumber"
+                        label="Serial Number"
+                        type="text"
+                        bind:value={$form.serialNumber}
+                        placeholder="e.g., RADAR-001"
+                        required={true}
+                        disabled={isLoading}
+                        state={err(errorsRecord, "serialNumber") ? "error" : "default"}
+                        helperText={serialNumberHelper}
+                    />
+                </div>
+            </div>
+
+            <div class="register-radar-row register-radar-row-full">
+                    <TextareaField
+                        id="description"
+                        name="description"
+                        label="Description"
+                        value={$form.description ?? ""}
+                        on:input={(e) => { $form.description = e.detail ?? ""; }}
+                        placeholder="Optional description"
+                        rows={3}
+                        disabled={isLoading}
+                        state={err(errorsRecord, "description") ? "error" : "default"}
+                        helperText={String(err(errorsRecord, "description") || "")}
+                    />
+            </div>
+
+            <div class="register-radar-row">
+                <div class="register-radar-field">
+                    <InputField
+                        id="location"
+                        name="location"
+                        label="Location"
+                        type="text"
+                        value={$form.location ?? ""}
+                        on:input={(e) => { $form.location = e.detail || null; }}
+                        placeholder="e.g., Building A, Floor 2"
+                        disabled={isLoading}
+                        state={err(errorsRecord, "location") ? "error" : "default"}
+                        helperText={String(err(errorsRecord, "location") || "")}
+                    />
+                </div>
+                <div class="register-radar-field">
+                    <InputField
+                        id="firmware"
+                        name="firmware"
+                        label="Firmware Version"
+                        type="text"
+                        value={$form.firmware ?? ""}
+                        on:input={(e) => { $form.firmware = e.detail || null; }}
+                        placeholder="e.g., v1.0.0"
+                        disabled={isLoading}
+                        state={err(errorsRecord, "firmware") ? "error" : "default"}
+                        helperText={String(err(errorsRecord, "firmware") || "")}
+                    />
+                </div>
+            </div>
+
+            <input type="hidden" name="accountId" bind:value={$form.accountId} />
+
+            <div class="register-radar-actions">
+                <Button
+                    type="button"
+                    variant="outline"
+                    color="gray"
+                    size="md"
+                    on:click={() => goto("/user/controllers/radar")}
+                    disabled={isLoading}
+                >
+                    Cancel
+                </Button>
+                <Button
+                    type="submit"
+                    variant="filled"
+                    color="primary"
+                    size="md"
+                    disabled={isLoading}
+                >
+                    {#if isLoading}
+                        <span class="register-radar-spinner" aria-hidden="true">...</span>
+                    {:else}
+                        <Save size={18} slot="icon-left" />
+                    {/if}
+                    Register Controller
+                </Button>
+            </div>
+        </div>
+    </form>
 </div>
+
+<style>
+    .register-radar-wrap {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: var(--ds-space-6, 24px);
+        font-family: var(--ds-font-family-primary);
+    }
+    .register-radar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: var(--ds-space-6, 24px);
+    }
+    .register-radar-title {
+        margin: 0 0 var(--ds-space-1, 4px) 0;
+        font: var(--ds-text-xl-medium, 1.25rem 600);
+        color: var(--ds-text-primary);
+    }
+    .register-radar-subtitle {
+        margin: 0;
+        font: var(--ds-text-sm-regular, 0.875rem 400);
+        color: var(--ds-text-secondary);
+    }
+    .register-radar-form {
+        width: 100%;
+    }
+    .register-radar-alert {
+        margin-bottom: var(--ds-space-4, 16px);
+    }
+    .register-radar-fields {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-6, 24px);
+    }
+    .register-radar-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--ds-space-4, 16px);
+    }
+    .register-radar-row-full {
+        grid-template-columns: 1fr;
+    }
+    .register-radar-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-1, 4px);
+    }
+    .register-radar-label {
+        font-size: var(--ds-text-sm, 0.875rem);
+        font-weight: 500;
+        color: var(--ds-text-primary);
+    }
+    .register-radar-label .required {
+        color: var(--ds-color-error-500);
+    }
+    .register-radar-helper {
+        margin: 0;
+        font-size: var(--ds-text-xs, 0.75rem);
+        color: var(--ds-text-tertiary);
+    }
+    .register-radar-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: var(--ds-space-3, 12px);
+        padding-top: var(--ds-space-4, 16px);
+    }
+    .register-radar-spinner {
+        display: inline-block;
+    }
+</style>
 

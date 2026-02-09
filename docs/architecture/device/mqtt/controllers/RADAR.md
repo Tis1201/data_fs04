@@ -276,6 +276,22 @@ For devices with multiple controllers of the same type:
 
 ---
 
+## When the list is empty (User / Admin Radar page: "No sensors found")
+
+Radar sensors appear in the **User → Controllers → Radar** (and Admin) list only when there is at least one **Sensor** record for the current account with `type: 'radar'` and a non-deleted controller. Two ways to get sensors:
+
+1. **Device flow (auto-create)**  
+   A **device** that is claimed to this account calls `GET /api/device/controller?type=radar` (with its API key). The API finds or creates a Controller for that device and **auto-creates one Sensor**. So as soon as a real or emulated device in this account has called that config endpoint, one controller and one sensor exist and show up in the list.
+
+2. **UI flow (manual)**  
+   In the app: **User → Controllers → Radar → Create** (or "New"). Select a **device** that belongs to the current account; the app creates a Controller and a Sensor for that device. The account must have at least one **Device**; if the device list is empty, claim a device to the account first.
+
+If the list is still empty after that, check:
+- **Current account** – The list is scoped to the selected account (cookie `current_account_id`). Switch account if needed.
+- **Filters** – Status or location filters might hide all rows; clear filters and try again.
+
+---
+
 ## See Also
 
 - [SENSOR_PREVIEW.md](./SENSOR_PREVIEW.md) - Live sensor data streaming architecture

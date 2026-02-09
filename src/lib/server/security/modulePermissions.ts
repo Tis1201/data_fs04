@@ -10,6 +10,7 @@ import prisma from '$lib/server/prisma';
 import redis from '$lib/server/redis';
 import { logger } from '$lib/server/logger';
 import type { PermissionAction } from '$lib/constants/permissions';
+import { USER_SIDEBAR_ITEMS } from '$lib/constants/permissions';
 import { SYSTEM_ACCOUNT } from '$lib/constants/system';
 
 // Cache TTL in seconds (5 minutes)
@@ -98,6 +99,10 @@ export async function getUserModulePermissions(
 
     // Fetch from database (fail-closed: on any error, return {})
     let membership: any = null;
+    if (!(client as any).accountMembership) {
+        logger.error('Prisma client missing accountMembership delegate', { userId, accountId });
+        return {};
+    }
     try {
         // 1. Get user's account membership
         // For SYSTEM_ACCOUNT, we need to check even if role is 'SYSTEM'
@@ -141,33 +146,46 @@ export async function getUserModulePermissions(
         return {};
     }
 
+    // Account OWNER: full access to all USER_* modules (so UI shows Create/Edit/Delete and guards pass)
+    if (membership.role === 'OWNER') {
+        const ownerPermissions: ModulePermissions = {};
+        for (const [module, config] of Object.entries(USER_SIDEBAR_ITEMS)) {
+            ownerPermissions[module] = [...(config.actions as PermissionAction[])];
+        }
+        logger.debug('OWNER - returning full USER_* permissions', { userId, accountId });
+        return ownerPermissions;
+    }
+
     // 2. Get all groups the user belongs to in this account
     let groupMemberships: any[] = [];
-    try {
-        groupMemberships = await client.groupMembership.findMany({
-            where: {
-                membershipId: membership.id
-            },
-            include: {
-                group: {
-                    include: {
-                        permissions: {
-                            where: {
-                                allowed: true
+    if ((client as any).groupMembership) {
+        try {
+            groupMemberships = await client.groupMembership.findMany({
+                where: {
+                    membershipId: membership.id
+                },
+                include: {
+                    group: {
+                        include: {
+                            permissions: {
+                                where: {
+                                    allowed: true
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
-    } catch (e) {
-        logger.error('Failed to query group memberships for module permissions', {
-            error: e,
-            userId,
-            accountId,
-            membershipId: membership?.id
-        });
-        return {};
+            });
+        } catch (e) {
+            logger.error('Failed to query group memberships for module permissions', {
+                error: e,
+                userId,
+                accountId,
+                membershipId: membership?.id
+            });
+        }
+    } else {
+        logger.warn('Prisma client missing groupMembership delegate; skipping group permissions', { userId, accountId });
     }
 
     // 3. Aggregate permissions from all groups (union - OR logic)

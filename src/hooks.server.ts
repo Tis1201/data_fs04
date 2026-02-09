@@ -1,4 +1,4 @@
-import type { Handle } from "@sveltejs/kit";
+import type { Handle, HandleServerError } from "@sveltejs/kit";
 import { error } from "@sveltejs/kit";
 import redis from "$lib/server/redis";
 import { building } from "$app/environment";
@@ -226,4 +226,21 @@ export const handle: Handle = async ({ event, resolve }) => {
 
     // Handle deprecated endpoints (add deprecation headers if needed)
     return handleDeprecatedEndpoint(event, response);
+};
+
+/** Log server errors and preserve message in dev so the error page shows the real cause */
+export const handleError: HandleServerError = async ({ error: err, status, message }) => {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    const errStack = err instanceof Error ? err.stack : undefined;
+    logger.error('Server error', {
+        status,
+        message: errMessage,
+        stack: errStack,
+        originalMessage: message
+    });
+    // In dev, surface the real error message so the UI shows it
+    if (process.env.NODE_ENV !== 'production' && errMessage && errMessage !== message) {
+        return { message: errMessage };
+    }
+    return { message };
 };

@@ -1,7 +1,8 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, redirect, error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
+import prisma from '$lib/server/prisma';
 import {
     getUserModulePermissions,
     upsertUserPermissionOverride,
@@ -28,107 +29,112 @@ function getAllModules(): string[] {
 }
 
 export const load = restrictModule(
-    async ({ params, locals, url }: AuthenticatedLoadEvent) => {
+    async ({ params, url }: AuthenticatedLoadEvent) => {
         const userId = params.id;
-        const { prisma } = locals as any;
+        try {
+            if (!userId) {
+                throw redirect(302, '/admin/users');
+            }
 
-        if (!userId) {
-            throw redirect(302, '/admin/users');
-        }
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, email: true, name: true, systemRole: true }
+            });
 
-        // Fetch user details
-        const user = await prisma.user.findUnique({
-            where: { id: userId },
-            select: { id: true, email: true, name: true, systemRole: true }
-        });
+            if (!user) {
+                throw redirect(302, '/admin/users');
+            }
 
-        if (!user) {
-            throw redirect(302, '/admin/users');
-        }
+            const userAccountMemberships = await prisma.accountMembership.findMany({
+                where: { userId, role: { not: 'SYSTEM' } },
+                include: {
+                    account: { select: { id: true, name: true } }
+                },
+                orderBy: { account: { name: 'asc' } }
+            });
 
-        // Fetch all accounts the target user belongs to (not the admin's current account)
-        const userAccountMemberships = await prisma.accountMembership.findMany({
-            where: { 
-                userId: userId,
-                role: { not: 'SYSTEM' }
-            },
-            include: {
-                account: {
-                    select: { id: true, name: true }
+            if (userAccountMemberships.length === 0) {
+                return {
+                    user,
+                    userAccounts: [],
+                    selectedAccountId: null,
+                    selectedAccount: null,
+                    allModules: getAllModules(),
+                    allActions: ['VIEW', 'CREATE', 'EDIT', 'DELETE'] as PermissionAction[],
+                    effectivePermissions: {},
+                    groupPermissions: {},
+                    noAccountsMessage: 'This user is not a member of any account.',
+                    adminCategories: { ...ADMIN_CATEGORIES },
+                    userCategories: { ...USER_CATEGORIES },
+                    adminSidebarItems: { ...ADMIN_SIDEBAR_ITEMS },
+                    userSidebarItems: { ...USER_SIDEBAR_ITEMS }
+                };
+            }
+
+            const selectedAccountId = url.searchParams.get('accountId') || userAccountMemberships[0].account.id;
+            const selectedAccount = userAccountMemberships.find((m: { account: { id: string; name: string } }) => m.account.id === selectedAccountId)?.account
+                || userAccountMemberships[0].account;
+
+            const allModules = getAllModules();
+            const allActions: PermissionAction[] = ['VIEW', 'CREATE', 'EDIT', 'DELETE'];
+            const groupPermissions = await getUserModulePermissions(userId, selectedAccount.id, prisma);
+
+            const overrideDelegate = (prisma as any).userPermissionOverride;
+            const userOverrides = overrideDelegate
+                ? await overrideDelegate.findMany({
+                    where: { userId, accountId: selectedAccount.id },
+                    select: { id: true, module: true, action: true, allowed: true, reason: true, expiresAt: true }
+                })
+                : [];
+
+            const effectivePermissions: Record<string, {
+                groupAllowed: boolean;
+                override: { id: string; allowed: boolean; reason: string | null; expiresAt: string | null } | null;
+            }> = {};
+
+            for (const module of allModules) {
+                for (const action of allActions) {
+                    const key = `${module}_${action}`;
+                    const groupAllowed = groupPermissions[module]?.includes(action) ?? false;
+                    const override = userOverrides.find((o: { module: string; action: string }) => o.module === module && o.action === action);
+                    effectivePermissions[key] = {
+                        groupAllowed,
+                        override: override
+                            ? {
+                                id: override.id,
+                                allowed: override.allowed,
+                                reason: override.reason,
+                                expiresAt: override.expiresAt ? override.expiresAt.toISOString() : null
+                            }
+                            : null
+                    };
                 }
-            },
-            orderBy: { account: { name: 'asc' } }
-        });
+            }
 
-        // If user has no account memberships
-        if (userAccountMemberships.length === 0) {
             return {
                 user,
-                userAccounts: [],
-                selectedAccountId: null,
-                selectedAccount: null,
-                allModules: getAllModules(),
-                allActions: ['VIEW', 'CREATE', 'EDIT', 'DELETE'] as PermissionAction[],
-                effectivePermissions: {},
-                groupPermissions: {},
-                noAccountsMessage: 'This user is not a member of any account.'
+                userAccounts: userAccountMemberships.map((m: { account: { id: string; name: string } }) => m.account),
+                selectedAccountId: selectedAccount.id,
+                selectedAccount,
+                allModules,
+                allActions,
+                effectivePermissions,
+                groupPermissions,
+                adminCategories: { ...ADMIN_CATEGORIES },
+                userCategories: { ...USER_CATEGORIES },
+                adminSidebarItems: { ...ADMIN_SIDEBAR_ITEMS },
+                userSidebarItems: { ...USER_SIDEBAR_ITEMS }
             };
+        } catch (err) {
+            if (err && typeof (err as any).status === 'number' && (err as any).status >= 300 && (err as any).status < 400) {
+                throw err; // preserve redirects
+            }
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.error('Admin user permissions load failed', { userId: params.id, error: msg, stack: err instanceof Error ? err.stack : undefined });
+            throw error(500, msg);
         }
-
-        // Allow selecting which account to view via query param
-        const selectedAccountId = url.searchParams.get('accountId') || userAccountMemberships[0].account.id;
-        const selectedAccount = userAccountMemberships.find((m: { account: { id: string; name: string } }) => m.account.id === selectedAccountId)?.account 
-            || userAccountMemberships[0].account;
-
-        // Fetch all possible modules and actions
-        const allModules = getAllModules();
-        const allActions: PermissionAction[] = ['VIEW', 'CREATE', 'EDIT', 'DELETE'];
-
-        // Fetch current group-based permissions for the user IN THE SELECTED ACCOUNT
-        const groupPermissions = await getUserModulePermissions(userId, selectedAccount.id);
-
-        // Fetch existing user-specific overrides IN THE SELECTED ACCOUNT
-        const userOverrides = await prisma.userPermissionOverride.findMany({
-            where: { userId, accountId: selectedAccount.id },
-            select: { id: true, module: true, action: true, allowed: true, reason: true, expiresAt: true }
-        });
-
-        // Combine group permissions and overrides for display
-        const effectivePermissions: Record<string, {
-            groupAllowed: boolean;
-            override: { id: string; allowed: boolean; reason: string | null; expiresAt: Date | null } | null;
-        }> = {};
-
-        allModules.forEach(module => {
-            allActions.forEach(action => {
-                const key = `${module}_${action}`;
-                const groupAllowed = groupPermissions[module]?.includes(action) || false;
-                const override = userOverrides.find((o: { module: string; action: string }) => o.module === module && o.action === action);
-
-                effectivePermissions[key] = {
-                    groupAllowed,
-                    override: override ? { id: override.id, allowed: override.allowed, reason: override.reason, expiresAt: override.expiresAt } : null
-                };
-            });
-        });
-
-        return {
-            user,
-            userAccounts: userAccountMemberships.map((m: { account: { id: string; name: string } }) => m.account),
-            selectedAccountId: selectedAccount.id,
-            selectedAccount,
-            allModules,
-            allActions,
-            effectivePermissions,
-            groupPermissions,
-            // Categories for structured display
-            adminCategories: ADMIN_CATEGORIES,
-            userCategories: USER_CATEGORIES,
-            adminSidebarItems: ADMIN_SIDEBAR_ITEMS,
-            userSidebarItems: USER_SIDEBAR_ITEMS
-        };
     },
-    'USERS',
+    'ADMIN_USERS',
     { action: 'EDIT' }
 ) satisfies PageServerLoad;
 
@@ -203,7 +209,7 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to save permission override' });
             }
         },
-        'USERS',
+        'ADMIN_USERS',
         { action: 'EDIT' }
     ),
 
@@ -244,7 +250,7 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete permission override' });
             }
         },
-        'USERS',
+        'ADMIN_USERS',
         { action: 'EDIT' }
     ),
 
@@ -347,7 +353,7 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to apply template' });
             }
         },
-        'USERS',
+        'ADMIN_USERS',
         { action: 'EDIT' }
     )
 };

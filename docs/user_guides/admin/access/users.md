@@ -256,6 +256,11 @@ Users are the individuals who access and use the IoT Management System. They can
 - **Status Control** - Activate/deactivate/suspend users
 - **Role Assignment** - Assign Admin or User roles
 
+### Account roles and module permissions
+- **Account OWNER**: In each account, the user with role **OWNER** automatically has full access to all **user-side** features (e.g. Radar Controllers, Devices, PIN Rules) in that account. No group or permission override is required for OWNER to use those features.
+- **Other account members**: Access to user-side modules is granted via **Groups** (assign the user to a group that has the required permissions) and/or **User permission overrides** (Admin → Users → [user] → Permissions).
+- **Admin-side modules**: All users (including OWNER) need group permissions or overrides to access admin features (e.g. Admin → Accounts, Admin → Controllers).
+
 ## Related Features
 
 - **[Accounts](./accounts.md)** - Manage accounts that users can access

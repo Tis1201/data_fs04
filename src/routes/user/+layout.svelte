@@ -118,6 +118,7 @@
         headerStyle: TopNavStyle;
         title: string;
         subtitle: string;
+        showBackButton?: boolean;
     } {
         if (pathname.includes('/iot/devices/new')) {
             return {
@@ -175,6 +176,15 @@
                 headerStyle: 'page',
                 title: 'Sensors',
                 subtitle: 'View, filter, and manage all radar sensors'
+            };
+        }
+        // Radar sensor detail: title and subtitle in header, show back button
+        if (/^\/user\/controllers\/radar\/[^/]+\/?$/.test(pathname.replace(/\/$/, '')) && !pathname.includes('/new')) {
+            return {
+                headerStyle: 'page',
+                title: 'Device Details',
+                subtitle: "View and manage this device's status, details, and activity.",
+                showBackButton: true
             };
         }
         if (pathname.startsWith('/user/resources/') && pathname !== '/user/resources' && pathname !== '/user/resources/') {
@@ -330,7 +340,7 @@
                 ]}
                 showSearch={false}
                 showNotifications={false}
-                showBackButton={false}
+                showBackButton={pageConfig.showBackButton ?? false}
                 showUserMenu={true}
                 showDivider={false}
                 showGridButton={false}

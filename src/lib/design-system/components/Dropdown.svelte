@@ -43,6 +43,8 @@
     export let width: string = '100%';
     export let clearable: boolean = true; // Show clear button when value is selected
     export let displayText: string | undefined = undefined; // Custom display text (overrides displayValue, useful for toggle type)
+    /** 'auto' = flip based on space, 'bottom' = always below trigger, 'top' = always above trigger (e.g. in modals) */
+    export let preferPlacement: 'auto' | 'bottom' | 'top' = 'auto';
 
     const dispatch = createEventDispatcher<{
         change: string | string[];
@@ -86,7 +88,7 @@
           )
         : options;
 
-    // Update dropdown position - auto-detect if should open upward or downward
+    // Update dropdown position - preferPlacement or auto-detect if should open upward or downward
     function updateDropdownPosition() {
         if (triggerRef && typeof window !== 'undefined') {
             const rect = triggerRef.getBoundingClientRect();
@@ -95,8 +97,15 @@
             const spaceAbove = rect.top;
             const dropdownHeight = maxHeight + 8; // Add some buffer
 
-            // If not enough space below but enough space above, open upward
-            const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
+            let shouldOpenUpward = false;
+            if (preferPlacement === 'bottom') {
+                shouldOpenUpward = false;
+            } else if (preferPlacement === 'top') {
+                shouldOpenUpward = true;
+            } else {
+                // auto: if not enough space below but enough above, open upward
+                shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
+            }
 
             dropdownPosition = {
                 top: shouldOpenUpward

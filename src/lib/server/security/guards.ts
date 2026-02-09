@@ -552,8 +552,9 @@ export function restrictModule<T>(
     }
 
     // Check if user is SYSTEM_ACCOUNT member - bypass all ACL checks
+    // Use raw prisma so we do not depend on locals (avoids edge cases where middleware order differs)
     // Note: SYSTEM_ACCOUNT memberships can have role 'SYSTEM', so we don't filter by role
-    const systemAccountMembership = await event.locals.prisma.accountMembership.findFirst({
+    const systemAccountMembership = await prisma.accountMembership.findFirst({
       where: {
         userId,
         account: {
@@ -606,7 +607,7 @@ export function restrictModule<T>(
     // This allows admin users to access admin routes even without explicit account selection
     let effectiveAccountId = accountId;
     if (!effectiveAccountId && systemRole === 'ADMIN') {
-      const adminMemberships = await event.locals.prisma.accountMembership.findMany({
+      const adminMemberships = await prisma.accountMembership.findMany({
         where: {
           userId,
           role: { not: 'SYSTEM' }
@@ -634,6 +635,31 @@ export function restrictModule<T>(
     if (!effectiveAccountId) {
       logger.warn('No current account for module permission check', { userId, module, action, systemRole });
       throw error(400, 'No current account selected. Please select an account to access this module.');
+    }
+
+    // Account OWNER bypass for user-side modules: OWNER can access all USER_* modules in their account
+    const currentAccount = auth.currentAccount ?? (event.locals as any).currentAccount;
+    if (
+      module.startsWith('USER_') &&
+      currentAccount?.role === 'OWNER' &&
+      currentAccount?.account?.id === effectiveAccountId
+    ) {
+      logger.debug('OWNER bypass for user module', { userId, accountId: effectiveAccountId, module, action });
+      (event.locals as any).user = auth.user;
+      try {
+        const modulePermissions = await getUserModulePermissions(userId, effectiveAccountId, prisma);
+        (event.locals as any).modulePermissions = modulePermissions;
+      } catch (e) {
+        logger.warn('Failed to fetch module permissions for OWNER bypass', { error: e });
+        (event.locals as any).modulePermissions = {};
+      }
+      const authenticatedEvent = {
+        ...event,
+        auth,
+        modulePermission: { module, action, accountId: effectiveAccountId },
+        ...(('depends' in event) && { depends: (event as any).depends })
+      } as ModuleAuthenticatedEvent & Partial<Pick<AuthenticatedLoadEvent, 'depends'>>;
+      return handler(authenticatedEvent as any);
     }
 
     // Check module permission

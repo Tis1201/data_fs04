@@ -49,12 +49,29 @@ Detailed guide for developing and protecting modules with the permission system.
 ### Permission Hierarchy
 
 ```
+0. SYSTEM_ACCOUNT members → full access (bypass all checks)
+   Account OWNER (for USER_* modules only) → full access in their account
+   ↓
 1. UserPermissionOverride (highest priority - overrides group)
    ↓
 2. Group Permissions (from GroupMembership)
    ↓
 3. SystemRole: ADMIN (NO bypass - must have group permissions)
 ```
+
+- **SYSTEM_ACCOUNT**: Members of the system account bypass all module checks.
+- **Account OWNER (user-side only)**: A user who is **OWNER** of the current account automatically has access to all **USER_*** modules (e.g. USER_CONTROLLERS_RADAR, USER_DEVICES) in that account. They do not need to be in a group or have overrides for user-side features. Admin-side (ADMIN_*) modules still require group/override permissions.
+- **Everyone else**: Permissions come from Group Permissions and/or UserPermissionOverride only.
+
+### Why OWNER gets full USER_* access (ACL design)
+
+This is an **explicit design decision**, not a shortcut:
+
+1. **Account OWNER** is the person who manages the account (creates groups, assigns users, uses user-side features). If OWNER had to be in a group to see "Register Device" or use Radar, they would be locked out until an admin (e.g. system admin) adds them to a group. That would be inconsistent with "OWNER creates groups and assigns permissions" (see seed flow: OWNER is not added to any group).
+2. **Scope**: Only **USER_*** modules in **their account**. Admin-side (ADMIN_*) still requires group/override, so system-wide admin features stay controlled.
+3. **Alternative (strict ACL)**: If product requirement is "everyone, including OWNER, must get permissions only via group or override", then we would remove the OWNER special case in `guards.ts` and `modulePermissions.ts`, and ensure OWNER is added to a group (e.g. by seed or by system admin) so they get permissions like any other user.
+
+Current implementation follows the "OWNER has full user-side access in their account" model so that the account owner is never locked out of user features.
 
 ---
 
@@ -664,6 +681,18 @@ Frontend: canCreate() hides buttons from unauthorized users
 1. **ADMIN users must have group permissions** - No longer bypasses
 2. Ensure using restrictModule instead of restrict
 3. Check GroupMembership for ADMIN user
+
+### Issue: Admin granted permission (override) but user still gets 403
+
+**Causes:**
+1. **Account mismatch** – Overrides are stored per (user, **account**). When you add an override in Admin → Users → [user] → Permissions, you choose an account in the dropdown ("View permissions for account: …"). The user must be **using that same account** when they log in (their "current account" cookie). If the user’s current account is different, the override is not applied and they get 403.
+2. **Wrong access level** – You must grant the **User**-side module (e.g. **Radar Controllers** under "User Access"), not the Admin-side one. For `/user/controllers/radar` the module is `USER_CONTROLLERS_RADAR`.
+3. **Cache** – After adding/removing overrides, cache is invalidated. If you still see 403, have the user refresh or log out and back in so their next request uses fresh permissions.
+
+**Fix:**
+1. In Permissions page, select the **same account** the user uses when they open the app (their default or selected account).
+2. Under **User Access**, grant **Radar Controllers** (VIEW at minimum) for that account.
+3. If the user is **Account OWNER**, they get full access to all user-side modules in that account automatically; no override needed.
 
 ---
 

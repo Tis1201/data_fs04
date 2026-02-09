@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
+/** PIN format: 6 characters (matches FactoryDevice.registrationPin from get.pin). Normalize: trim, uppercase. */
+const pinSchema = z.string()
+    .min(1, { message: 'Device registration code (PIN) is required' })
+    .max(20, { message: 'PIN is too long' })
+    .transform((s) => s.trim().toUpperCase().replace(/\s/g, ''));
+
 export const radarSensorSchema = z.object({
+    /** Device registration code (6-digit PIN from device). Claim is independent from Devices module. */
+    pin: pinSchema.optional(),
     name: z.string()
         .min(1, { message: 'Sensor name is required' })
         .max(100, { message: 'Name must be 100 characters or less' }),
@@ -23,7 +31,11 @@ export const radarSensorSchema = z.object({
         .default('INACTIVE'),
     accountId: z.string()
         .min(1, { message: 'Account is required' }),
+    /** Legacy: only used when pin is not provided (e.g. admin or fallback). */
     deviceId: z.string()
         .optional()
         .nullable()
+}).refine((data) => data.pin || data.deviceId, {
+    message: 'Either device registration code (PIN) or device is required',
+    path: ['pin']
 });
