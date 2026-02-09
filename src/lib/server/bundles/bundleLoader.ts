@@ -231,6 +231,22 @@ export async function loadBundleDetail(
       }
     });
 
+    // Latest progress per bundleDeviceId (so Deployment Device table matches batch detail / progress API)
+    const bundleDeviceIds = bundleDevices.map((bd: any) => bd.id);
+    const allProgress = bundleDeviceIds.length > 0
+      ? await prisma.bundleDeviceProgress.findMany({
+          where: { bundleDeviceId: { in: bundleDeviceIds } },
+          select: { bundleDeviceId: true, status: true, createdAt: true },
+          orderBy: { createdAt: 'desc' }
+        })
+      : [];
+    const latestStatusByBundleDeviceId = new Map<string, string>();
+    for (const p of allProgress) {
+      if (!latestStatusByBundleDeviceId.has(p.bundleDeviceId)) {
+        latestStatusByBundleDeviceId.set(p.bundleDeviceId, p.status);
+      }
+    }
+
     // Fetch device information for each bundle device
     const bundleDevicesWithDeviceInfo = await Promise.all(
       bundleDevices.map(async (bundleDevice: any) => {
@@ -252,8 +268,12 @@ export async function loadBundleDetail(
           device.connected = isOnline;  // Override DB value with real-time Redis status
         }
         
+        // Deployment status from latest progress so it matches batch detail / progress API (avoids "Failed" in batch but "In Progress" in Devices)
+        const deploymentStatus = latestStatusByBundleDeviceId.get(bundleDevice.id) ?? bundleDevice.status;
+        
         return {
           ...bundleDevice,
+          status: deploymentStatus,
           device: device || {
             id: bundleDevice.deviceId,
             name: 'Unknown Device',

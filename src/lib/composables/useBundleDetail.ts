@@ -61,7 +61,8 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
     // State management
     const showAppSelector = writable(false);
     const addingApp = writable(false);
-    const activeTab = writable('devices');
+    // TODO: Clean up after merging admin/user bundle detail into one component. Default tab: admin = "info", user = "devices".
+    const activeTab = writable(context === 'admin' ? 'info' : 'devices');
     const deviceStatusVersion = writable(0);
     const wavesVersion = writable(0);
     const deviceProgressReloadToken = writable(0);
@@ -239,10 +240,14 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
         const b = bundle.get();
         if (!b?.id) return;
 
-        // Clean up previous subscription
+        // Clean up previous subscriptions
         if (unsubscribeRealtime) {
             unsubscribeRealtime();
             unsubscribeRealtime = null;
+        }
+        if (unsubscribeDeviceConnections) {
+            unsubscribeDeviceConnections();
+            unsubscribeDeviceConnections = null;
         }
 
         // Subscribe to bundle wave updates via MQTT
@@ -254,7 +259,12 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
             const devicesFailed = payload.devicesFailed;
             const progress = payload.progress;
             
-            if (waveId && (b?.waves || []).some((w: any) => w.id === waveId)) {
+            const currentBundle = bundle.get();
+            const currentWaves = currentBundle?.waves || [];
+            
+            console.log(`[BundleRealtime ${context}] Wave update: bundleId=${b.id} waveId=${waveId} status=${waveStatus} progress=${progress} completed=${devicesCompleted}/${devicesTotal} failed=${devicesFailed} currentWavesCount=${currentWaves.length}`);
+            
+            if (waveId && currentWaves.some((w: any) => w.id === waveId)) {
                 // Update wave stats
                 waveStats[waveId] = {
                     devicesTotal: devicesTotal ?? (waveStats[waveId]?.devicesTotal ?? 0),
@@ -268,13 +278,13 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
                 
                 // Trigger device progress reload if this is the selected wave
                 if (selectedWave.get()?.id === waveId) {
+                    console.log(`[BundleRealtime ${context}] Incrementing deviceProgressReloadToken for selected wave: ${waveId}`);
                     deviceProgressReloadToken.update(v => v + 1);
                 }
                 
                 // Update wave status in bundle
                 if (waveStatus) {
-                    const currentBundle = bundle.get();
-                    const waveIndex = (currentBundle?.waves || []).findIndex((w: any) => w.id === waveId);
+                    const waveIndex = currentWaves.findIndex((w: any) => w.id === waveId);
                     if (waveIndex !== -1) {
                         bundle.set({
                             ...currentBundle,
@@ -285,8 +295,14 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
                         updateComputedCounts(); // Update counts after bundle change
                     }
                 }
+                console.log(`[BundleRealtime ${context}] Applied wave update: waveId=${waveId} status=${waveStatus}`);
+            } else {
+                console.log(`[BundleRealtime ${context}] Wave not in current list (will invalidate): waveId=${waveId} currentWaveIds=${currentWaves.map((w: any) => w.id).join(',') || '(none)'}`);
             }
             
+            // Invalidate so batch data and Deployment Device table both refresh from server:
+            // - Waves/stats and batch progress modal stay in sync
+            // - Deployment Device status (from latest progress) updates in real time like the batch
             invalidate('app:bundle');
         });
 

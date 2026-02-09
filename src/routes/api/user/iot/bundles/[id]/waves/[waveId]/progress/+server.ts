@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
+import { compareProgressOrder } from '$lib/bundles/progressOrder';
 
 export const GET: RequestHandler = restrict(async (event: any) => {
   const { params, locals } = event as { params: { id: string; waveId: string }; locals: any };
@@ -43,6 +44,17 @@ export const GET: RequestHandler = restrict(async (event: any) => {
       retryCount: r.retryCount || 0
       });
     });
+
+    // Order: End On (completedAt) desc, device name asc (same as job so order never mixes up)
+    data.sort((a: any, b: any) =>
+      compareProgressOrder(
+        a.completedAt ? new Date(a.completedAt).getTime() : 0,
+        a.deviceName || '',
+        b.completedAt ? new Date(b.completedAt).getTime() : 0,
+        b.deviceName || ''
+      )
+    );
+
     return json({ success: true, data });
   } catch (e: any) {
     return json({ success: false, error: e?.message || 'Failed to load progress' }, { status: 500 });

@@ -1,11 +1,15 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { invalidate, goto } from '$app/navigation';
+    import { browser } from '$app/environment';
+    import { writable } from 'svelte/store';
     import type { PageData } from "./$types";
-    import BundleDetailPage from "$lib/components/bundles/BundleDetailPage.svelte";
+    import BundleDetailPageUser from "$lib/components/bundles/BundleDetailPageUser.svelte";
     import EditDeploymentModal from "../components/EditDeploymentModal.svelte";
     import { Modal } from '$lib/design-system/components';
     import { getBundleDetailBreadcrumbs } from "$lib/utils/navigation";
     import { toast } from '$lib/stores/alertToast';
+    import { initializeDeviceRealtime, deviceRealtimeStore } from "$lib/stores/deviceRealtimeStore";
 
     export let data: PageData;
 
@@ -14,6 +18,40 @@
     // Make bundle reactive to server invalidations
     let bundle = data.bundle;
     $: bundle = data.bundle;
+
+    // Force UI to react when realtime store updates: derived store may not trigger reactivity reliably, so we subscribe and bump a version
+    const deviceRealtimeVersion = writable(0);
+
+    onMount(() => {
+        if (browser) {
+            initializeDeviceRealtime();
+            const unsub = deviceRealtimeStore.subscribe((store) => {
+                const _ = store.getAllDevices?.() ?? [];
+                deviceRealtimeVersion.update((v) => v + 1);
+            });
+            return () => unsub();
+        }
+    });
+
+    // Update bundleDevices with real-time connection status (same logic as devices list: use store when known, else server value)
+    $: _realtimeVersion = $deviceRealtimeVersion;
+    $: bundleDevicesWithRealtime = (() => {
+        const store = $deviceRealtimeStore;
+        if (!store || !data.bundleDevices) return data.bundleDevices || [];
+        return data.bundleDevices.map((bd: any) => {
+            const deviceId = bd.device?.id;
+            if (!deviceId) return bd;
+            const known = store.getDevice(deviceId);
+            const connected = known !== null ? store.isDeviceConnected(deviceId) : (bd.device?.connected ?? false);
+            return {
+                ...bd,
+                device: {
+                    ...bd.device,
+                    connected
+                }
+            };
+        });
+    })();
 
     let showEditModal = false;
     let showDuplicateModal = false;
@@ -54,9 +92,9 @@
     }
 </script>
 
-<BundleDetailPage
+<BundleDetailPageUser
     bundle={bundle}
-    bundleDevices={data.bundleDevices || []}
+    bundleDevices={bundleDevicesWithRealtime}
     resources={data.resources}
     title={data.meta?.title || `Bundle: ${bundle?.name || bundle?.id || 'Unknown'}`}
     pageCrumbs={breadcrumbs}

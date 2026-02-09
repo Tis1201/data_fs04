@@ -1,9 +1,11 @@
+import { error } from '@sveltejs/kit';
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { areDevicesOnline } from '$lib/server/device/devicePresence';
 
 /**
  * GET /api/v2/bundles/[id]/devices/available
- * List devices that can be added to this bundle (not already in bundle).
+ * List devices that can be added to this bundle.
+ * Shows all account devices (devices already in this bundle can still be in other bundles; UI can show "Already added").
  * Same response shape as GET /api/v2/device-profiles/[id]/devices for reuse in DeviceSelector.
  *
  * Query params: limit, offset, search (same as device-profiles)
@@ -24,14 +26,16 @@ export const GET = unifiedEndpoint(
     });
 
     if (!bundle) {
-      return new Response(
-        JSON.stringify({ success: false, error: { code: 'NOT_FOUND', message: 'Bundle not found' } }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
-      );
+      throw error(404, 'Bundle not found');
     }
+    console.log('[devices/available] bundleId:', bundleId, 'bundle found:', !!bundle);
 
-    // Same as components/device_select: no account filter – list all ACTIVE devices not already in bundle
     const where: any = { status: 'ACTIVE' };
+
+    const isAdmin = context.session?.user?.systemRole === 'ADMIN';
+    if (!isAdmin && context.account?.id) {
+      where.accountId = context.account.id;
+    }
 
     if (search) {
       where.OR = [
@@ -42,16 +46,8 @@ export const GET = unifiedEndpoint(
         { deviceType: { contains: search, mode: 'insensitive' } }
       ];
     }
-
-    const existingDeviceIds = await prisma.bundleDevice
-      .findMany({
-        where: { bundleId },
-        select: { deviceId: true }
-      })
-      .then((rows) => rows.map((r: { deviceId: string }) => r.deviceId));
-    if (existingDeviceIds.length > 0) {
-      where.id = { notIn: existingDeviceIds };
-    }
+    console.log('[devices/available] where:', JSON.stringify(where, null, 2));
+    console.log('[devices/available] isAdmin:', isAdmin, 'accountId:', context.account?.id);
 
     const [devices, total] = await Promise.all([
       prisma.device.findMany({
@@ -79,6 +75,10 @@ export const GET = unifiedEndpoint(
       }),
       prisma.device.count({ where })
     ]);
+    console.log('[devices/available] total:', total, 'devices.length:', devices.length);
+    if (devices.length > 0) {
+      console.log('[devices/available] first device:', devices[0].id, devices[0].name);
+    }
 
     const presenceMap = await areDevicesOnline(devices.map((d: { id: string }) => d.id));
     const devicesWithPresence = devices.map((d: any) => ({
@@ -86,23 +86,21 @@ export const GET = unifiedEndpoint(
       connected: presenceMap.get(d.id) ?? false
     }));
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        data: {
-          devices: devicesWithPresence,
-          total,
-          pagination: {
-            limit,
-            offset,
-            page: Math.floor(offset / limit) + 1,
-            totalPages: Math.max(1, Math.ceil(total / limit)),
-            totalCount: total
-          }
+    // Return plain object so unifiedEndpoint can do json(result); returning Response would be serialized as {}
+    return {
+      success: true,
+      data: {
+        devices: devicesWithPresence,
+        total,
+        pagination: {
+          limit,
+          offset,
+          page: Math.floor(offset / limit) + 1,
+          totalPages: Math.max(1, Math.ceil(total / limit)),
+          totalCount: total
         }
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+      }
+    };
   },
   { permission: 'bundle.edit', skipPermission: true }
 );

@@ -16,7 +16,8 @@
         Button, 
         Badge,
         Modal,
-        BulkActionsBar
+        BulkActionsBar,
+        InputField
     } from '$lib/design-system/components';
     import type { ColumnDef, BadgeColor, BulkAction } from '$lib/design-system/components';
     
@@ -55,13 +56,32 @@
     // Search state
     let searchTerm = '';
     
-    // Filter devices based on search
+    // Filter devices based on search (name, id, model, deployment status)
     $: filteredDevices = displayDevices.filter(d => {
-        if (!searchTerm) return true;
-        return d.device.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               d.device.model?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-               (d.status ?? '').toLowerCase().includes(searchTerm.toLowerCase());
+        if (!searchTerm.trim()) return true;
+        const term = searchTerm.trim().toLowerCase();
+        return (d.device.name?.toLowerCase().includes(term)) ||
+               (d.device.id?.toLowerCase().includes(term)) ||
+               (d.device.model?.toLowerCase().includes(term)) ||
+               ((d.status ?? '').toLowerCase().includes(term));
     });
+
+    // Devices table pagination (Deployment Devices section)
+    const DEVICES_PAGE_SIZE = 10;
+    let devicesPage = 1;
+    $: devicesFilteredTotal = filteredDevices.length;
+    $: devicesTotalPages = Math.max(1, Math.ceil(devicesFilteredTotal / DEVICES_PAGE_SIZE));
+    $: devicesPagination = {
+        page: devicesPage,
+        pageSize: DEVICES_PAGE_SIZE,
+        totalItems: devicesFilteredTotal,
+        totalPages: devicesTotalPages
+    };
+    $: devicesTableData = filteredDevices
+        .slice((devicesPage - 1) * DEVICES_PAGE_SIZE, devicesPage * DEVICES_PAGE_SIZE)
+        .map((row, i) => ({ ...row, _displayIndex: (devicesPage - 1) * DEVICES_PAGE_SIZE + i + 1 }));
+    // Reset to page 1 when search changes
+    $: searchTerm, (devicesPage = 1);
     
     // Selection state
     let selectedRows: DeviceWithInfo[] = [];
@@ -120,8 +140,10 @@
         {
             id: 'index',
             header: '#',
-            type: 'rowNumber',
-            sortable: false
+            accessor: (row: any) => row._displayIndex ?? 0,
+            type: 'custom',
+            sortable: false,
+            render: (value: number) => String(value ?? 0).padStart(2, '0')
         },
         {
             id: 'name',
@@ -343,7 +365,6 @@
 </script>
 
 <div class="devices-component">
-    <!-- Design: Card body = Table + Pagination only; no "X devices in this bundle" / search row -->
     <!-- Bulk Actions Bar -->
     {#if selectedRows.length > 0}
         <BulkActionsBar
@@ -352,6 +373,21 @@
             on:action={handleBulkAction}
             on:clear={clearSelection}
         />
+    {/if}
+
+    <!-- Search by device name or ID -->
+    {#if !loading}
+        <div class="devices-search-row">
+            <InputField
+                type="search"
+                placeholder="Search by device name or ID..."
+                value={searchTerm}
+                showClearButton={true}
+                label=""
+                on:input={(e) => (searchTerm = e.detail)}
+                on:clear={() => (searchTerm = '')}
+            />
+        </div>
     {/if}
     
     <!-- Devices DataTable -->
@@ -362,16 +398,18 @@
         </div>
     {:else}
         <DataTable
-            data={filteredDevices}
+            data={devicesTableData}
             columns={displayColumns}
             keyField="id"
             selectable={false}
             bordered={false}
             cellBorders={false}
-            paginated={filteredDevices.length > 10}
+            paginated={devicesFilteredTotal > DEVICES_PAGE_SIZE}
+            pagination={devicesPagination}
             hoverable={true}
             striped={false}
             emptyMessage="No devices added to this bundle yet"
+            on:pageChange={(e) => (devicesPage = e.detail)}
         />
     {/if}
 </div>
@@ -426,6 +464,10 @@
         flex-direction: column;
         gap: var(--ds-space-4);
         font-family: var(--ds-font-family-primary);
+    }
+
+    .devices-search-row {
+        max-width: 320px;
     }
     
     .loading-state {

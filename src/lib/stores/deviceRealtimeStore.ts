@@ -62,8 +62,7 @@ export function initializeDeviceRealtime(): void {
     // Subscribe to device connection notifications
     const unsubConnection = mqttClient.onNotification('device:connection', (payload: any) => {
         try {
-            if (browser) console.log('[DeviceRealtimeStore] Received device:connection notification:', payload);
-            
+
             const deviceId = payload?.deviceId;
             if (!deviceId) {
                 if (browser) console.debug('[DeviceRealtimeStore] No deviceId in connection notification');
@@ -78,13 +77,10 @@ export function initializeDeviceRealtime(): void {
                 timestamp: new Date().toISOString()
             };
 
-            if (browser) console.debug(`[DeviceRealtimeStore] Updating device ${deviceId} as connected:`, update);
-
             // Update the device state
             deviceStates.update(states => {
                 const newStates = new Map(states);
                 newStates.set(deviceId, update);
-                if (browser) console.log(`[DeviceRealtimeStore] Updated device state for ${deviceId}:`, update);
                 return newStates;
             });
 
@@ -96,8 +92,7 @@ export function initializeDeviceRealtime(): void {
     // Subscribe to device disconnection notifications
     const unsubDisconnection = mqttClient.onNotification('device:disconnection', (payload: any) => {
         try {
-            if (browser) console.log('[DeviceRealtimeStore] Received device:disconnection notification:', payload);
-            
+
             const deviceId = payload?.deviceId;
             if (!deviceId) {
                 if (browser) console.debug('[DeviceRealtimeStore] No deviceId in disconnection notification');
@@ -112,13 +107,10 @@ export function initializeDeviceRealtime(): void {
                 timestamp: new Date().toISOString()
             };
 
-            if (browser) console.debug(`[DeviceRealtimeStore] Updating device ${deviceId} as disconnected:`, update);
-
             // Update the device state
             deviceStates.update(states => {
                 const newStates = new Map(states);
                 newStates.set(deviceId, update);
-                if (browser) console.log(`[DeviceRealtimeStore] Updated device state for ${deviceId}:`, update);
                 return newStates;
             });
 

@@ -10,8 +10,10 @@ import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
 import crypto from 'crypto';
 
 /**
- * Publishes bundle notifications to all account members.
- * Only sends to users who are members of the bundle's account (secure per schema).
+ * Publishes bundle notifications to all account members and admin users.
+ * Sends to:
+ * - All account members (subscribed to user:userId:accountId)
+ * - All admin users (subscribed to user:userId:primaryAccountId)
  */
 export async function publishToAccountMembers(
   prisma: any,
@@ -34,8 +36,14 @@ export async function publishToAccountMembers(
       select: { userId: true }
     });
     
-    if (accountMembers.length === 0) {
-      logger.warn(`[BundleNotification] No account members found for account ${accountId}, skipping notification`);
+    // Query all admin users - they can view all bundles
+    const adminUsers = await prisma.user.findMany({
+      where: { systemRole: 'ADMIN' },
+      select: { id: true, primaryAccountId: true }
+    });
+    
+    if (accountMembers.length === 0 && adminUsers.length === 0) {
+      logger.warn(`[BundleNotification] No account members or admins found for account ${accountId}, skipping notification`);
       return;
     }
     
@@ -52,7 +60,26 @@ export async function publishToAccountMembers(
       });
     }
     
-    logger.debug(`[BundleNotification] Published ${type} notification to ${accountMembers.length} account members for account ${accountId}`);
+    // Send notification to each admin user (using their primary account)
+    // Admin users subscribe to user:userId:primaryAccountId
+    for (const admin of adminUsers) {
+      // Skip if admin is already a member of this account (avoid duplicate notifications)
+      if (accountMembers.some((m: { userId: string }) => m.userId === admin.id)) {
+        continue;
+      }
+      
+      const adminAccountId = admin.primaryAccountId || accountId;
+      await queueNotification({
+        sub: `user:${admin.id}:${adminAccountId}`,
+        recipient: `user:${admin.id}:${adminAccountId}`,
+        type: type as any,
+        flowId: crypto.randomUUID(),
+        params,
+        expiresIn: '5m'
+      });
+    }
+    
+    logger.debug(`[BundleNotification] Published ${type} notification to ${accountMembers.length} account members and ${adminUsers.length} admins for account ${accountId}`);
   } catch (err) {
     logger.error(`[BundleNotification] Failed to publish to account members: ${err instanceof Error ? err.message : String(err)}`);
     throw err;
