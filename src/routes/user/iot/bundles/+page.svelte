@@ -211,13 +211,14 @@
         try {
             const res = await fetch(`/api/v2/bundles/${duplicateTarget.id}/duplicate`, { method: 'POST' });
             const json = await res.json().catch(() => ({}));
-            if (json.id) {
+            const newId = json.data?.id || json.id;
+            if (json.success && newId) {
                 toast.success('Deployment duplicated successfully!');
                 closeDuplicateModal();
                 await invalidate('app:bundles');
-                goto(`${basePath}/${json.id}`);
+                goto(`${basePath}/${newId}`);
             } else {
-                toast.error('Unable to duplicate deployment. Please try again!');
+                toast.error(json.error?.message || 'Unable to duplicate deployment. Please try again!');
             }
         } catch {
             toast.error('Unable to duplicate deployment. Please try again!');

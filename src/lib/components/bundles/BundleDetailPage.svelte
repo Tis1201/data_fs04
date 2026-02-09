@@ -91,6 +91,8 @@
         enableStopAllWaves?: boolean;    // Admin only
         /** When provided, Edit button calls this instead of navigating to edit page (e.g. open Edit modal) */
         onEditRequested?: () => void;
+        /** When provided, Duplicate button calls this (e.g. open confirm modal then duplicate) */
+        onDuplicateRequested?: () => void;
     }
 
     export let bundle: Props['bundle'];
@@ -103,6 +105,7 @@
     export let enableDeviceTracking: Props['enableDeviceTracking'] = false;
     export let enableStopAllWaves: Props['enableStopAllWaves'] = false;
     export let onEditRequested: Props['onEditRequested'] = undefined;
+    export let onDuplicateRequested: Props['onDuplicateRequested'] = undefined;
 
     // Make bundle reactive to server invalidations
     $: bundle = bundle;
@@ -868,6 +871,18 @@
                 >
                     Edit Bundle
                 </Button>
+                {#if onDuplicateRequested}
+                    <Button
+                        variant="outline"
+                        color="neutral"
+                        size="md"
+                        icon={Copy}
+                        iconSize={18}
+                        on:click={onDuplicateRequested}
+                    >
+                        Duplicate
+                    </Button>
+                {/if}
             </div>
         </div>
     {/if}
