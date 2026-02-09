@@ -9,10 +9,10 @@
     import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     import AddDeviceToTagModal from "$lib/components/ui_components_sveltekit/device_tags/AddDeviceToTagModal.svelte";
-
+    
     export let data;
     $: deviceTag = data?.deviceTag;
-
+    
     const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
         successRedirect: `/user/iot/device_tags/${data?.deviceTag?.id ?? ''}`,
         validateOnInput: true,
@@ -233,11 +233,11 @@
                                 <label class="overview-label" for="tag-name">Name</label>
                                 <InputField
                                     id="tag-name"
-                                    name="name"
+                                name="name" 
                                     type="text"
                                     placeholder="Enter name"
-                                    bind:value={$form.name}
-                                    disabled={$submitting}
+                                bind:value={$form.name}
+                                disabled={$submitting}
                                     state={nameErr ? 'error' : 'default'}
                                     helperText={nameErr || undefined}
                                 />
@@ -246,11 +246,11 @@
                                 <label class="overview-label" for="tag-description">Description</label>
                                 <InputField
                                     id="tag-description"
-                                    name="description"
+                                name="description" 
                                     type="text"
                                     placeholder="Enter description"
-                                    bind:value={$form.description}
-                                    disabled={$submitting}
+                                bind:value={$form.description}
+                                disabled={$submitting}
                                     state={descErr ? 'error' : 'default'}
                                     helperText={descErr || undefined}
                                 />
@@ -420,7 +420,7 @@
             {/if}
         </div>
     </Card>
-</div>
+    </div>
 
 <ConfirmModal
     open={confirmRemoveDeviceOpen}

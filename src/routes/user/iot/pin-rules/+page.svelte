@@ -7,6 +7,7 @@
     import { Search, Filter, Plus } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
+    import PinRuleEditModal from '$lib/components/pin-rules/PinRuleEditModal.svelte';
 
     export let data: PageData;
 
@@ -16,6 +17,7 @@
     let duplicateTarget: PinRuleRow | null = null;
     let showDuplicateModal = false;
     let duplicateLoading = false;
+    let addModalOpen = false;
 
     interface PinRuleRow {
         id: string;
@@ -320,7 +322,7 @@
             color="primary"
             size="lg"
             iconLeft={true}
-            on:click={() => goto('/user/iot/pin-rules/new')}
+            on:click={() => (addModalOpen = true)}
             style="width: 156px; height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
             <Plus size={20} slot="icon-left" />
@@ -411,3 +413,17 @@
         Are you sure you want to delete this rule? This action cannot be undone.
     </p>
 </Modal>
+
+<!-- Add/Create Rule modal -->
+<PinRuleEditModal
+    bind:open={addModalOpen}
+    rule={null}
+    apiPrefix="/api/v2"
+    onSaved={async () => {
+        await invalidate('app:pin-rules');
+        addModalOpen = false;
+    }}
+    on:saved={async () => {
+        await invalidate('app:pin-rules');
+    }}
+/>

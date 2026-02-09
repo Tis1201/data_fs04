@@ -30,23 +30,38 @@
     let fallbackFileName: string | null = null;
     let fallbackFileSize: number | null = null;
     let prevOpen = false;
+    $: isCreateMode = !rule;
+    $: modalTitle = isCreateMode ? 'Add Rule' : 'Edit Rule';
+
     $: {
-        if (open && !prevOpen && rule) {
-            formData = {
-                name: rule.name || '',
-                description: rule.description || '',
-                isActive: rule.isActive !== false
-            };
-            selectedApps = new Set(Array.isArray(rule.apps) ? rule.apps.filter(Boolean) : []);
-            fallbackScreenEnabled = rule.fallbackScreenEnabled === true;
-            fallbackScreenUrl = rule.fallbackScreenUrl ?? null;
-            fallbackFileName = rule.fallbackScreenUrl ? (rule.fallbackScreenUrl.split('/').pop() ?? null) : null;
-            fallbackFileSize = null;
-            // Apply To
-            applyTo = rule.targetType === 'specific' ? 'devices' : 'all';
-            selectedDevices = [];
-            if (rule.targetType === 'specific' && Array.isArray(rule.targetValue) && rule.targetValue.length > 0) {
-                loadSelectedDevices(rule.targetValue);
+        if (open && !prevOpen) {
+            if (rule) {
+                // Edit mode: sync from rule
+                formData = {
+                    name: rule.name || '',
+                    description: rule.description || '',
+                    isActive: rule.isActive !== false
+                };
+                selectedApps = new Set(Array.isArray(rule.apps) ? rule.apps.filter(Boolean) : []);
+                fallbackScreenEnabled = rule.fallbackScreenEnabled === true;
+                fallbackScreenUrl = rule.fallbackScreenUrl ?? null;
+                fallbackFileName = rule.fallbackScreenUrl ? (rule.fallbackScreenUrl.split('/').pop() ?? null) : null;
+                fallbackFileSize = null;
+                applyTo = rule.targetType === 'specific' ? 'devices' : 'all';
+                selectedDevices = [];
+                if (rule.targetType === 'specific' && Array.isArray(rule.targetValue) && rule.targetValue.length > 0) {
+                    loadSelectedDevices(rule.targetValue);
+                }
+            } else {
+                // Create mode: reset to defaults
+                formData = { name: '', description: '', isActive: true };
+                selectedApps = new Set();
+                fallbackScreenEnabled = false;
+                fallbackScreenUrl = null;
+                fallbackFileName = null;
+                fallbackFileSize = null;
+                applyTo = 'all';
+                selectedDevices = [];
             }
         }
         prevOpen = open;
@@ -326,7 +341,7 @@
 
     let saving = false;
     async function saveRule(asDraft: boolean) {
-        if (!rule?.id) return;
+        if (!isCreateMode && !rule?.id) return;
         if (!formData.name?.trim()) {
             toast.error('Name is required');
             return;
@@ -341,32 +356,50 @@
         }
         saving = true;
         try {
-            const res = await fetch(`${apiPrefix}/pin-rules/${rule.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: formData.name.trim(),
-                    description: formData.description?.trim() || null,
-                    apps: Array.from(selectedApps),
-                    targetType: applyTo === 'all' ? 'all' : 'specific',
-                    targetValue: applyTo === 'all' ? [] : selectedDevices.map((d) => d.id),
-                    isActive: asDraft ? false : formData.isActive,
-                    fallbackScreenEnabled,
-                    fallbackScreenUrl: fallbackScreenEnabled ? (fallbackScreenUrl || null) : null
+            const payload = {
+                name: formData.name.trim(),
+                description: formData.description?.trim() || null,
+                apps: Array.from(selectedApps),
+                targetType: applyTo === 'all' ? 'all' : 'specific',
+                targetValue: applyTo === 'all' ? [] : selectedDevices.map((d) => d.id),
+                isActive: asDraft ? false : formData.isActive,
+                fallbackScreenEnabled,
+                fallbackScreenUrl: fallbackScreenEnabled ? (fallbackScreenUrl || null) : null
+            };
+
+            const res = isCreateMode
+                ? await fetch(`${apiPrefix}/pin-rules`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...payload, ruleType: 'user_custom' })
                 })
-            });
+                : await fetch(`${apiPrefix}/pin-rules/${rule.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
             const data = await res.json();
             if (data?.success) {
-                toast.success(asDraft ? 'Rule saved as draft successfully.' : 'Rule updated & published successfully.');
+                const successMsg = isCreateMode
+                    ? (asDraft ? 'Rule created as draft successfully.' : 'Rule created & published successfully.')
+                    : (asDraft ? 'Rule saved as draft successfully.' : 'Rule updated & published successfully.');
+                toast.success(successMsg);
                 const updatedRule = data?.data?.rule ?? data?.rule;
                 if (onSaved) await Promise.resolve(onSaved(updatedRule));
                 dispatch('saved');
                 handleModalClose();
             } else {
-                toast.error(data?.message || (asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update & publish Rule. Please try again!'));
+                const errorMsg = isCreateMode
+                    ? (asDraft ? 'Unable to create draft. Please try again.' : 'Unable to create rule. Please try again.')
+                    : (asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update rule. Please try again.');
+                toast.error(data?.message || errorMsg);
             }
         } catch {
-            toast.error(asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update & publish Rule. Please try again!');
+            const errorMsg = isCreateMode
+                ? (asDraft ? 'Unable to create draft. Please try again.' : 'Unable to create rule. Please try again.')
+                : (asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update rule. Please try again.');
+            toast.error(errorMsg);
         } finally {
             saving = false;
         }
@@ -383,7 +416,7 @@
 
 <Modal
     bind:open
-    title="Edit Rule"
+    title={modalTitle}
     size="full"
     showCloseButton={true}
     closeOnBackdrop={true}
@@ -474,6 +507,9 @@
                     />
                 </div>
                 {#if fallbackScreenEnabled}
+                    {#if isCreateMode}
+                        <p class="fallback-hint">Save the rule first to upload a fallback screen.</p>
+                    {:else}
                     <div class="fallback-upload">
                         {#if fallbackScreenUrl && fallbackFileName}
                             <div class="fallback-current">
@@ -545,6 +581,7 @@
                             </div>
                         {/if}
                     </div>
+                    {/if}
                 {/if}
             </div>
         {:else if activeTab === 'apply_to'}
