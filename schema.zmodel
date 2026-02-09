@@ -1810,19 +1810,21 @@ model DeviceAppSummary {
 // Hierarchical pin rules for device app management
 
 model PinRule {
-  id          String   @id @default(cuid())
-  ruleType    String   // 'admin_default', 'user_default', 'admin_custom', 'user_custom'
-  createdBy   String   // user_id who created it
-  accountId   String?  // null for admin_default, required for others
-  name        String
-  description String?
-  apps        String[] // ["com.app1", "com.app2"]
-  targetType  String?  // 'all', 'tags', 'os', 'devices'
-  targetValue String[] // ["tag:retail"] or ["android"] or ["device-1"]
-  priority    Int      // 1=default (admin_default/user_default), higher numbers override
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt()
+  id                    String   @id @default(cuid())
+  ruleType              String   // 'admin_default', 'user_default', 'admin_custom', 'user_custom'
+  createdBy             String   // user_id who created it
+  accountId             String?  // null for admin_default, required for others
+  name                  String
+  description           String?
+  apps                  String[] // ["com.app1", "com.app2"]
+  targetType            String?  // 'all', 'tags', 'os', 'devices'
+  targetValue           String[] // ["tag:retail"] or ["android"] or ["device-1"]
+  priority              Int      // 1=default (admin_default/user_default), higher numbers override
+  isActive              Boolean  @default(true)
+  fallbackScreenEnabled Boolean  @default(false) // show custom image/video when kiosk app crashes
+  fallbackScreenUrl     String?  // storage path or URL of uploaded fallback image/video
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt()
   
   // Relationships
   createdByUser User @relation(fields: [createdBy], references: [id], onDelete: Cascade)

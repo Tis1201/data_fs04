@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy, tick } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { writable } from "svelte/store";
     import type { PageData } from "./$types";
     import { page } from "$app/stores";
@@ -16,6 +16,8 @@
     import { subscribeActionLogUpdates } from "$lib/client/mqtt/handlers/data/actionLogHandler";
     import { mqttClient } from "$lib/client/mqtt/mqttClient";
     import { createModalHandler } from "$lib/client/mqtt/handlers/ui/modalHandler";
+    import AppPickerModal from "$lib/components/shared/AppPickerModal.svelte";
+    import type { AppPickerItem } from "$lib/components/shared/AppPickerModal.svelte";
     import { initializeDeviceRealtime, deviceRealtimeStore } from "$lib/stores/deviceRealtimeStore";
     import { browser } from "$app/environment";
     import { createProgressBarHandler } from "$lib/client/mqtt/handlers/ui/progressBarHandler";
@@ -579,103 +581,24 @@
     // =========================
     // Install New App Modal (same UX as Bulk Actions -> Install new App)
     // =========================
-    interface InstallAppOption {
-        id: string;
-        name: string;
-        packageName: string;
-    }
+    // Install New App Modal (uses shared AppPickerModal component)
     let showInstallAppModal = false;
-    let installAppSearch = "";
-    let installAppSelected: string[] = [];
     let installAppLoading = false;
-    let installAppDropdownOpen = false;
-    let installAppDropdownInteracting = false;
-    let installAppInputContainer: HTMLDivElement;
-    let installAppDropdownPosition = { top: 0, left: 0, width: 0 };
-    let availableAppsForInstall: InstallAppOption[] = [];
-    let availableAppsForInstallLoading = false;
 
-    $: installAppFilteredOptions = availableAppsForInstall.filter((app) =>
-        app.name.toLowerCase().includes(installAppSearch.toLowerCase()) ||
-        app.packageName.toLowerCase().includes(installAppSearch.toLowerCase())
-    );
-
-    // Package names currently on device (for "Already on device" in Install modal)
+    // Package names currently on device (for "Already on device" badge)
     $: installedPackageNames = new Set((apps || []).map((a: DeviceApp) => (a.package_name || '').trim()).filter(Boolean));
 
-    async function loadAvailableAppsForInstall() {
-        availableAppsForInstallLoading = true;
-        try {
-            const res = await fetch('/api/user/resources/apps?pageSize=100');
-            if (!res.ok) throw new Error('Failed to load apps');
-            const data = await res.json();
-            availableAppsForInstall = (data.items || []).map((item: any) => ({
-                id: item.id,
-                name: item.name || 'Unknown App',
-                packageName: item.packageName || '-'
-            }));
-        } catch (error) {
-            console.error('Failed to load apps:', error);
-            availableAppsForInstall = [];
-        } finally {
-            availableAppsForInstallLoading = false;
-        }
-    }
-
     function openInstallAppModal() {
-        installAppSearch = "";
-        installAppSelected = [];
-        installAppDropdownOpen = false;
-        installAppDropdownInteracting = false;
         showInstallAppModal = true;
-        loadAvailableAppsForInstall();
         // Refresh device app list so we can show "Already on device" for installed apps
         if (device?.id) loadApps();
     }
 
-    function updateInstallAppDropdownPosition() {
-        if (installAppInputContainer) {
-            const rect = installAppInputContainer.getBoundingClientRect();
-            installAppDropdownPosition = {
-                top: rect.bottom + 4,
-                left: rect.left,
-                width: rect.width
-            };
-        }
-    }
-
-    async function handleInstallAppFocus() {
-        installAppDropdownOpen = true;
-        await tick();
-        updateInstallAppDropdownPosition();
-    }
-
-    function handleInstallAppBlur() {
-        setTimeout(() => {
-            if (!installAppDropdownInteracting) {
-                installAppDropdownOpen = false;
-            }
-        }, 150);
-    }
-
-    function toggleInstallAppSelection(appId: string) {
-        if (installAppSelected.includes(appId)) {
-            installAppSelected = installAppSelected.filter(id => id !== appId);
-        } else {
-            installAppSelected = [...installAppSelected, appId];
-        }
-        installAppDropdownInteracting = false;
-    }
-
-    function removeInstallAppSelection(appId: string) {
-        installAppSelected = installAppSelected.filter(id => id !== appId);
-    }
-
-    async function confirmInstallAppOnDevice() {
-        if (installAppSelected.length === 0 || !device?.id) return;
+    async function handleInstallAppConfirm(e: CustomEvent<{ selected: string[]; apps: AppPickerItem[] }>) {
+        const { selected, apps: selectedApps } = e.detail;
+        if (selected.length === 0 || !device?.id) return;
         installAppLoading = true;
         try {
-            const selectedApps = availableAppsForInstall.filter(app => installAppSelected.includes(app.id));
             const results = await Promise.allSettled(
                 selectedApps.map(app =>
                     callUserRpc('device.app.install', {
@@ -2519,124 +2442,21 @@
     </div>
 </Modal>
 
-<!-- Install New App Modal (same UX as Bulk Actions -> Install new App) -->
-<Modal
+<!-- Install New App Modal (shared component) -->
+<AppPickerModal
     open={showInstallAppModal}
     title="Install New App"
     size="md"
-    overlayBg="rgba(0, 78, 235, 0.03)"
-    closeOnBackdrop={true}
-    closeOnEscape={true}
-    showFooter={true}
+    confirmText="Confirm"
+    confirmLoadingText="Installing…"
+    confirmLoading={installAppLoading}
+    appsEndpoint="/api/user/resources/apps"
+    {installedPackageNames}
+    showAlreadyBadge={true}
+    selectionMode="id"
     on:close={() => (showInstallAppModal = false)}
->
-    <div
-        class="w-full install-app-input-container"
-        style="margin-bottom: var(--ds-space-4);"
-        bind:this={installAppInputContainer}
-    >
-        <InputField
-            type="text"
-            placeholder="Search and select app"
-            bind:value={installAppSearch}
-            state={installAppDropdownOpen ? 'focused' : 'default'}
-            on:focus={handleInstallAppFocus}
-            on:blur={handleInstallAppBlur}
-        >
-            <svelte:fragment slot="suffix-icon">
-                <Search size={22} />
-            </svelte:fragment>
-        </InputField>
-        {#if installAppDropdownOpen}
-            <div
-                role="listbox"
-                tabindex="-1"
-                class="install-app-dropdown"
-                style="top: {installAppDropdownPosition.top}px; left: {installAppDropdownPosition.left}px; width: {installAppDropdownPosition.width}px;"
-                on:mouseenter={() => installAppDropdownInteracting = true}
-                on:mouseleave={() => installAppDropdownInteracting = false}
-            >
-                {#each installAppFilteredOptions as app (app.id)}
-                    {@const isSelected = installAppSelected.includes(app.id)}
-                    {@const alreadyOnDevice = app.packageName && installedPackageNames.has(app.packageName.trim())}
-                    <button
-                        type="button"
-                        class="install-app-option"
-                        on:mousedown|preventDefault={() => toggleInstallAppSelection(app.id)}
-                    >
-                        <Checkbox
-                            checked={isSelected}
-                            size="sm"
-                            disabled={false}
-                        />
-                        <div class="install-app-option-content">
-                            <span class="install-app-option-name">{app.name}</span>
-                            <span class="install-app-option-package">
-                                {app.packageName}
-                                {#if alreadyOnDevice}
-                                    <span class="install-app-already-badge">Already on device</span>
-                                {/if}
-                            </span>
-                        </div>
-                    </button>
-                {/each}
-                {#if installAppFilteredOptions.length === 0}
-                    <div class="install-app-empty">No apps found</div>
-                {/if}
-            </div>
-        {/if}
-    </div>
-    <div class="w-full">
-        <p class="install-app-selected-label">Selected ({installAppSelected.length} items)</p>
-        <div class="install-app-selected-container">
-            {#each installAppSelected as appId}
-                {@const app = availableAppsForInstall.find(a => a.id === appId)}
-                {#if app}
-                    <div class="install-app-selected-item">
-                        <div class="install-app-selected-content">
-                            <span class="install-app-selected-name">{app.name}</span>
-                            <span class="install-app-selected-package">{app.packageName}</span>
-                        </div>
-                        <Button
-                            variant="text"
-                            size="sm"
-                            icon={X}
-                            iconPosition="only"
-                            iconSize={16}
-                            on:click={() => removeInstallAppSelection(appId)}
-                            aria-label="Remove"
-                        />
-                    </div>
-                {/if}
-            {/each}
-            {#if installAppSelected.length === 0}
-                <span class="install-app-empty-state">No apps selected</span>
-            {/if}
-        </div>
-    </div>
-    <div slot="footer" class="flex items-center justify-end gap-4 w-full">
-        <Button
-            variant="outline"
-            color="primary"
-            size="lg"
-            style="height: 44px; min-width: 100px;"
-            on:click={() => (showInstallAppModal = false)}
-            disabled={installAppLoading}
-        >
-            Cancel
-        </Button>
-        <Button
-            variant="filled"
-            color="primary"
-            size="lg"
-            on:click={confirmInstallAppOnDevice}
-            disabled={installAppLoading || installAppSelected.length === 0}
-            style="height: 44px; min-width: 100px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
-        >
-            {installAppLoading ? 'Installing…' : 'Confirm'}
-        </Button>
-    </div>
-</Modal>
+    on:confirm={handleInstallAppConfirm}
+/>
 
 <!-- Update Firmware Modal (Figma - 880px width, matching listing page) -->
 <Modal
@@ -4154,134 +3974,7 @@
         color: var(--ds-text-primary);
     }
 
-    /* Install New App Modal - same UX as Bulk Actions -> Install new App */
-    .install-app-input-container {
-        position: relative;
-        overflow: visible;
-        z-index: 10;
-    }
-    .install-app-dropdown {
-        position: fixed;
-        background: var(--ds-bg-primary);
-        border: 1px solid var(--ds-border-default);
-        border-radius: var(--ds-radius-lg);
-        max-height: 300px;
-        min-height: 200px;
-        overflow-y: auto;
-        overflow-x: hidden;
-        z-index: 150;
-        box-shadow: var(--ds-shadow-lg);
-        padding: var(--ds-space-1);
-        display: flex;
-        flex-direction: column;
-        margin-top: var(--ds-space-1);
-    }
-    .install-app-dropdown::-webkit-scrollbar {
-        width: 16px;
-    }
-    .install-app-dropdown::-webkit-scrollbar-track {
-        background: var(--ds-bg-secondary);
-    }
-    .install-app-dropdown::-webkit-scrollbar-thumb {
-        background: var(--ds-color-neutral-true-200);
-        border-radius: var(--ds-radius-lg);
-        border: 4px solid var(--ds-bg-secondary);
-    }
-    .install-app-option {
-        width: 100%;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        gap: var(--ds-space-3);
-        padding: var(--ds-space-2) var(--ds-space-4);
-        border: none;
-        background: transparent;
-        border-radius: var(--ds-radius-md);
-        cursor: pointer;
-        text-align: left;
-        transition: background-color 0.15s ease;
-        min-height: 54px;
-    }
-    .install-app-option:hover {
-        background: var(--ds-color-neutral-true-50);
-    }
-    .install-app-option-content {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-    }
-    .install-app-option-name {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        line-height: var(--ds-leading-sm);
-        color: var(--ds-color-neutral-true-800);
-    }
-    .install-app-option-package {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-xs);
-        line-height: var(--ds-leading-xs);
-        color: var(--ds-color-gray-500);
-    }
-    .install-app-already-badge {
-        margin-left: var(--ds-space-2);
-        padding: 2px 6px;
-        font-size: 10px;
-        font-weight: 500;
-        color: var(--ds-color-gray-600);
-        background: var(--ds-bg-secondary);
-        border-radius: var(--ds-radius-sm);
-    }
-    .install-app-empty {
-        padding: var(--ds-space-3) var(--ds-space-4);
-        text-align: center;
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        color: var(--ds-color-gray-500);
-    }
-    .install-app-selected-label {
-        font-family: var(--ds-font-family-primary);
-        font-weight: var(--ds-font-medium);
-        font-size: var(--ds-text-md);
-        line-height: var(--ds-leading-md);
-        color: var(--ds-color-neutral-true-800);
-        margin: 0 0 var(--ds-space-2) 0;
-    }
-    .install-app-selected-container {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-    }
-    .install-app-selected-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: var(--ds-space-3) 0;
-        border-bottom: 1px solid var(--ds-border-default);
-    }
-    .install-app-selected-content {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-    }
-    .install-app-selected-name {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        line-height: var(--ds-leading-sm);
-        font-weight: var(--ds-font-medium);
-        color: var(--ds-color-neutral-true-800);
-    }
-    .install-app-selected-package {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-xs);
-        line-height: var(--ds-leading-xs);
-        color: var(--ds-color-gray-500);
-    }
-    .install-app-empty-state {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        color: var(--ds-color-gray-500);
-        padding: var(--ds-space-3) 0;
-    }
+    /* Install New App Modal styles are now in shared AppPickerModal component */
 
     /* Responsive */
     @media (max-width: 1200px) {

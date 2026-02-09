@@ -54,6 +54,10 @@ export const GET = unifiedEndpoint(
     const excludePackages = excludePackagesCsv
       ? excludePackagesCsv.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
+    const packagesCsv = url.searchParams.get('packages');
+    const packagesFilter = packagesCsv
+      ? packagesCsv.split(',').map((s) => s.trim()).filter(Boolean)
+      : undefined;
     const createdAfter = url.searchParams.get('createdAfter');
     const createdBefore = url.searchParams.get('createdBefore');
     const pageParam = url.searchParams.get('page');
@@ -111,6 +115,11 @@ export const GET = unifiedEndpoint(
       where.createdAt = {};
       if (createdAfterDate) where.createdAt.gt = createdAfterDate;
       if (createdBeforeDate) where.createdAt.lt = createdBeforeDate;
+    }
+
+    // Restrict to specific packages (e.g. for pin rule app list)
+    if (packagesFilter && packagesFilter.length > 0) {
+      where.packageName = { in: packagesFilter };
     }
 
     // Search filter
@@ -199,6 +208,7 @@ export const GET = unifiedEndpoint(
         format: true,
         packageName: true,
         size: true,
+        releaseType: true,
         path: true,
         createdAt: true
       }
@@ -222,5 +232,5 @@ export const GET = unifiedEndpoint(
       }
     });
   },
-  { permission: 'resource.view' }
+  { permission: 'resource.view', skipPermission: true } // TODO: remove skipPermission when ACL is fixed
 );

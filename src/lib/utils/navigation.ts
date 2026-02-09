@@ -367,7 +367,7 @@ export function getPinRuleListBreadcrumbs(context: 'admin' | 'user'): Breadcrumb
 }
 
 /**
- * Get breadcrumbs for pin rule detail/edit page
+ * Get breadcrumbs for pin rule detail page (read-only view)
  */
 export function getPinRuleDetailBreadcrumbs(
     context: 'admin' | 'user',
@@ -377,8 +377,8 @@ export function getPinRuleDetailBreadcrumbs(
     const baseBreadcrumbs = getPinRuleListBreadcrumbs(context);
     const pinRuleLabel = pinRuleName || "Pin Rule";
     const pinRulePath = context === 'admin'
-        ? `/admin/iot/pin-rules/edit/${pinRuleId}`
-        : `/user/iot/pin-rules/edit/${pinRuleId}`;
+        ? `/admin/iot/pin-rules/${pinRuleId}`
+        : `/user/iot/pin-rules/${pinRuleId}`;
 
     return [
         ...baseBreadcrumbs,
@@ -387,7 +387,7 @@ export function getPinRuleDetailBreadcrumbs(
 }
 
 /**
- * Get breadcrumbs for pin rule edit page
+ * Get breadcrumbs for pin rule edit page (form)
  */
 export function getPinRuleEditBreadcrumbs(
     context: 'admin' | 'user',
@@ -397,8 +397,8 @@ export function getPinRuleEditBreadcrumbs(
     const baseBreadcrumbs = getPinRuleListBreadcrumbs(context);
     const pinRuleLabel = pinRuleName || "Pin Rule";
     const pinRulePath = context === 'admin'
-        ? `/admin/iot/pin-rules/edit/${pinRuleId}`
-        : `/user/iot/pin-rules/edit/${pinRuleId}`;
+        ? `/admin/iot/pin-rules/${pinRuleId}`
+        : `/user/iot/pin-rules/${pinRuleId}`;
 
     return [
         ...baseBreadcrumbs,
