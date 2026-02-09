@@ -195,7 +195,7 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 	const body = await event.request.json();
 
 	// Validate required fields
-	const { ruleType, name, apps, targetType, targetValue, description } = body;
+	const { ruleType, name, apps, targetType, targetValue, description, isActive, fallbackScreenEnabled, fallbackScreenUrl } = body;
 
 	if (!ruleType || !name || !apps || !Array.isArray(apps)) {
 		throw Object.assign(new Error('ruleType, name, and apps are required'), { status: 400 });
@@ -241,7 +241,9 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 			targetType: targetType || 'all',
 			targetValue: targetValue || [],
 			priority,
-			isActive: true
+			isActive: isActive !== false,
+			fallbackScreenEnabled: fallbackScreenEnabled === true,
+			fallbackScreenUrl: fallbackScreenUrl || null
 		},
 		include: {
 			createdByUser: {

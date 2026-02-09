@@ -1,7 +1,7 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
-import { generatePresignedUrl, generateFilePath } from '$lib/server/storage';
+import { generatePresignedUrl, generateFilePath, deleteFilesFromCloudStorageByPrefix } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
 
 /**
@@ -12,7 +12,8 @@ import { logger } from '$lib/server/logger';
  * - fileName: string (required) - Name of file to upload
  * - contentType: string (optional) - MIME type (will be inferred if missing)
  * - expiresSeconds: number (optional, default: 600) - URL expiration time
- * - prefix: string (optional) - GCS path prefix (e.g. "temp/resources"). Object path becomes {prefix}/{uuid}.ext
+ * - prefix: string (optional) - GCS path prefix (e.g. "pinrule/123"). Object path becomes {prefix}/{uuid}.ext
+ * - replaceInFolder: boolean (optional) - If true, delete any existing objects under prefix/ first (one file per folder)
  *
  * Returns:
  * - url: string - Presigned upload URL
@@ -21,7 +22,7 @@ import { logger } from '$lib/server/logger';
  */
 export const POST = unifiedEndpoint(
   async ({ context, event }) => {
-    const { fileName, contentType, expiresSeconds = 600, prefix } = await event.request.json();
+    const { fileName, contentType, expiresSeconds = 600, prefix, replaceInFolder } = await event.request.json();
 
     if (!fileName) {
       throw Object.assign(
@@ -68,11 +69,14 @@ export const POST = unifiedEndpoint(
       type: inferredContentType
     } as File;
 
+    const prefixStr = prefix && String(prefix).trim() ? String(prefix).replace(/^\/+|\/+$/g, '') : '';
+    if (replaceInFolder && prefixStr) {
+      await deleteFilesFromCloudStorageByPrefix(prefixStr);
+      logger.info(`Cleared existing files under prefix: ${prefixStr}`);
+    }
+
     const baseName = generateFilePath(mockFile);
-    const objectPath =
-      prefix && String(prefix).trim()
-        ? `${String(prefix).replace(/^\/+|\/+$/g, '')}/${baseName}`
-        : baseName;
+    const objectPath = prefixStr ? `${prefixStr}/${baseName}` : baseName;
 
     logger.info(`Generating presigned URL for: ${objectPath} (${inferredContentType})`);
 

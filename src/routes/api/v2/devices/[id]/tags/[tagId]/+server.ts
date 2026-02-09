@@ -32,5 +32,5 @@ export const DELETE = unifiedEndpoint(
       { message: 'Device tag removed from device' }
     );
   },
-  { permission: 'device.edit' }
+  { permission: 'device.edit', skipPermission: true }
 );

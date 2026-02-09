@@ -20,7 +20,8 @@ import { areDevicesOnline } from '$lib/server/device/devicePresence';
  * - order: sort order (asc, desc)
  * - search: search term
  * - status: filter by status
- * - tag: filter by tag
+ * - tag: filter by tag (name)
+ * - tagIds: comma-separated device tag IDs (devices that have any of these tags)
  * - excludeDeviceIds: comma-separated IDs to exclude
  * - includeDeviceIds: comma-separated IDs to include (overrides other filters)
  */
@@ -34,9 +35,11 @@ export const GET = unifiedEndpoint(
 		const search = (url.searchParams.get('search') || '').trim();
 		const status = url.searchParams.get('status');
 		const tag = url.searchParams.get('tag');
+		const tagIdsCsv = url.searchParams.get('tagIds');
 		const excludeIdsCsv = url.searchParams.get('excludeDeviceIds');
 		const includeIdsCsv = url.searchParams.get('includeDeviceIds');
 		
+		const tagIds = tagIdsCsv ? tagIdsCsv.split(',').map((s) => s.trim()).filter(Boolean) : [];
 		const excludeIds = excludeIdsCsv ? excludeIdsCsv.split(',').map((s) => s.trim()).filter(Boolean) : [];
 		const includeIds = includeIdsCsv ? includeIdsCsv.split(',').map((s) => s.trim()).filter(Boolean) : [];
 		
@@ -54,8 +57,10 @@ export const GET = unifiedEndpoint(
 		// Status filter
 		if (status) where.status = status;
 		
-		// Tag filter
-		if (tag) {
+		// Tag filter (by name or by tag IDs)
+		if (tagIds.length) {
+			where.tags = { some: { id: { in: tagIds } } };
+		} else if (tag) {
 			where.tags = {
 				some: { name: tag }
 			};
@@ -90,6 +95,7 @@ export const GET = unifiedEndpoint(
 					status: true,
 					model: true,
 					description: true,
+					macAddress: true,
 					// Keep DB field for backwards compatibility, but we'll override with Redis presence below
 					connected: true,
 					lastUsedAt: true

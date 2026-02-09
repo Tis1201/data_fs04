@@ -42,6 +42,24 @@ export async function queueNotification(notification: QueuedNotification): Promi
     }
 }
 
+/** Type for action-log broadcast (same Redis queue, worker does MQTT publish) */
+export const ACTION_LOG_BROADCAST_TYPE = 'actionLog:broadcast';
+
+/**
+ * Queue an action-log broadcast. Worker will load the log and publish via MQTT
+ * (same flow as device actions: web app queues, worker publishes).
+ */
+export async function queueActionLogBroadcast(logId: string, eventType: 'created' | 'updated'): Promise<void> {
+    const crypto = await import('node:crypto');
+    await queueNotification({
+        sub: '',
+        recipient: ACTION_LOG_BROADCAST_TYPE,
+        type: ACTION_LOG_BROADCAST_TYPE,
+        flowId: crypto.randomUUID(),
+        params: { logId, eventType }
+    });
+}
+
 /**
  * Subscribe to queued notifications (called by worker)
  * The worker processes queued messages and sends them via MQTT

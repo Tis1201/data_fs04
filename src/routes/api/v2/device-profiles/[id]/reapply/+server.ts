@@ -119,6 +119,15 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 	const successfulDevices: string[] = [];
 	const failedDevices: string[] = [];
 
+	// Set assignment status to APPLYING so UI shows "Applying" until device responds or timeout
+	await prisma.deviceProfileAssignment.updateMany({
+		where: {
+			deviceId: { in: validatedData.deviceIds },
+			profileId: profileId
+		},
+		data: { status: 'APPLYING', lastSyncAt: new Date() }
+	});
+
 	// Import ProfileMessagingService
 	const { ProfileMessagingService } = await import('$lib/server/device/profile/ProfileMessagingService');
 	const messagingService = new ProfileMessagingService(prisma);
@@ -153,6 +162,17 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 			}
 		})
 	);
+
+	// If any device failed to queue, set their assignment status back to FAILED so UI is accurate
+	if (failedDevices.length > 0) {
+		await prisma.deviceProfileAssignment.updateMany({
+			where: {
+				deviceId: { in: failedDevices },
+				profileId: profileId
+			},
+			data: { status: 'FAILED', lastSyncAt: new Date() }
+		});
+	}
 
 	return successResponse(
 		{

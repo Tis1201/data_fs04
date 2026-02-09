@@ -17,6 +17,13 @@ export function registerMqttTransport(transport: MqttTransport): void {
 }
 
 /********************************************************************************************
+ * Check if MQTT transport is available (e.g. in worker process). In the web app it is not.
+ ********************************************************************************************/
+export function isMqttTransportAvailable(): boolean {
+    return activeTransport != null;
+}
+
+/********************************************************************************************
  * Retrieve the active transport; errors if the worker is not connected yet.
  ********************************************************************************************/
 export function getMqttTransport(): MqttTransport {

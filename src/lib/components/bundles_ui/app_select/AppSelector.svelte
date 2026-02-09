@@ -217,6 +217,11 @@
         updateResultsMenuPosition();
     }
 
+    $: if (resourceMode && open) {
+        resultsPanelOpen = true;
+        updateResultsMenuPosition();
+    }
+
     $: if (!open) resultsPanelOpen = false;
 
     function handleClickOutside(e: MouseEvent) {
@@ -265,7 +270,7 @@
                     </span>
                 </InputField>
             </div>
-            {#if filterSearch && resultsPanelOpen}
+            {#if (resourceMode && open) || (filterSearch && resultsPanelOpen)}
                 <div
                     class="add-app-results-menu add-app-results-menu-fixed"
                     role="listbox"
@@ -274,7 +279,7 @@
                     {#if tableData.loading}
                         <div class="add-app-results-empty">Loading…</div>
                     {:else if tableData.records.length === 0}
-                        <div class="add-app-results-empty">No apps match your search.</div>
+                        <div class="add-app-results-empty">{#if resourceMode && !filterSearch}No apps available.{:else}No apps match your search.{/if}</div>
                     {:else}
                         <div class="add-app-results-options">
                             {#each tableData.records as resource (resource.id)}

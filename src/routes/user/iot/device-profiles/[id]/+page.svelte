@@ -1,12 +1,15 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
-    import { Button, Card, Badge, TabGroup } from '$lib/design-system/components';
-    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
+    import { onMount, onDestroy } from 'svelte';
+    import { Button, Card, Badge, TabGroup, ConfirmModal, ActionMenu, Modal } from '$lib/design-system/components';
+    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X, UserMinus } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
     import { toast } from '$lib/stores/alertToast';
     import AddEditProfileModal from '../components/AddEditProfileModal.svelte';
+    import DeviceSelector from '$lib/components/ui_components_sveltekit/device_profiles/DeviceSelector.svelte';
+    import { useDeviceProfileMqtt } from '$lib/composables/useDeviceProfileMqtt';
 
     export let data: PageData;
     /** From layout/route – accept to avoid "unknown prop" warning */
@@ -17,6 +20,35 @@
     const basePath = '/user/iot';
     const listPath = '/user/iot/device-profiles';
     $: profileId = profile?.id ?? '';
+
+    // Real-time apply status: when device reports success/fail, refresh so Apply status column updates
+    const { setup: setupProfileMqtt } = useDeviceProfileMqtt({
+        profileId,
+        onStatusUpdate: () => invalidate('app:deviceProfile'),
+        onProgressUpdate: () => invalidate('app:deviceProfile'),
+        onProfileUpdate: () => invalidate('app:deviceProfile')
+    });
+    // When timeout job marks APPLYING as FAILED (no MQTT is sent), poll so UI eventually shows Failed
+    let applyingPollIntervalId = 0;
+    function startApplyingPoll() {
+        if (applyingPollIntervalId) return;
+        applyingPollIntervalId = setInterval(() => invalidate('app:deviceProfile'), 10_000);
+    }
+    function stopApplyingPoll() {
+        if (applyingPollIntervalId) {
+            clearInterval(applyingPollIntervalId);
+            applyingPollIntervalId = 0;
+        }
+    }
+    $: if (activeTab === 'devices' && (deviceRows?.some((r) => r.applyStatus === 'APPLYING') ?? false)) {
+        startApplyingPoll();
+    } else {
+        stopApplyingPoll();
+    }
+    onMount(() => {
+        if (profileId) setupProfileMqtt();
+    });
+    onDestroy(() => stopApplyingPoll());
 
     let showEditProfileModal = false;
     function openEditProfileModal() {
@@ -142,7 +174,7 @@
     $: displaySettingsRows = DISPLAY_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
     $: scheduleSettingsRows = SCHEDULE_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
 
-    $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null } }) => {
+    $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null }; status?: string; appliedAt?: Date | string | null }) => {
         const d = a.device;
         const mac = d.macAddress || d.wifiMac || '—';
         return {
@@ -152,7 +184,8 @@
             deviceType: d.deviceType ?? '—',
             status: d.status ?? 'ACTIVE',
             macAddress: mac,
-            lastUsedAt: d.lastUsedAt ?? null
+            lastUsedAt: d.lastUsedAt ?? null,
+            applyStatus: a.status ?? null
         };
     });
 
@@ -183,6 +216,307 @@
     }
     function devicesLastPage() {
         devicesPage = devicesTotalPages;
+    }
+
+    // Add Device modal (reuse DeviceSelector)
+    let showAddDeviceModal = false;
+    let addDeviceLoading = false;
+    function openAddDeviceModal() {
+        showAddDeviceModal = true;
+    }
+    function closeAddDeviceModal() {
+        showAddDeviceModal = false;
+    }
+
+    // Assign by tag modal (search + multi-select chips like reference)
+    let showAssignByTagModal = false;
+    let assignByTagLoading = false;
+    let assignByTagTags: { id: string; name: string }[] = [];
+    let assignByTagSelected: { id: string; name: string }[] = [];
+    let assignByTagSearchTerm = '';
+    let assignByTagDropdownOpen = false;
+    function openAssignByTagModal() {
+        showAssignByTagModal = true;
+        assignByTagSelected = [];
+        assignByTagSearchTerm = '';
+        assignByTagDropdownOpen = false;
+        loadAssignByTagTags();
+    }
+    function closeAssignByTagModal() {
+        showAssignByTagModal = false;
+        assignByTagSelected = [];
+        assignByTagSearchTerm = '';
+        assignByTagTags = [];
+    }
+    async function loadAssignByTagTags() {
+        try {
+            const res = await fetch('/api/v2/devices/tags');
+            const data = await res.json().catch(() => ({}));
+            const list = data?.data ?? data;
+            assignByTagTags = Array.isArray(list) ? list : [];
+        } catch {
+            assignByTagTags = [];
+        }
+    }
+    $: assignByTagFilteredTags = assignByTagTags.filter(
+        (t) =>
+            !assignByTagSelected.some((s) => s.id === t.id) &&
+            t.name.toLowerCase().includes(assignByTagSearchTerm.trim().toLowerCase())
+    );
+    function addAssignByTagTag(tag: { id: string; name: string }) {
+        if (!assignByTagSelected.some((s) => s.id === tag.id)) {
+            assignByTagSelected = [...assignByTagSelected, tag];
+        }
+        assignByTagSearchTerm = '';
+        assignByTagDropdownOpen = false;
+    }
+    function removeAssignByTagTag(id: string) {
+        assignByTagSelected = assignByTagSelected.filter((t) => t.id !== id);
+    }
+    async function onConfirmAssignByTag() {
+        if (assignByTagSelected.length === 0) return;
+        assignByTagLoading = true;
+        try {
+            const tagIds = assignByTagSelected.map((t) => t.id);
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/assign-by-tag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tagIds })
+            });
+            const data = await res.json().catch(() => ({}));
+            const payload = data?.data ?? data;
+            if (res.ok && data?.success !== false) {
+                const count = payload?.assignedCount ?? 0;
+                toast.success(count > 0 ? `Assigned profile to ${count} device(s).` : 'No unassigned devices with selected tags.');
+                closeAssignByTagModal();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Assign by tag failed. Please try again!');
+            }
+        } catch {
+            toast.error('Assign by tag failed. Please try again!');
+        } finally {
+            assignByTagLoading = false;
+        }
+    }
+    async function onAddDeviceSelect(e: CustomEvent<{ id: string; name: string }[]>) {
+        const devices = e.detail || [];
+        if (devices.length === 0) return;
+        const deviceIds = devices.map((d) => d.id);
+        addDeviceLoading = true;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                toast.success('Device added successfully!');
+                closeAddDeviceModal();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unable to add device. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to add device. Please try again!');
+        } finally {
+            addDeviceLoading = false;
+        }
+    }
+
+    // Actions dropdown: only one open at a time (like preclaims)
+    let openMoreMenuKey: string | null = null;
+
+    // Remove Device confirmation (reuse ConfirmModal)
+    let confirmRemoveOpen = false;
+    let deviceToRemove: { id: string; name: string } | null = null;
+    let removeDeviceLoading = false;
+
+    function getDeviceMenuActions(row: { id: string; name: string }) {
+        return [
+            { id: 'view', label: 'View', destructive: false, disabled: false, href: deviceDetailHref(row.id) },
+            { id: 'reapply', label: 'Reapply', destructive: false, disabled: reapplyDeviceId === row.id },
+            { id: 'remove', label: 'Remove', destructive: true, disabled: false }
+        ];
+    }
+
+    function handleDeviceActionSelect(row: { id: string; name: string }, itemId: string) {
+        if (itemId === 'view') {
+            // View is a link (href) in ActionMenu — no goto needed
+            return;
+        } else if (itemId === 'reapply') {
+            onReapplyDevice(row);
+        } else if (itemId === 'remove') {
+            openRemoveConfirm(row);
+        }
+    }
+    function openRemoveConfirm(row: { id: string; name: string }) {
+        deviceToRemove = { id: row.id, name: row.name };
+        confirmRemoveOpen = true;
+    }
+    function closeRemoveConfirm() {
+        confirmRemoveOpen = false;
+        deviceToRemove = null;
+    }
+    async function onConfirmRemove() {
+        if (!deviceToRemove) return;
+        removeDeviceLoading = true;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/unassign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds: [deviceToRemove.id] })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                toast.success('Device removed successfully!');
+                closeRemoveConfirm();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unable to remove device. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to remove device. Please try again!');
+        } finally {
+            removeDeviceLoading = false;
+        }
+    }
+
+    // Reapply profile to a single device
+    let reapplyDeviceId: string | null = null;
+    async function onReapplyDevice(row: { id: string; name: string }) {
+        if (reapplyDeviceId) return;
+        reapplyDeviceId = row.id;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/reapply`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds: [row.id] })
+            });
+            const data = await res.json().catch(() => ({}));
+            const payload = data?.data;
+            if (res.ok && data?.success !== false) {
+                const failed = payload?.failedCount > 0 && payload?.failedDevices?.includes(row.id);
+                if (failed) {
+                    toast.error(`Could not send reapply to ${row.name || 'device'}. Please try again.`);
+                } else {
+                    toast.success(`Reapply sent to ${row.name || 'device'}. Status will update when it responds.`);
+                    invalidate('app:deviceProfile');
+                }
+            } else {
+                toast.error(data?.error?.message || 'Reapply failed. Please try again!');
+            }
+        } catch {
+            toast.error('Reapply failed. Please try again!');
+        } finally {
+            reapplyDeviceId = null;
+        }
+    }
+
+    function deviceDetailHref(deviceId: string): string {
+        return `${basePath}/devices/${deviceId}`;
+    }
+
+    // Unassign all confirmation
+    let showUnassignAllConfirm = false;
+    let unassignAllLoading = false;
+    function openUnassignAllConfirm() {
+        showUnassignAllConfirm = true;
+    }
+    function closeUnassignAllConfirm() {
+        showUnassignAllConfirm = false;
+    }
+    async function onConfirmUnassignAll() {
+        unassignAllLoading = true;
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/unassign-all`, { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+                const count = data?.data?.unassignedCount ?? 0;
+                toast.success(count > 0 ? `Unassigned profile from ${count} device(s).` : 'No devices were assigned.');
+                closeUnassignAllConfirm();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unassign all failed. Please try again!');
+            }
+        } catch {
+            toast.error('Unassign all failed. Please try again!');
+        } finally {
+            unassignAllLoading = false;
+        }
+    }
+
+    // Unassign by tag modal (same pattern as Assign by tag)
+    let showUnassignByTagModal = false;
+    let unassignByTagLoading = false;
+    let unassignByTagTags: { id: string; name: string }[] = [];
+    let unassignByTagSelected: { id: string; name: string }[] = [];
+    let unassignByTagSearchTerm = '';
+    let unassignByTagDropdownOpen = false;
+    function openUnassignByTagModal() {
+        showUnassignByTagModal = true;
+        unassignByTagSelected = [];
+        unassignByTagSearchTerm = '';
+        unassignByTagDropdownOpen = false;
+        loadUnassignByTagTags();
+    }
+    function closeUnassignByTagModal() {
+        showUnassignByTagModal = false;
+        unassignByTagSelected = [];
+        unassignByTagSearchTerm = '';
+        unassignByTagTags = [];
+    }
+    async function loadUnassignByTagTags() {
+        try {
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/assigned-device-tags`);
+            const data = await res.json().catch(() => ({}));
+            const list = data?.data?.tags ?? [];
+            unassignByTagTags = Array.isArray(list) ? list : [];
+        } catch {
+            unassignByTagTags = [];
+        }
+    }
+    $: unassignByTagFilteredTags = unassignByTagTags.filter(
+        (t) =>
+            !unassignByTagSelected.some((s) => s.id === t.id) &&
+            t.name.toLowerCase().includes(unassignByTagSearchTerm.trim().toLowerCase())
+    );
+    function addUnassignByTagTag(tag: { id: string; name: string }) {
+        if (!unassignByTagSelected.some((s) => s.id === tag.id)) {
+            unassignByTagSelected = [...unassignByTagSelected, tag];
+        }
+        unassignByTagSearchTerm = '';
+        unassignByTagDropdownOpen = false;
+    }
+    function removeUnassignByTagTag(id: string) {
+        unassignByTagSelected = unassignByTagSelected.filter((t) => t.id !== id);
+    }
+    async function onConfirmUnassignByTag() {
+        if (unassignByTagSelected.length === 0) return;
+        unassignByTagLoading = true;
+        try {
+            const tagIds = unassignByTagSelected.map((t) => t.id);
+            const res = await fetch(`/api/v2/device-profiles/${profileId}/unassign-by-tag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tagIds })
+            });
+            const data = await res.json().catch(() => ({}));
+            const payload = data?.data ?? data;
+            if (res.ok && data?.success !== false) {
+                const count = payload?.unassignedCount ?? 0;
+                toast.success(count > 0 ? `Unassigned profile from ${count} device(s).` : 'No assigned devices with selected tags.');
+                closeUnassignByTagModal();
+                invalidate('app:deviceProfile');
+            } else {
+                toast.error(data?.error?.message || 'Unassign by tag failed. Please try again!');
+            }
+        } catch {
+            toast.error('Unassign by tag failed. Please try again!');
+        } finally {
+            unassignByTagLoading = false;
+        }
     }
 </script>
 
@@ -385,6 +719,52 @@
                             <h4 class="assigned-devices-title">Devices</h4>
                             <p class="assigned-devices-subtitle">Devices assigned to this profile</p>
                         </div>
+                        <div class="assigned-devices-header-actions">
+                            <Button
+                                variant="filled"
+                                color="primary"
+                                size="lg"
+                                iconLeft={true}
+                                on:click={openAssignByTagModal}
+                                class="assigned-devices-add-btn assigned-devices-tag-btn"
+                            >
+                                <Tag size={20} slot="icon-left" />
+                                Assign by tag
+                            </Button>
+                            <Button
+                                variant="filled"
+                                color="primary"
+                                size="lg"
+                                iconLeft={true}
+                                on:click={openAddDeviceModal}
+                                class="assigned-devices-add-btn"
+                            >
+                                <Plus size={20} slot="icon-left" />
+                                Add Device
+                            </Button>
+                            <Button
+                                variant="filled"
+                                color="primary"
+                                size="lg"
+                                iconLeft={true}
+                                on:click={openUnassignByTagModal}
+                                class="assigned-devices-add-btn assigned-devices-tag-btn"
+                            >
+                                <Tag size={20} slot="icon-left" />
+                                Unassign by tag
+                            </Button>
+                            <Button
+                                variant="filled"
+                                color="primary"
+                                size="lg"
+                                iconLeft={true}
+                                on:click={openUnassignAllConfirm}
+                                class="assigned-devices-add-btn"
+                            >
+                                <UserMinus size={20} slot="icon-left" />
+                                Unassign all
+                            </Button>
+                        </div>
                     </div>
 
                     <div class="assigned-devices-content">
@@ -405,14 +785,17 @@
                                             <span class="assigned-devices-th-inner">Status <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
                                         </th>
                                         <th class="assigned-devices-th">
-                                            <span class="assigned-devices-th-inner">Last Seen <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                            <span class="assigned-devices-th-inner">Apply status <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                        </th>
+                                        <th class="assigned-devices-th assigned-devices-th-actions">
+                                            <span class="assigned-devices-th-inner">Actions</span>
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {#if paginatedDeviceRows.length === 0}
                                         <tr>
-                                            <td colspan="5" class="assigned-devices-empty">No devices assigned to this profile</td>
+                                            <td colspan="6" class="assigned-devices-empty">No devices assigned to this profile</td>
                                         </tr>
                                     {:else}
                                         {#each paginatedDeviceRows as row}
@@ -438,12 +821,33 @@
                                                         showDot={false}
                                                     />
                                                 </td>
-                                                <td class="assigned-devices-td assigned-devices-td-lastseen" class:assigned-devices-lastseen-offline={row.status !== 'ACTIVE' && !row.lastUsedAt}>
-                                                    {#if row.lastUsedAt}
-                                                        {formatLastSeen(row.lastUsedAt)}
+                                                <td class="assigned-devices-td assigned-devices-td-applystatus">
+                                                    {#if row.applyStatus === 'SUCCESS'}
+                                                        <Badge label="Applied" color="success" variant="filled" size="md" showDot={false} />
+                                                    {:else if row.applyStatus === 'APPLYING'}
+                                                        <Badge label="Applying" color="warning" variant="filled" size="md" showDot={false} />
+                                                    {:else if row.applyStatus === 'FAILED'}
+                                                        <Badge label="Failed" color="destructive" variant="filled" size="md" showDot={false} />
                                                     {:else}
-                                                        <span class="assigned-devices-lastseen-placeholder">—</span>
+                                                        <span class="assigned-devices-applystatus-placeholder">—</span>
                                                     {/if}
+                                                </td>
+                                                <td class="assigned-devices-td assigned-devices-td-actions">
+                                                    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+                                                    <div on:click|stopPropagation>
+                                                        <ActionMenu
+                                                            open={openMoreMenuKey === row.id}
+                                                            items={getDeviceMenuActions(row)}
+                                                            triggerIcon="dots-vertical"
+                                                            align="right"
+                                                            size="sm"
+                                                            triggerVariant="text"
+                                                            width="auto"
+                                                            on:open={() => { openMoreMenuKey = row.id; }}
+                                                            on:close={() => { openMoreMenuKey = null; }}
+                                                            on:select={(e) => handleDeviceActionSelect(row, e.detail.id)}
+                                                        />
+                                                    </div>
                                                 </td>
                                             </tr>
                                         {/each}
@@ -490,6 +894,172 @@
         on:success={onEditProfileSuccess}
         on:error={(e) => onEditProfileError(e.detail)}
     />
+
+    <!-- Add Device modal (reuse DeviceSelector – search and select devices, then assign) -->
+    <DeviceSelector
+        open={showAddDeviceModal}
+        profileId={profileId}
+        apiPrefix="/api/v2"
+        status="available"
+        title="Add Device"
+        confirmLabel="Add"
+        on:close={closeAddDeviceModal}
+        on:select={onAddDeviceSelect}
+    />
+
+    <!-- Assign Tag modal (search + selected chips like reference) -->
+    <Modal
+        open={showAssignByTagModal}
+        title="Assign Tag"
+        size="md"
+        showFooter={true}
+        confirmText="Assign"
+        cancelText="Cancel"
+        confirmLoading={assignByTagLoading}
+        confirmDisabled={assignByTagSelected.length === 0 || assignByTagLoading}
+        on:close={closeAssignByTagModal}
+        on:confirm={onConfirmAssignByTag}
+    >
+        <div class="tag-modal-body">
+            <div class="tag-modal-search-wrap">
+                <input
+                    type="text"
+                    class="tag-modal-search-input"
+                    placeholder="Search and select tag"
+                    bind:value={assignByTagSearchTerm}
+                    on:focus={() => (assignByTagDropdownOpen = true)}
+                    on:blur={() => setTimeout(() => (assignByTagDropdownOpen = false), 150)}
+                    on:keydown={(e) => e.key === 'Escape' && (assignByTagDropdownOpen = false)}
+                />
+                <span class="tag-modal-search-icon" aria-hidden="true"><Search size={18} /></span>
+            </div>
+            {#if assignByTagDropdownOpen && assignByTagFilteredTags.length > 0}
+                <ul class="tag-modal-dropdown" role="listbox">
+                    {#each assignByTagFilteredTags as tag (tag.id)}
+                        <li
+                            class="tag-modal-dropdown-item"
+                            role="option"
+                            tabindex="0"
+                            on:click={() => addAssignByTagTag(tag)}
+                            on:keydown={(e) => e.key === 'Enter' && addAssignByTagTag(tag)}
+                        >
+                            {tag.name}
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
+            <div class="tag-modal-selected-section">
+                <span class="tag-modal-selected-label">Selected ({assignByTagSelected.length} item{assignByTagSelected.length !== 1 ? 's' : ''})</span>
+                {#if assignByTagSelected.length > 0}
+                    <div class="tag-modal-chips">
+                        {#each assignByTagSelected as tag (tag.id)}
+                            <span class="tag-modal-chip">
+                                <span class="tag-modal-chip-text">{tag.name}</span>
+                                <button
+                                    type="button"
+                                    class="tag-modal-chip-remove"
+                                    aria-label="Remove {tag.name}"
+                                    on:click={() => removeAssignByTagTag(tag.id)}
+                                >
+                                    <X size={14} />
+                                </button>
+                            </span>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+        </div>
+    </Modal>
+
+    <!-- Remove Device confirmation (reuse ConfirmModal) -->
+    <ConfirmModal
+        open={confirmRemoveOpen}
+        title="Remove Device"
+        description="Are you sure you want to remove this device? This action cannot be reversed."
+        confirmText="Remove"
+        cancelText="Cancel"
+        confirmLoading={removeDeviceLoading}
+        confirmDisabled={removeDeviceLoading}
+        on:close={closeRemoveConfirm}
+        on:confirm={onConfirmRemove}
+    />
+
+    <!-- Unassign all confirmation -->
+    <ConfirmModal
+        open={showUnassignAllConfirm}
+        title="Unassign all"
+        description="Unassign this profile from all devices? This action cannot be reversed."
+        confirmText="Unassign all"
+        cancelText="Cancel"
+        confirmLoading={unassignAllLoading}
+        confirmDisabled={unassignAllLoading}
+        on:close={closeUnassignAllConfirm}
+        on:confirm={onConfirmUnassignAll}
+    />
+
+    <!-- Unassign by tag modal (search + selected chips) -->
+    <Modal
+        open={showUnassignByTagModal}
+        title="Unassign by tag"
+        size="md"
+        showFooter={true}
+        confirmText="Unassign"
+        cancelText="Cancel"
+        confirmLoading={unassignByTagLoading}
+        confirmDisabled={unassignByTagSelected.length === 0 || unassignByTagLoading}
+        on:close={closeUnassignByTagModal}
+        on:confirm={onConfirmUnassignByTag}
+    >
+        <div class="tag-modal-body">
+            <div class="tag-modal-search-wrap">
+                <input
+                    type="text"
+                    class="tag-modal-search-input"
+                    placeholder="Search and select tag"
+                    bind:value={unassignByTagSearchTerm}
+                    on:focus={() => (unassignByTagDropdownOpen = true)}
+                    on:blur={() => setTimeout(() => (unassignByTagDropdownOpen = false), 150)}
+                    on:keydown={(e) => e.key === 'Escape' && (unassignByTagDropdownOpen = false)}
+                />
+                <span class="tag-modal-search-icon" aria-hidden="true"><Search size={18} /></span>
+            </div>
+            {#if unassignByTagDropdownOpen && unassignByTagFilteredTags.length > 0}
+                <ul class="tag-modal-dropdown" role="listbox">
+                    {#each unassignByTagFilteredTags as tag (tag.id)}
+                        <li
+                            class="tag-modal-dropdown-item"
+                            role="option"
+                            tabindex="0"
+                            on:click={() => addUnassignByTagTag(tag)}
+                            on:keydown={(e) => e.key === 'Enter' && addUnassignByTagTag(tag)}
+                        >
+                            {tag.name}
+                        </li>
+                    {/each}
+                </ul>
+            {/if}
+            <div class="tag-modal-selected-section">
+                <span class="tag-modal-selected-label">Selected ({unassignByTagSelected.length} item{unassignByTagSelected.length !== 1 ? 's' : ''})</span>
+                {#if unassignByTagSelected.length > 0}
+                    <div class="tag-modal-chips">
+                        {#each unassignByTagSelected as tag (tag.id)}
+                            <span class="tag-modal-chip">
+                                <span class="tag-modal-chip-text">{tag.name}</span>
+                                <button
+                                    type="button"
+                                    class="tag-modal-chip-remove"
+                                    aria-label="Remove {tag.name}"
+                                    on:click={() => removeUnassignByTagTag(tag.id)}
+                                >
+                                    <X size={14} />
+                                </button>
+                            </span>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+        </div>
+    </Modal>
 {:else}
     <div class="flex flex-col items-center justify-center gap-4 p-8 text-center">
         <p class="text-sm text-[var(--ds-text-secondary)]">Profile not found.</p>
@@ -715,6 +1285,148 @@
         min-width: 0;
     }
 
+    .assigned-devices-header-actions {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-3, 12px);
+        flex-shrink: 0;
+    }
+
+    /* Assign by tag: same blue style as Add Device, wider so text stays on one line */
+    :global(.assigned-devices-tag-btn) {
+        min-width: 180px !important;
+        width: auto !important;
+        white-space: nowrap;
+    }
+
+    :global(.assigned-devices-add-btn) {
+        width: 156px !important;
+        min-width: 156px !important;
+        height: 44px !important;
+        flex-shrink: 0;
+        background: var(--ds-color-blue-light-600) !important;
+        border: 1px solid var(--ds-color-blue-light-600) !important;
+        box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);
+    }
+
+    /* Assign Tag modal – search + selected chips (match reference) */
+    .tag-modal-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+        width: 100%;
+        font-family: var(--ds-font-family-primary);
+    }
+
+    .tag-modal-search-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+    }
+
+    .tag-modal-search-input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 40px 10px 12px;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-text-primary);
+        background: var(--ds-color-white);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-input-radius);
+    }
+
+    .tag-modal-search-input::placeholder {
+        color: var(--ds-text-secondary);
+    }
+
+    .tag-modal-search-icon {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--ds-text-secondary);
+        pointer-events: none;
+    }
+
+    .tag-modal-dropdown {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-md);
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .tag-modal-dropdown-item {
+        padding: 10px 12px;
+        font-size: var(--ds-text-sm);
+        color: var(--ds-text-primary);
+        cursor: pointer;
+    }
+
+    .tag-modal-dropdown-item:hover {
+        background: var(--ds-color-gray-50, #f9fafb);
+    }
+
+    .tag-modal-selected-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-2);
+    }
+
+    .tag-modal-selected-label {
+        font-weight: var(--ds-font-medium);
+        font-size: var(--ds-text-sm);
+        color: var(--ds-text-primary);
+    }
+
+    .tag-modal-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--ds-space-2);
+    }
+
+    .tag-modal-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        font-size: var(--ds-text-sm);
+        color: var(--ds-text-primary);
+        background: var(--ds-color-gray-100, #f3f4f6);
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-md);
+    }
+
+    .tag-modal-chip-text {
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .tag-modal-chip-remove {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        margin: 0;
+        background: none;
+        border: none;
+        color: var(--ds-text-secondary);
+        cursor: pointer;
+        border-radius: 2px;
+    }
+
+    .tag-modal-chip-remove:hover {
+        color: var(--ds-text-primary);
+    }
+
     .assigned-devices-title {
         font-family: var(--ds-font-family-primary);
         font-weight: 500;
@@ -869,9 +1581,13 @@
         border-radius: 16px;
     }
 
-    .assigned-devices-lastseen-offline .assigned-devices-lastseen-placeholder,
-    .assigned-devices-lastseen-offline {
-        color: var(--ds-color-error-600, #D92D20);
+    .assigned-devices-applystatus-placeholder {
+        color: var(--ds-color-neutral-true-500, #737373);
+    }
+
+    .assigned-devices-td-applystatus :global(button.badge) {
+        padding: 4px 8px;
+        border-radius: 16px;
     }
 
     .assigned-devices-empty {
@@ -945,5 +1661,14 @@
         font-size: 14px;
         line-height: 20px;
         color: var(--ds-color-gray-800, #1D2939);
+    }
+
+    .assigned-devices-th-actions {
+        width: 85px;
+    }
+
+    .assigned-devices-td-actions {
+        padding: 12px 16px;
+        vertical-align: middle;
     }
 </style>

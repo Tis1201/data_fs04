@@ -58,7 +58,7 @@
     let triggerRef: HTMLButtonElement;
     let searchInputRef: HTMLInputElement;
     let hoveredIndex = -1;
-    let dropdownPosition = { top: 0, left: 0, width: 0 };
+    let dropdownPosition = { top: 0, left: 0, width: 0, bottom: 0 };
 
     $: selectedOptions = Array.isArray(value)
         ? options.filter(opt => value.includes(opt.id))
@@ -88,31 +88,28 @@
           )
         : options;
 
-    // Update dropdown position - preferPlacement or auto-detect if should open upward or downward
+    let openUpward = false;
+
+    // Update dropdown position - auto-detect if should open upward or downward
     function updateDropdownPosition() {
         if (triggerRef && typeof window !== 'undefined') {
             const rect = triggerRef.getBoundingClientRect();
             const viewportHeight = window.innerHeight;
             const spaceBelow = viewportHeight - rect.bottom;
-            const spaceAbove = rect.top;
             const dropdownHeight = maxHeight + 8; // Add some buffer
 
-            let shouldOpenUpward = false;
-            if (preferPlacement === 'bottom') {
-                shouldOpenUpward = false;
-            } else if (preferPlacement === 'top') {
-                shouldOpenUpward = true;
-            } else {
-                // auto: if not enough space below but enough above, open upward
-                shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
-            }
+            // If not enough space below, open upward (anchor by bottom edge)
+            openUpward = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
 
             dropdownPosition = {
-                top: shouldOpenUpward
-                    ? rect.top - dropdownHeight - 4  // Position above trigger
-                    : rect.bottom + 4,                // Position below trigger (default)
+                top: openUpward
+                    ? 0   // unused when opening upward; bottom is set instead
+                    : rect.bottom + 4,
                 left: rect.left,
-                width: rect.width
+                width: rect.width,
+                bottom: openUpward
+                    ? viewportHeight - rect.top + 4  // menu bottom sits 4px above trigger top
+                    : 0
             };
         }
     }
@@ -318,7 +315,7 @@
     {#if isOpen}
         <div 
             class="dropdown-menu"
-            style="max-height: {maxHeight}px; --dropdown-max-height: {maxHeight}px; top: {dropdownPosition.top}px; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
+            style="max-height: {maxHeight}px; --dropdown-max-height: {maxHeight}px; {openUpward ? `bottom: ${dropdownPosition.bottom}px` : `top: ${dropdownPosition.top}px`}; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
             role="listbox"
             aria-multiselectable={multiple}
         >

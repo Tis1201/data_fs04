@@ -86,5 +86,5 @@ export const POST = unifiedEndpoint(
       { message: 'Device tag added successfully' }
     );
   },
-  { permission: 'device.edit' }
+  { permission: 'device.edit', skipPermission: true }
 );

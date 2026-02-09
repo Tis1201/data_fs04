@@ -154,6 +154,29 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 					userId: session.user.id
 				});
 
+				// Timeout: if device never reports back, mark as FAILED after 3 minutes (same as reapply)
+				const ASSIGN_TIMEOUT_MS = 3 * 60 * 1000;
+				setTimeout(async () => {
+					try {
+						const assignment = await prisma.deviceProfileAssignment.findFirst({
+							where: {
+								deviceId,
+								profileId,
+								status: 'APPLYING'
+							}
+						});
+						if (assignment) {
+							await prisma.deviceProfileAssignment.update({
+								where: { id: assignment.id },
+								data: { status: 'FAILED', lastSyncAt: new Date() }
+							});
+							logger.warn(`Assign timed out for device ${deviceId} (profile ${profileId})`);
+						}
+					} catch (timeoutErr) {
+						logger.error(`Error updating assign timeout status for device ${deviceId}:`, timeoutErr as any);
+					}
+				}, ASSIGN_TIMEOUT_MS);
+
 				logger.info(`Profile assigned and config sent to device ${deviceId}`, {
 					deviceId,
 					profileId,

@@ -116,7 +116,8 @@ export async function loadDeviceTagDetail(
                         connected: true,
                         model: true,
                         macAddress: true,
-                        createdAt: true
+                        createdAt: true,
+                        lastUsedAt: true
                     }
                 },
                 account: {

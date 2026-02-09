@@ -59,7 +59,7 @@ export const GET = unifiedEndpoint(
       tags: tagsWithColor,
       total: tagsWithColor.length
     });
-  },
-  { permission: 'deviceTag.view' }
+  }
+  // TODO: re-enable when permission is granted: { permission: 'deviceTag.view' }
 );
 

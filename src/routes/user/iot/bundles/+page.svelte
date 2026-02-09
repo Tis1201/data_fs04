@@ -211,13 +211,14 @@
         try {
             const res = await fetch(`/api/v2/bundles/${duplicateTarget.id}/duplicate`, { method: 'POST' });
             const json = await res.json().catch(() => ({}));
-            if (json.id) {
+            const newId = json.data?.id || json.id;
+            if (json.success && newId) {
                 toast.success('Deployment duplicated successfully!');
                 closeDuplicateModal();
                 await invalidate('app:bundles');
-                goto(`${basePath}/${json.id}`);
+                goto(`${basePath}/${newId}`);
             } else {
-                toast.error('Unable to duplicate deployment. Please try again!');
+                toast.error(json.error?.message || 'Unable to duplicate deployment. Please try again!');
             }
         } catch {
             toast.error('Unable to duplicate deployment. Please try again!');
@@ -469,7 +470,8 @@
             minWidth: '240px',
             render: (value: unknown, row: Bundle) => {
                 const label = escapeHtml(row.name || row.id || 'Unnamed');
-                return `<span class="ds-deployment-name">${label}</span>`;
+                const href = `${basePath}/${row.id}`;
+                return `<a href="${escapeHtml(href)}" class="ds-deployment-name ds-deployment-name-link">${label}</a>`;
             }
         },
         {
@@ -765,5 +767,12 @@
         font-size: var(--ds-text-sm);
         font-weight: var(--ds-font-medium);
         color: var(--ds-text-primary);
+    }
+    :global(.ds-deployment-name-link) {
+        color: var(--ds-color-blue-light-600, #2563EB);
+        text-decoration: none;
+    }
+    :global(.ds-deployment-name-link:hover) {
+        text-decoration: underline;
     }
 </style>

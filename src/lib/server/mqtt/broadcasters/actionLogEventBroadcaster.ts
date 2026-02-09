@@ -27,7 +27,23 @@ export interface ActionLogEvent {
 
 export class ActionLogEventBroadcaster {
   /**
-   * Broadcast action log event to all subscribers
+   * Run broadcast from queue (worker only). Loads log then broadcasts via MQTT.
+   */
+  static async runBroadcastFromQueue(
+    prisma: PrismaClient,
+    logId: string,
+    eventType: 'created' | 'updated'
+  ): Promise<void> {
+    const log = await prisma.deviceActionLog.findUnique({ where: { id: logId } });
+    if (!log) {
+      logger.warn('[ActionLogEventBroadcaster] Log not found for broadcast', { logId });
+      return;
+    }
+    await this.broadcastActionLogEvent(prisma, log, eventType);
+  }
+
+  /**
+   * Broadcast action log event to all subscribers (called from worker; uses MQTT transport).
    */
   static async broadcastActionLogEvent(
     prisma: PrismaClient,
@@ -58,18 +74,22 @@ export class ActionLogEventBroadcaster {
               deviceId: log.deviceId
             });
             
-            const updatedLog = await prisma.deviceActionLog.findUnique({
+            let updatedLog = await prisma.deviceActionLog.findUnique({
               where: { id: log.id },
               select: { sequenceNumber: true }
             });
-            
+            if (!updatedLog?.sequenceNumber) {
+              await new Promise((r) => setTimeout(r, 50));
+              updatedLog = await prisma.deviceActionLog.findUnique({
+                where: { id: log.id },
+                select: { sequenceNumber: true }
+              });
+            }
             if (updatedLog?.sequenceNumber) {
               sequenceNumber = updatedLog.sequenceNumber;
             } else {
-              logger.warn('[ActionLogEventBroadcaster] Sequence number not found after conflict, retrying', {
-                logId: log.id
-              });
-              sequenceNumber = await SequenceGenerator.getNextSequence(prisma, log.deviceId);
+              logger.debug('[ActionLogEventBroadcaster] Using fallback sequence after conflict', { logId: log.id });
+              sequenceNumber = 0;
             }
           } else {
             // SequenceGenerator failed (e.g. DB/transaction) — use fallback so broadcast can proceed
@@ -158,7 +178,7 @@ export class ActionLogEventBroadcaster {
   }
 
   /**
-   * Publish event to MQTT topics
+   * Publish event to MQTT topics (worker only; transport is registered there).
    */
   private static async publishEvent(
     prisma: PrismaClient,

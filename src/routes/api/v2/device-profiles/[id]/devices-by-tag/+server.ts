@@ -45,28 +45,23 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		}
 	}
 
-	// Find devices with the specified tags
+	// Find devices with the specified tags (Device.tags -> DeviceTag[])
 	const devices = await prisma.device.findMany({
 		where: {
 			...(tagIds.length > 0 && {
-				deviceTags: {
+				tags: {
 					some: {
-						tagId: { in: tagIds }
+						id: { in: tagIds }
 					}
 				}
 			}),
 			...(deviceProfile.accountId && { accountId: deviceProfile.accountId })
 		},
 		include: {
-			deviceTags: {
-				include: {
-					tag: {
-						select: {
-							id: true,
-							name: true,
-							color: true
-						}
-					}
+			tags: {
+				select: {
+					id: true,
+					name: true
 				}
 			},
 			profileAssignment: {

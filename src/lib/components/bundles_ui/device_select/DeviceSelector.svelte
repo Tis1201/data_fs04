@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { X, Search } from 'lucide-svelte';
   import { toast } from '$lib/stores/alertToast';
@@ -109,12 +109,6 @@
 
   function onSearchInput() {
     if (searchDebounceId) clearTimeout(searchDebounceId);
-    const q = filterSearch.trim();
-    if (!q) {
-      tableData = { ...tableData, records: [], loading: false };
-      searchDropdownOpen = false;
-      return;
-    }
     searchDropdownOpen = true;
     searchDebounceId = setTimeout(() => {
       searchDebounceId = null;
@@ -123,12 +117,41 @@
   }
 
   function onSearchFocus() {
-    if (filterSearch.trim()) searchDropdownOpen = true;
+    searchDropdownOpen = true;
   }
 
   function onSearchBlur() {
-    setTimeout(() => { searchDropdownOpen = false; }, 150);
+    // Delay so mousedown on dropdown items can register before hiding
+    setTimeout(() => { searchDropdownOpen = false; }, 200);
   }
+
+  // Click outside to close dropdown
+  function handleClickOutside(event: MouseEvent) {
+    if (!searchDropdownOpen) return;
+    const target = event.target as HTMLElement;
+    // Check if click is outside both the search input and the dropdown
+    const clickedInput = searchWrapRef?.contains(target);
+    const clickedDropdown = target.closest('.add-device-search-dropdown-portal');
+    if (!clickedInput && !clickedDropdown) {
+      searchDropdownOpen = false;
+    }
+  }
+
+  // Add/remove click-outside listener when dropdown opens/closes
+  $: if (browser) {
+    if (searchDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }
+
+  // Cleanup on component destroy
+  onDestroy(() => {
+    if (browser) {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+  });
 
   function handleConfirm() {
     if (selectedDevices.length === 0) return;
@@ -159,7 +182,13 @@
     dispatch('close');
   }
 
-  $: showDropdown = searchDropdownOpen && filterSearch.trim() !== '' && open;
+  // Auto-load devices when modal opens
+  $: if (open && browser) {
+    searchDropdownOpen = true;
+    loadDevices();
+  }
+
+  $: showDropdown = searchDropdownOpen && open;
   $: canAdd = (device: Device) => !selectedDevices.some((d) => d.id === device.id);
   $: if (browser && showDropdown && searchWrapRef) {
     const r = searchWrapRef.getBoundingClientRect();
@@ -199,7 +228,7 @@
           on:input={onSearchInput}
           on:focus={onSearchFocus}
           on:blur={onSearchBlur}
-          on:clear={() => { tableData = { ...tableData, records: [] }; }}
+          on:clear={() => { filterSearch = ''; loadDevices(); }}
           label=""
           suffixIcon={true}
         >
@@ -277,7 +306,8 @@
   .add-device-modal-body {
     display: flex;
     flex-direction: column;
-    gap: var(--ds-space-4);
+    gap: var(--ds-space-6);
+    padding: var(--ds-space-4);
     font-family: var(--ds-font-family-primary);
     width: 100%;
     min-width: 0;
@@ -311,7 +341,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
+    gap: var(--ds-space-1);
     width: 100%;
     padding: var(--ds-space-3);
     border: none;
@@ -319,7 +349,7 @@
     font-family: var(--ds-font-family-primary);
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, opacity 0.15s;
     border-bottom: 1px solid var(--ds-color-gray-100);
   }
   .add-device-dropdown-item:last-child {
@@ -330,24 +360,38 @@
   }
   .add-device-dropdown-item.is-selected,
   .add-device-dropdown-item:disabled {
-    cursor: default;
-    opacity: 0.7;
+    cursor: not-allowed;
+    opacity: 0.4;
+    background: var(--ds-color-gray-50);
+  }
+  .add-device-dropdown-item.is-selected .add-device-dropdown-name,
+  .add-device-dropdown-item:disabled .add-device-dropdown-name {
+    color: var(--ds-text-tertiary);
+  }
+  .add-device-dropdown-item.is-selected .add-device-dropdown-mac,
+  .add-device-dropdown-item:disabled .add-device-dropdown-mac {
+    color: var(--ds-text-quaternary);
   }
   .add-device-dropdown-name {
+    font-weight: var(--ds-font-medium);
     font-size: var(--ds-text-sm);
-    font-weight: 600;
+    line-height: var(--ds-leading-sm);
     color: var(--ds-text-primary);
   }
   .add-device-dropdown-mac {
+    font-weight: var(--ds-font-regular);
     font-size: var(--ds-text-xs);
+    line-height: var(--ds-leading-xs);
+    letter-spacing: 0.01em;
     color: var(--ds-text-secondary);
-    font-family: var(--ds-font-family-mono, ui-monospace, monospace);
   }
   .add-device-dropdown-empty {
     padding: var(--ds-space-4);
     text-align: center;
+    font-weight: var(--ds-font-regular);
     font-size: var(--ds-text-sm);
-    color: var(--ds-text-secondary);
+    line-height: var(--ds-leading-sm);
+    color: var(--ds-text-tertiary);
     cursor: default;
   }
   .add-device-selected {
@@ -358,8 +402,9 @@
     min-width: 0;
   }
   .add-device-selected-title {
-    font-size: var(--ds-text-sm);
     font-weight: var(--ds-font-medium);
+    font-size: var(--ds-text-sm);
+    line-height: var(--ds-leading-sm);
     color: var(--ds-text-primary);
     margin: 0;
   }
@@ -371,7 +416,9 @@
     overflow-y: auto;
   }
   .add-device-selected-empty {
+    font-weight: var(--ds-font-regular);
     font-size: var(--ds-text-sm);
+    line-height: var(--ds-leading-sm);
     color: var(--ds-text-secondary);
     margin: 0;
   }
@@ -389,16 +436,20 @@
   .add-device-selected-item-text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--ds-space-1);
     min-width: 0;
   }
   .add-device-selected-name {
+    font-weight: var(--ds-font-medium);
     font-size: var(--ds-text-sm);
-    font-weight: 600;
+    line-height: var(--ds-leading-sm);
     color: var(--ds-text-primary);
   }
   .add-device-selected-mac {
+    font-weight: var(--ds-font-regular);
     font-size: var(--ds-text-xs);
+    line-height: var(--ds-leading-xs);
+    letter-spacing: 0.01em;
     color: var(--ds-text-secondary);
   }
 </style>

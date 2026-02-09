@@ -69,4 +69,8 @@ registerJob('system:cleanup-tokens', cleanupExpiredTokens, 'Remove expired refre
 import { exampleJob } from './handlers/example';
 registerJob('test:example', exampleJob, 'Example job for testing the worker');
 
+// Device profile: mark stale APPLYING assignments as FAILED
+import { timeoutProfileApplying } from './handlers/timeout-profile-applying';
+registerJob('system:timeout-profile-applying', timeoutProfileApplying, 'Mark device profile assignments stuck in APPLYING as FAILED');
+
 export { registry };

@@ -3,6 +3,7 @@ import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { deleteFileFromCloudStorage, deleteFilesFromCloudStorageByPrefix } from '$lib/server/storage';
 
 // GET /api/v2/pin-rules/[id] - Get a specific pin rule
 export const GET = unifiedEndpoint(async ({ context, params }) => {
@@ -165,7 +166,7 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 	}
 
 	// Validate update data
-	const { name, description, apps, targetType, targetValue, isActive } = body;
+	const { name, description, apps, targetType, targetValue, isActive, fallbackScreenEnabled, fallbackScreenUrl } = body;
 
 	const updateData: any = {};
 
@@ -185,6 +186,20 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 		updateData.targetValue = targetValue;
 	}
 	if (isActive !== undefined) updateData.isActive = isActive;
+	if (fallbackScreenEnabled !== undefined) updateData.fallbackScreenEnabled = !!fallbackScreenEnabled;
+	if (fallbackScreenUrl !== undefined) updateData.fallbackScreenUrl = fallbackScreenUrl == null || fallbackScreenUrl === '' ? null : String(fallbackScreenUrl);
+
+	// When clearing fallback URL, delete the old file from storage
+	if (
+		(fallbackScreenUrl === null || fallbackScreenUrl === '') &&
+		existingRule.fallbackScreenUrl
+	) {
+		try {
+			await deleteFileFromCloudStorage(existingRule.fallbackScreenUrl);
+		} catch (e) {
+			logger.warn(`Failed to delete old fallback file: ${existingRule.fallbackScreenUrl}`, { error: e });
+		}
+	}
 
 	// Update the rule
 	const updatedRule = await prisma.pinRule.update({
@@ -284,6 +299,13 @@ export const DELETE = unifiedEndpoint(async ({ context, event, params }) => {
 			new Error('Only system administrators can delete admin default rules'),
 			{ status: 403, code: ErrorCodes.FORBIDDEN }
 		);
+	}
+
+	// Delete fallback screen file(s) from storage (pinrule/{id}/)
+	try {
+		await deleteFilesFromCloudStorageByPrefix(`pinrule/${id}`);
+	} catch (e) {
+		logger.warn(`Failed to delete fallback files for pin rule ${id}`, { error: e });
 	}
 
 	// Delete the rule (cascade will handle related records)

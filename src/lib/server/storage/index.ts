@@ -742,6 +742,88 @@ export async function deleteFileFromCloudStorage(filePath: string): Promise<void
 }
 
 /**
+ * List object paths under a prefix in cloud storage (for replace-in-folder behavior).
+ * Prefix should end with / to list "folder" contents (e.g. "pinrule/123/").
+ */
+export async function listObjectsByPrefix(prefix: string): Promise<string[]> {
+    const config = getStorageConfig();
+    if (config.mode === 'LOCAL') {
+        const { readdirSync } = await import('fs');
+        const { join } = await import('path');
+        const pathPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+        const dir = join(process.cwd(), 'static', 'uploads', 'iot', pathPrefix);
+        try {
+            const names = readdirSync(dir, { withFileTypes: true })
+                .filter((e) => e.isFile())
+                .map((e) => `${pathPrefix}${e.name}`);
+            return names;
+        } catch {
+            return [];
+        }
+    }
+    if (!config.bucket) return [];
+    const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+    try {
+        if (config.mode === 'GCLOUD') {
+            const storage = new Storage({ projectId: config.projectId });
+            const [files] = await storage.bucket(config.bucket).getFiles({ prefix: normalizedPrefix });
+            return files.map((f) => f.name);
+        }
+        if (config.mode === 'LOCAL_CLOUD' && config.targetServiceAccount) {
+            const storage = new Storage({ projectId: config.projectId });
+            const [files] = await storage.bucket(config.bucket).getFiles({ prefix: normalizedPrefix });
+            return files.map((f) => f.name);
+        }
+    } catch (err) {
+        logger.warn(`listObjectsByPrefix failed: ${err}`);
+    }
+    return [];
+}
+
+/**
+ * Delete all objects under a prefix so the "folder" contains at most zero files.
+ * Use for pinrule/{id}/ where only one file should exist at a time.
+ */
+export async function deleteFilesFromCloudStorageByPrefix(prefix: string): Promise<void> {
+    const config = getStorageConfig();
+    if (config.mode === 'LOCAL') {
+        const { readdirSync, unlinkSync } = await import('fs');
+        const { join } = await import('path');
+        const pathPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+        const dir = join(process.cwd(), 'static', 'uploads', 'iot', pathPrefix);
+        try {
+            readdirSync(dir, { withFileTypes: true })
+                .filter((e) => e.isFile())
+                .forEach((e) => {
+                    try {
+                        unlinkSync(join(dir, e.name));
+                    } catch {}
+                });
+        } catch {
+            // dir may not exist
+        }
+        return;
+    }
+    if (!config.bucket) return;
+    const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+    const names = await listObjectsByPrefix(normalizedPrefix);
+    for (const objectPath of names) {
+        try {
+            switch (config.mode) {
+                case 'LOCAL_CLOUD':
+                    await deleteFileFromLocalCloud(config.bucket!, objectPath, config.targetServiceAccount!);
+                    break;
+                case 'GCLOUD':
+                    await deleteFileFromGCloud(config.bucket, objectPath);
+                    break;
+            }
+        } catch (e) {
+            logger.warn(`Failed to delete ${objectPath}: ${e}`);
+        }
+    }
+}
+
+/**
  * Delete file from LOCAL_CLOUD mode (using service account impersonation)
  * Uses gcloud CLI to avoid invalid_rapt errors with user credentials
  */

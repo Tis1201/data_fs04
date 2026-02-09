@@ -144,7 +144,7 @@
                         id: record.id,
                         name: record.name || 'Unnamed Rule'
                     },
-                    baseUrl: '/user/iot/pin-rules/edit',
+                    baseUrl: '/user/iot/pin-rules',
                     showId: true
                 }
             })
@@ -203,7 +203,7 @@
                     {
                         label: "Edit Rule",
                         icon: Pencil,
-                        onClick: () => goto(`/user/iot/pin-rules/edit/${record.id}`)
+                        onClick: () => goto(`/user/iot/pin-rules/${record.id}/edit`)
                     },
                     // Only show delete for non-default rules (user_custom)
                     ...(isDefault ? [] : [{

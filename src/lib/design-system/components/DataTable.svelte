@@ -106,6 +106,7 @@
         variant?: 'filled' | 'outline' | 'text' | 'ghost';
         color?: 'primary' | 'gray' | 'danger';
         onClick?: (row: T) => void;
+        href?: string | ((row: T) => string);
         disabled?: (row: T) => boolean;
         hidden?: (row: T) => boolean;
         tooltip?: string;
@@ -775,7 +776,8 @@
                                                             label: a.label ?? a.id,
                                                             icon: a.icon,
                                                             destructive: a.color === 'danger',
-                                                            disabled: a.disabled ? a.disabled(row) : false
+                                                            disabled: a.disabled ? a.disabled(row) : false,
+                                                            href: typeof a.href === 'function' ? a.href(row) : a.href
                                                         }))}
                                                     triggerIcon="dots-vertical"
                                                     align="right"
