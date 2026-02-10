@@ -73,8 +73,14 @@
         ? Math.max(...apps.map(app => app.order)) + 1 
         : 1;
     
-    // Check if bundle is editable (DRAFT status)
-    $: isEditable = ($page?.data?.bundle?.status || '').toUpperCase() === 'DRAFT';
+    // Check if bundle is editable
+    // Editable for: DRAFT, PUBLISHED+scheduledAt (Scheduled), FAILED, STOPPED
+    $: isEditable = (() => {
+        const s = ($page?.data?.bundle?.status || '').toUpperCase();
+        if (['DRAFT', 'FAILED', 'STOPPED'].includes(s)) return true;
+        if (s === 'PUBLISHED' && !!$page?.data?.bundle?.scheduledAt) return true;
+        return false;
+    })();
     
     // DataTable columns configuration (Figma: #, App, Type, Version, Size, Auto Open, Added On, Actions)
     const columns: ColumnDef<AppWithResource>[] = [
@@ -341,7 +347,7 @@
                     iconSize={18}
                     on:click={() => addDialogOpen = true}
                     disabled={!isEditable}
-                    title={!isEditable ? 'Not editable: bundle already published' : undefined}
+                    title={!isEditable ? 'Not editable in current deployment status' : undefined}
                 >
                     Add App
                 </Button>

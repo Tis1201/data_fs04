@@ -298,6 +298,15 @@ async function recomputeWaveAndPublish(waveId: string, bundleId: string, waveNam
 
 export async function updateBundleStatus(prisma: any, bundleId: string) {
   try {
+    // Get current bundle status first
+    const bundle = await (prisma as any).bundle.findUnique({
+      where: { id: bundleId },
+      select: { status: true }
+    });
+    if (!bundle) return;
+
+    const current = (bundle.status || '').toUpperCase();
+
     // Get all waves for this bundle
     const waves = await (prisma as any).bundleWave.findMany({
       where: { bundleId },
@@ -313,7 +322,7 @@ export async function updateBundleStatus(prisma: any, bundleId: string) {
     const anyInProgress = waves.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
     const anyFailed = waves.some((w: any) => w.status === 'FAILED');
     const allCompleted = waves.every((w: any) => w.status === 'COMPLETED');
-    const allTerminal = waves.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(w.status));
+    const allTerminal = waves.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED', 'STOPPED'].includes(w.status));
     
     let bundleStatus: string;
     if (anyInProgress) {
@@ -326,6 +335,16 @@ export async function updateBundleStatus(prisma: any, bundleId: string) {
       // All waves are terminal but mix of completed/cancelled (no failed)
       bundleStatus = 'COMPLETED';
     }
+
+    // Never overwrite user-set STOPPED/CANCELLED (so user can Resume later).
+    if (current === 'STOPPED' || current === 'CANCELLED') {
+      logger.debug(`[BundleEventProcessor] Preserving user-set status ${current} for bundle ${bundleId}`);
+      return;
+    }
+
+    if (current === bundleStatus) {
+      return; // No change needed
+    }
     
     // Update bundle status
     await (prisma as any).bundle.update({
@@ -335,7 +354,7 @@ export async function updateBundleStatus(prisma: any, bundleId: string) {
       }
     });
     
-    logger.info(`[BundleEventProcessor] Updated bundle ${bundleId} status to ${bundleStatus} (waves: ${waves.length}, inProgress: ${anyInProgress}, failed: ${anyFailed}, allCompleted: ${allCompleted})`);
+    logger.info(`[BundleEventProcessor] Updated bundle ${bundleId} status from ${current} to ${bundleStatus} (waves: ${waves.length}, inProgress: ${anyInProgress}, failed: ${anyFailed}, allCompleted: ${allCompleted})`);
   } catch (e: any) {
     logger.warn(`[BundleEventProcessor] Failed to update bundle status for ${bundleId}: ${String(e?.message || e)}`);
   }

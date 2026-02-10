@@ -41,9 +41,12 @@ export const load = restrict(
                 throw error(404, "Bundle not found");
             }
 
-            // Disallow editing if not DRAFT
-            if (bundle.status !== 'DRAFT') {
-                throw error(403, 'Bundle is not editable after publish');
+            // Allow editing for DRAFT, PUBLISHED+scheduled, FAILED
+            // Stopped: wave structure is frozen – Duplicate for changes. Cancelled: permanent.
+            const editableStatuses = ['DRAFT', 'FAILED'];
+            const isScheduled = bundle.status === 'PUBLISHED' && !!bundle.scheduledAt;
+            if (!editableStatuses.includes(bundle.status) && !isScheduled) {
+                throw error(403, 'Bundle is not editable in its current status');
             }
 
             // Prepare form data from the bundle
@@ -104,8 +107,10 @@ export const actions: Actions = {
                             error: 'Bundle not found'
                         });
                     }
-                    if (existingBundle.status !== 'DRAFT') {
-                        return fail(403, { form, error: 'Bundle is not editable after publish' });
+                    const saveEditableStatuses = ['DRAFT', 'FAILED'];
+                    const saveIsScheduled = existingBundle.status === 'PUBLISHED' && !!(existingBundle as any).scheduledAt;
+                    if (!saveEditableStatuses.includes(existingBundle.status) && !saveIsScheduled) {
+                        return fail(403, { form, error: 'Bundle is not editable in its current status' });
                     }
 
                     // Prepare update data
