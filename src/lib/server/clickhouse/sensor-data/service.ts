@@ -13,6 +13,18 @@ import {
     type SensorDataRow,
 } from './types';
 
+/** Normalize ISO datetime to ClickHouse-friendly format (YYYY-MM-DD HH:MM:SS) for query params. */
+function toClickHouseDateTime(isoOrDate: string | Date): string {
+    const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const h = String(d.getUTCHours()).padStart(2, '0');
+    const min = String(d.getUTCMinutes()).padStart(2, '0');
+    const s = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${y}-${m}-${day} ${h}:${min}:${s}`;
+}
+
 export class SensorDataService {
     private static instance: SensorDataService;
 
@@ -66,12 +78,12 @@ export class SensorDataService {
 
         if (params.startTime) {
             conditions.push('log_creation_time >= {startTime:DateTime}');
-            queryParams.startTime = params.startTime;
+            queryParams.startTime = toClickHouseDateTime(params.startTime);
         }
 
         if (params.endTime) {
             conditions.push('log_creation_time <= {endTime:DateTime}');
-            queryParams.endTime = params.endTime;
+            queryParams.endTime = toClickHouseDateTime(params.endTime);
         }
 
         // Search across configured fields

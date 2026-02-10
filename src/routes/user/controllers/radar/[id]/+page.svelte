@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
+  import { browser } from "$app/environment";
   import { toast } from "$lib/stores/alertToast";
   import {
     MapPin,
@@ -21,7 +22,9 @@
     BellRing,
     ScanSearch,
     ClipboardList,
+    Upload,
   } from "lucide-svelte";
+  import { mqttStore } from "$lib/stores/mqtt-store";
   import {
     Button,
     Badge,
@@ -31,6 +34,7 @@
     DataTable,
     ActionMenu,
     ConfirmModal,
+    InputField,
   } from "$lib/design-system/components";
   import EditDeviceModal from "$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte";
   import AddZoneModal from "$lib/components/ui_components_sveltekit/radar/AddZoneModal.svelte";
@@ -42,16 +46,40 @@
   import { RADAR_CONSTRAINTS } from "$lib/components/ui_components_sveltekit/radar/constraints";
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
-
   export let data: PageData;
 
   interface RadarConfig {
     trackingArea?: { id?: string; name: string; startX: number; startY: number; endX: number; endY: number; description?: string };
     zones?: Array<{ id?: string; name: string; zoneNumber: number; startX: number; startY: number; endX: number; endY: number; color?: string; description?: string; active?: boolean }>;
     dwellBuckets?: Array<{ id?: string; name: string; minDuration: number; maxDuration?: number; description?: string }>;
+    alertSettings?: {
+      sensorOffline?: { enabled: boolean; threshold: string; unit: string };
+      noData?: { enabled: boolean; threshold: string; unit: string };
+      dwellTime?: { enabled: boolean; zoneId: string; threshold: string };
+      email?: { enabled: boolean; address: string };
+      webhook?: { enabled: boolean; url: string };
+    };
   }
 
   $: config = (data.radarSensor.config as RadarConfig) || null;
+
+  /** Alert tab: values from config.alertSettings (saved from Edit Device modal). */
+  $: alertDisplay = (() => {
+    const as = config?.alertSettings ?? {};
+    const so = as.sensorOffline ?? { enabled: true, threshold: "5", unit: "minutes" };
+    const nd = as.noData ?? { enabled: true, threshold: "30", unit: "minutes" };
+    const dt = as.dwellTime ?? { enabled: true, zoneId: "zone-1", threshold: "120" };
+    const zoneName = config?.zones?.find((z) => (z.id ?? `zone-${z.zoneNumber}`) === dt.zoneId)?.name ?? dt.zoneId;
+    const em = as.email ?? { enabled: true, address: "administrator@inrealities.com" };
+    const wh = as.webhook ?? { enabled: true, url: "https://api.example.com/webhook" };
+    return {
+      sensorOffline: { enabled: so.enabled, text: so.enabled ? "Enable" : "Disable", threshold: `${so.threshold} ${so.unit}` },
+      noData: { enabled: nd.enabled, text: nd.enabled ? "Enable" : "Disable", threshold: `${nd.threshold} ${nd.unit}` },
+      dwellTime: { enabled: dt.enabled, text: dt.enabled ? "Enable" : "Disable", zoneLabel: zoneName, threshold: `${dt.threshold} seconds` },
+      email: { enabled: em.enabled, text: em.enabled ? "Enable" : "Disable", address: em.address },
+      webhook: { enabled: wh.enabled, text: wh.enabled ? "Enable" : "Disable", url: wh.url },
+    };
+  })();
 
   $: trackingAreaDisplay = (() => {
     const ta = config?.trackingArea;
@@ -68,6 +96,7 @@
   })();
 
   let showSensorConfigDialog = false;
+  let isPushingToDevice = false;
   /** Shared Edit Device modal (same as Listing) – opened by header "Edit Device" button */
   let showEditDeviceModal = false;
   /** Add Zone modal – opened by Add Zone button in Zones Configuration */
@@ -129,8 +158,11 @@
     return `${w} × ${h} m`;
   })();
 
-  // Placeholder recent events (no backend yet)
-  const recentEvents: Array<{ zone: string; eventType: string; dwellTime: string; occurredTime: string }> = [];
+  /** Summary tab: real data from /api/sensor-data/radar_session (last 24h). */
+  let summaryLoading = false;
+  let summaryDetectionCount: number | null = null;
+  let summaryRecentEvents: Array<{ id: string; zone: string; eventType: string; dwellTime: string; occurredTime: string }> = [];
+  let summaryZoneActivity: Record<string, number> = {};
 
   const {
     form: trackingAreaForm,
@@ -497,6 +529,63 @@
     );
   }
 
+  /** Push current sensor config to device via MQTT (sensor.config.push). */
+  async function handlePushToDevice(): Promise<void> {
+    const sensorId = data?.radarSensor?.id;
+    if (!sensorId) {
+      toast.error("No sensor selected");
+      return;
+    }
+    isPushingToDevice = true;
+    try {
+      await mqttStore.connect();
+      const userSub = mqttStore.subject;
+      if (!userSub) {
+        toast.error("Not connected to MQTT");
+        isPushingToDevice = false;
+        return;
+      }
+      const requestId = crypto.randomUUID();
+      const requestPayload = {
+        op: "sensor.config.push",
+        params: { sensorId },
+        requestId,
+        timestamp: new Date().toISOString(),
+      };
+      let cleanupListener: (() => void) | null = null;
+      type MqttResponse = { requestId?: string; result?: { result?: { synced?: boolean; error?: string }; error?: string }; error?: string };
+      const responsePromise = new Promise<MqttResponse>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          if (cleanupListener) cleanupListener();
+          reject(new Error("Request timed out"));
+        }, 10000);
+        cleanupListener = mqttStore.on(`user/${userSub}/response`, (msg: { payload?: unknown }) => {
+          const payload = msg.payload as MqttResponse | undefined;
+          if (payload?.requestId === requestId) {
+            clearTimeout(timeout);
+            if (cleanupListener) cleanupListener();
+            resolve(payload);
+          }
+        });
+      });
+      await mqttStore.publish(`user/${userSub}/requests`, requestPayload, { qos: 1 });
+      const response = await responsePromise;
+      const nestedResult = response.result?.result;
+      const workerError = response.error ?? response.result?.error;
+      if (workerError) {
+        toast.error(typeof workerError === "string" ? workerError : "Push failed");
+      } else if (nestedResult?.synced === true) {
+        toast.success("Config pushed to device!");
+      } else {
+        toast.error(nestedResult?.error ?? "Push failed");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Push failed");
+    } finally {
+      isPushingToDevice = false;
+    }
+  }
+
   $: connectionStatus = data.radarSensor.controller?.device?.connected === true ? "Online" : "Offline";
   $: connectionBadgeColor =
     data.radarSensor.controller?.device?.connected === true ? "success" as const : "gray" as const;
@@ -520,9 +609,9 @@
     { id: "occurredTime", header: "Occurred Time", accessor: (r: { occurredTime: string }) => r.occurredTime, type: "text" as const, width: "25%" },
   ];
 
-  /** Session Logs: Target ID (link), Dwell (sec), Proximity (m), Sensor, Timezone. Data from API /api/sensor-data/radar_session. */
+  /** Session Logs: Target ID, Dwell (sec), Proximity (m), Sensor, Timezone. Data from API /api/sensor-data/radar_session. */
   const sessionLogsColumns = [
-    { id: "targetId", header: "Target ID", accessor: (r: { targetId: string }) => r.targetId, type: "custom" as const, sortable: true, width: "20%", render: (val: string) => `<a href="#" class="analytics-table-link">${val ?? ""}</a>` },
+    { id: "targetId", header: "Target ID", accessor: (r: { targetId: string }) => r.targetId, type: "text" as const, sortable: true, width: "20%" },
     { id: "dwellSec", header: "Dwell (sec)", accessor: (r: { dwellSec: string | number }) => r.dwellSec, type: "text" as const, sortable: true, width: "15%" },
     { id: "proximityM", header: "Proximity (m)", accessor: (r: { proximityM: string }) => r.proximityM, type: "text" as const, sortable: true, width: "15%" },
     { id: "sensor", header: "Sensor", accessor: (r: { sensor: string }) => r.sensor, type: "text" as const, width: "25%" },
@@ -545,6 +634,20 @@
   let pathTrackingPagination = { page: 1, pageSize: ANALYTICS_PAGE_SIZE, totalItems: 0, totalPages: 0 };
   let sessionLogsLoading = false;
   let pathTrackingLoading = false;
+  let sessionLogsExporting = false;
+  let pathTrackingExporting = false;
+
+  /** Today in YYYY-MM-DD for default date and native input[type=date] */
+  function getTodayISO(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function openDatePicker(inputId: string) {
+    const el = document.getElementById(inputId) as HTMLInputElement | null;
+    if (el?.showPicker) el.showPicker();
+  }
+  let sessionLogsDate = getTodayISO();
+  let pathTrackingDate = getTodayISO();
 
   function formatAnalyticsDate(iso: string): string {
     if (!iso) return "—";
@@ -552,12 +655,25 @@
     return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
   }
 
+  /** Display label for date picker button (YYYY-MM-DD -> "MMM DD, YYYY") */
+  function formatAnalyticsDateDisplay(yyyyMmDd: string): string {
+    if (!yyyyMmDd) return "MM DD, YYYY";
+    const d = new Date(yyyyMmDd + "T12:00:00Z");
+    return isNaN(d.getTime()) ? "MM DD, YYYY" : d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+  }
+
   async function fetchSessionLogs(page: number) {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) return;
     sessionLogsLoading = true;
     try {
-      const params = new URLSearchParams({ sensorId, page: String(page), per_page: String(ANALYTICS_PAGE_SIZE) });
+      const params = new URLSearchParams({
+        sensorId,
+        page: String(page),
+        per_page: String(ANALYTICS_PAGE_SIZE),
+        startTime: `${sessionLogsDate}T00:00:00.000Z`,
+        endTime: `${sessionLogsDate}T23:59:59.999Z`,
+      });
       const res = await fetch(`/api/sensor-data/radar_session?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch session logs");
@@ -590,12 +706,18 @@
     if (!sensorId) return;
     pathTrackingLoading = true;
     try {
-      const params = new URLSearchParams({ sensorId, page: String(page), per_page: String(ANALYTICS_PAGE_SIZE) });
+      const params = new URLSearchParams({
+        sensorId,
+        page: String(page),
+        per_page: String(ANALYTICS_PAGE_SIZE),
+        startTime: `${pathTrackingDate}T00:00:00.000Z`,
+        endTime: `${pathTrackingDate}T23:59:59.999Z`,
+      });
       const res = await fetch(`/api/sensor-data/radar_path?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch path tracking");
       const rows = (json.data || []).map((r: { target_id: string; log_creation_time: string; x_m: number; y_m: number; sensor_name: string; timezone_label: string }, i: number) => ({
-        id: `${r.target_id}-${r.log_creation_time ?? i}`.replace(/\s/g, "_"),
+        id: `pt-${i}`,
         date: formatAnalyticsDate(r.log_creation_time),
         targetId: r.target_id ? `${r.target_id.slice(0, 6)}...${r.target_id.slice(-4)}` : "—",
         xM: r.x_m != null ? r.x_m.toFixed(2) : "—",
@@ -619,6 +741,120 @@
     }
   }
 
+  /** Build CSV and trigger download. Columns: array of { header, key }. Rows: objects with those keys. */
+  function downloadCsv(columns: Array<{ header: string; key: string }>, rows: Record<string, string>[], filename: string) {
+    const headers = columns.map((c) => c.header);
+    const keys = columns.map((c) => c.key);
+    const csvRows: string[] = [];
+    csvRows.push(headers.map((h) => `"${String(h).replace(/"/g, '""')}"`).join(","));
+    for (const row of rows) {
+      const values = keys.map((k) => {
+        const v = row[k];
+        if (v == null) return "";
+        return `"${String(v).replace(/"/g, '""')}"`;
+      });
+      csvRows.push(values.join(","));
+    }
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.visibility = "hidden";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportSessionLogsCsv() {
+    const sensorId = data?.radarSensor?.id;
+    if (!sensorId) return;
+    sessionLogsExporting = true;
+    try {
+      const params = new URLSearchParams({
+        sensorId,
+        page: "1",
+        per_page: "10000",
+        startTime: `${sessionLogsDate}T00:00:00.000Z`,
+        endTime: `${sessionLogsDate}T23:59:59.999Z`,
+      });
+      const res = await fetch(`/api/sensor-data/radar_session?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to fetch session logs for export");
+      const raw = json.data || [];
+      const rows = raw.map((r: { target_id?: string; log_creation_time?: string; dwell_tracking_area_sec?: number; proximity_m?: number | null; sensor_name?: string; timezone_label?: string }) => ({
+        targetId: r.target_id ?? "",
+        dwellSec: r.dwell_tracking_area_sec != null ? String(r.dwell_tracking_area_sec) : "",
+        proximityM: r.proximity_m != null ? String(r.proximity_m) : "",
+        sensor: r.sensor_name ?? "",
+        timezone: r.timezone_label ?? "",
+      }));
+      if (rows.length === 0) {
+        toast.error("No session logs to export for this date.");
+        return;
+      }
+      const columns = [
+        { header: "Target ID", key: "targetId" },
+        { header: "Dwell (sec)", key: "dwellSec" },
+        { header: "Proximity (m)", key: "proximityM" },
+        { header: "Sensor", key: "sensor" },
+        { header: "Timezone", key: "timezone" },
+      ];
+      downloadCsv(columns, rows, `radar_session_export_${sessionLogsDate}.csv`);
+      toast.success("Session logs exported.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      sessionLogsExporting = false;
+    }
+  }
+
+  async function exportPathTrackingCsv() {
+    const sensorId = data?.radarSensor?.id;
+    if (!sensorId) return;
+    pathTrackingExporting = true;
+    try {
+      const params = new URLSearchParams({
+        sensorId,
+        page: "1",
+        per_page: "10000",
+        startTime: `${pathTrackingDate}T00:00:00.000Z`,
+        endTime: `${pathTrackingDate}T23:59:59.999Z`,
+      });
+      const res = await fetch(`/api/sensor-data/radar_path?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to fetch path tracking for export");
+      const raw = json.data || [];
+      const rows = raw.map((r: { target_id?: string; log_creation_time?: string; x_m?: number; y_m?: number; sensor_name?: string; timezone_label?: string }) => ({
+        date: r.log_creation_time ? formatAnalyticsDate(r.log_creation_time) : "",
+        targetId: r.target_id ?? "",
+        xM: r.x_m != null ? r.x_m.toFixed(2) : "",
+        yM: r.y_m != null ? r.y_m.toFixed(2) : "",
+        sensor: r.sensor_name ?? "",
+        timezone: r.timezone_label ?? "",
+      }));
+      if (rows.length === 0) {
+        toast.error("No path tracking data to export for this date.");
+        return;
+      }
+      const columns = [
+        { header: "Date", key: "date" },
+        { header: "Target ID", key: "targetId" },
+        { header: "X (m)", key: "xM" },
+        { header: "Y (m)", key: "yM" },
+        { header: "Sensor", key: "sensor" },
+        { header: "Timezone", key: "timezone" },
+      ];
+      downloadCsv(columns, rows, `radar_path_export_${pathTrackingDate}.csv`);
+      toast.success("Path tracking exported.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      pathTrackingExporting = false;
+    }
+  }
+
   let prevAnalyticsSensorId = "";
   $: if (activeTab !== "analytics") prevAnalyticsSensorId = "";
   $: analyticsSensorId = activeTab === "analytics" ? data?.radarSensor?.id : "";
@@ -628,18 +864,158 @@
     fetchPathTracking(1);
   }
 
-  /** Live Preview – Live Track Details columns (ID, Dwell Time, Seen On) */
+  /** Summary tab: fetch last 24h radar_session and fill Real time Detection count, Zone Activity (from zone_dwell_times_json), and Recent Events (last 10). */
+  async function loadSummaryData() {
+    const sensorId = data?.radarSensor?.id;
+    if (!sensorId) return;
+    summaryLoading = true;
+    summaryDetectionCount = null;
+    summaryRecentEvents = [];
+    summaryZoneActivity = {};
+    try {
+      const end = new Date();
+      const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+      const params = new URLSearchParams({
+        sensorId,
+        page: "1",
+        per_page: "50",
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+      });
+      const res = await fetch(`/api/sensor-data/radar_session?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to fetch summary data");
+      const rows = json.data || [];
+      const pagination = json.pagination || {};
+      summaryDetectionCount = pagination.total_records ?? 0;
+      const zoneAgg: Record<string, number> = {};
+      for (const r of rows) {
+        try {
+          const zd = r.zone_dwell_times_json ? JSON.parse(r.zone_dwell_times_json) : {};
+          if (typeof zd === "object" && zd !== null) {
+            for (const [zoneName, sec] of Object.entries(zd)) {
+              const s = typeof sec === "number" ? sec : parseFloat(String(sec));
+              if (!Number.isNaN(s)) zoneAgg[zoneName] = (zoneAgg[zoneName] ?? 0) + s;
+            }
+          }
+        } catch {
+          // ignore malformed JSON
+        }
+      }
+      summaryZoneActivity = zoneAgg;
+      summaryRecentEvents = rows.slice(0, 10).map((r: { target_id?: string; log_creation_time?: string; dwell_tracking_area_sec?: number; zone_dwell_times_json?: string }, i: number) => {
+        let zoneLabel = "—";
+        try {
+          const zd = r.zone_dwell_times_json ? JSON.parse(r.zone_dwell_times_json) : {};
+          if (typeof zd === "object" && zd !== null) {
+            const first = Object.keys(zd)[0];
+            if (first) zoneLabel = first;
+          }
+        } catch {
+          // ignore
+        }
+        const occurredTime = r.log_creation_time
+          ? new Date(r.log_creation_time).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+          : "—";
+        return {
+          id: `se-${i}-${r.target_id ?? ""}-${r.log_creation_time ?? ""}`.replace(/\s/g, "_"),
+          zone: zoneLabel,
+          eventType: "Session",
+          dwellTime: r.dwell_tracking_area_sec != null ? `${r.dwell_tracking_area_sec} s` : "—",
+          occurredTime,
+        };
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load summary.");
+      summaryDetectionCount = 0;
+    } finally {
+      summaryLoading = false;
+    }
+  }
+  /** Load summary when Summary tab is active and we have a sensor (and when switching to Summary so we refetch). Only run on browser. */
+  let lastSummaryLoadTab: string | null = null;
+  $: if (browser && activeTab === "summary" && data?.radarSensor?.id) {
+    if (lastSummaryLoadTab !== "summary") {
+      lastSummaryLoadTab = "summary";
+      loadSummaryData();
+    }
+  } else if (activeTab !== "summary") {
+    lastSummaryLoadTab = null;
+  }
+
+  /** Live Preview – Live Track Details. Shows current-frame points as rows when preview is running (derived from preview.data). When device sends track metadata (id, dwell, lastSeen), use that instead. */
   const liveTrackColumns = [
     { id: "id", header: "ID", accessor: (r: { id: string }) => r.id, type: "text" as const, width: "33%" },
     { id: "dwellTime", header: "Dwell Time", accessor: (r: { dwellTime: string }) => r.dwellTime, type: "text" as const, width: "33%" },
     { id: "seenOn", header: "Seen On", accessor: (r: { seenOn: string }) => r.seenOn, type: "text" as const, width: "34%" },
   ];
-  const liveTrackData = [
-    { id: "annon-001", dwellTime: "1m 45s", seenOn: "xx min ago" },
-    { id: "annon-002", dwellTime: "2m 12s", seenOn: "8 min ago" },
-    { id: "annon-003", dwellTime: "1m 58s", seenOn: "15 min ago" },
-  ];
-  let liveTrackPagination = { page: 1, pageSize: 10, totalItems: 439, totalPages: 44 };
+  let liveTrackData: Array<{ id: string; dwellTime: string; seenOn: string }> = [];
+  let liveTrackPagination = { page: 1, pageSize: 10, totalItems: 0, totalPages: 0 };
+  const LIVE_TRACK_PAGE_SIZE = 10;
+  /** Max items to keep from device (real-time); excess is cut off. */
+  const LIVE_TRACK_MAX_ITEMS = 100;
+
+  /** Latest raw points from device (frame handler only stores; table updates only on Refresh or preview stop). */
+  let latestLiveTrackPoints: Array<{ x: number; y: number; z?: number; velocity?: number }> = [];
+  /** True when Live Preview is streaming (Start Preview active). Used for contextual UX. */
+  let isLivePreviewStreaming = false;
+  /** When the user last took a snapshot (Refresh); shown for real-device UX. */
+  let lastSnapshotAt: Date | null = null;
+
+  function onLivePreviewFrame(e: CustomEvent<{ points: Array<{ x: number; y: number; z?: number; velocity?: number }> }>) {
+    const points = e.detail?.points ?? [];
+    latestLiveTrackPoints = points;
+    if (points.length === 0) {
+      liveTrackData = [];
+      liveTrackPagination = { page: 1, pageSize: LIVE_TRACK_PAGE_SIZE, totalItems: 0, totalPages: 0 };
+      lastSnapshotAt = null;
+    }
+  }
+
+  /** Copy current device snapshot to table once (stable list; no auto-update so pagination is usable). */
+  function refreshLiveTrackSnapshot() {
+    const points = latestLiveTrackPoints;
+    const capped = points.length > LIVE_TRACK_MAX_ITEMS ? points.slice(0, LIVE_TRACK_MAX_ITEMS) : points;
+    const total = capped.length;
+    const totalPages = Math.max(1, Math.ceil(total / LIVE_TRACK_PAGE_SIZE));
+    const currentPage = liveTrackPagination.page;
+    const page = total === 0 ? 1 : Math.min(currentPage, totalPages);
+
+    liveTrackData = capped.map((_, i) => ({
+      id: String(i + 1).padStart(3, "0"),
+      dwellTime: "—",
+      seenOn: "Just now",
+    }));
+    liveTrackPagination = {
+      page,
+      pageSize: LIVE_TRACK_PAGE_SIZE,
+      totalItems: total,
+      totalPages,
+    };
+    lastSnapshotAt = total > 0 ? new Date() : null;
+  }
+
+  /** Subtitle for Live Track Details – short, clear copy. */
+  $: liveTrackSubtitle = (() => {
+    const n = liveTrackPagination.totalItems;
+    if (n === 0) {
+      return isLivePreviewStreaming
+        ? "Click Refresh to capture the current frame."
+        : "Start preview on the left, then click Refresh to see tracks.";
+    }
+    return `${n} track${n === 1 ? "" : "s"}. Click Refresh to update.`;
+  })();
+  $: liveTrackEmptyMessage = isLivePreviewStreaming
+    ? "Click Refresh to capture the current frame."
+    : "Start preview, then click Refresh to see tracks.";
+
+  /** Slice for current page so DataTable shows only one page of live tracks. */
+  $: liveTrackDataForPage = liveTrackPagination.totalPages > 0
+    ? liveTrackData.slice(
+        (liveTrackPagination.page - 1) * liveTrackPagination.pageSize,
+        liveTrackPagination.page * liveTrackPagination.pageSize
+      )
+    : liveTrackData;
 </script>
 
 <!-- Main wrap: flex column, padding 24px, gap 16px (design) -->
@@ -671,7 +1047,7 @@
         <p class="section-subtitle">Key information about this device.</p>
       </div>
     </div>
-    <!-- 4 columns: Col1 Device Name + Config Template | Col2 Device Code (if any) + empty row2 | Col3 Connection Status + Alert Template | Col4 Location + Firmware/Linked Device. -->
+    <!-- 4 columns: Col1 Device Name + Config Template | Col2 Device Code + empty row2 | Col3 Connection Status + Alert Template | Col4 Location + Firmware. -->
     <div class="details-wrap">
       <div class="details-row">
         <div class="text-display">
@@ -705,15 +1081,9 @@
           <span class="text-display-label">Alert Template</span>
           <span class="text-display-value">—</span>
         </div>
-        <div class="text-display text-display-stack">
-          <div class="text-display-item">
-            <span class="text-display-label">Firmware</span>
-            <span class="text-display-value">{data.radarSensor.firmware || "—"}</span>
-          </div>
-          <div class="text-display-item">
-            <span class="text-display-label">Linked Device</span>
-            <span class="text-display-value">{data.radarSensor.controller?.device?.name || "—"}</span>
-          </div>
+        <div class="text-display">
+          <span class="text-display-label">Firmware</span>
+          <span class="text-display-value">{data.radarSensor.firmware || "—"}</span>
         </div>
       </div>
       <Divider />
@@ -735,8 +1105,9 @@
 
   <!-- Tab content -->
   {#if activeTab === "summary"}
+    <!-- Summary: Real time Detection + Zone Activity + Recent Events. Data from /api/sensor-data/radar_session (last 24h). -->
     <div class="wrap-sections">
-      <!-- Real time Detection (left card) -->
+      <!-- Real time Detection (left card): session count in last 24h -->
       <Card variant="default" radius="2xl" padding="md" fullWidth={true} class="summary-card">
         <div slot="header" class="section-header">
           <div class="section-header-icon" aria-hidden="true">
@@ -747,15 +1118,23 @@
             <p class="section-subtitle">Last 24 hours of detection activity.</p>
           </div>
         </div>
-        <div class="empty-state-wrap">
-          <div class="empty-state">
-            <PackageOpen class="empty-state-icon" size={72} strokeWidth={1} aria-hidden="true" />
-            <p class="empty-state-text">No Data Available.</p>
-          </div>
+        <div class="card-body p-4">
+          {#if summaryLoading}
+            <p class="empty-state-text">Loading…</p>
+          {:else if summaryDetectionCount !== null && summaryDetectionCount > 0}
+            <p class="summary-count">{summaryDetectionCount} session{summaryDetectionCount === 1 ? '' : 's'} in last 24 hours.</p>
+          {:else}
+            <div class="empty-state-wrap">
+              <div class="empty-state">
+                <PackageOpen class="empty-state-icon" size={72} strokeWidth={1} aria-hidden="true" />
+                <p class="empty-state-text">No Data Available.</p>
+              </div>
+            </div>
+          {/if}
         </div>
       </Card>
 
-      <!-- Zone Activity (right card) -->
+      <!-- Zone Activity (right card): dwell time per zone from zone_dwell_times_json -->
       <Card variant="default" radius="2xl" padding="md" fullWidth={true} class="summary-card">
         <div slot="header" class="section-header">
           <div class="section-header-icon" aria-hidden="true">
@@ -767,11 +1146,28 @@
           </div>
         </div>
         <div class="zone-activity-content">
-          {#if config?.zones && config.zones.length > 0}
+          {#if summaryLoading}
+            <p class="empty-state-text">Loading…</p>
+          {:else if config?.zones && config.zones.length > 0}
             {#each config.zones as zone}
+              {@const label = zone.name || `Zone ${zone.zoneNumber}`}
+              {@const sec = summaryZoneActivity[label]}
               <div class="zone-row">
-                <span class="zone-label">{zone.name || `Zone ${zone.zoneNumber}`}</span>
-                <span class="zone-value">—</span>
+                <span class="zone-label">{label}</span>
+                <span class="zone-value">{sec != null ? `${Math.round(sec)} s` : "—"}</span>
+              </div>
+            {/each}
+            {#each Object.entries(summaryZoneActivity).filter(([name]) => !config?.zones?.some(z => (z.name || `Zone ${z.zoneNumber}`) === name)) as [name, sec]}
+              <div class="zone-row">
+                <span class="zone-label">{name}</span>
+                <span class="zone-value">{Math.round(sec)} s</span>
+              </div>
+            {/each}
+          {:else if Object.keys(summaryZoneActivity).length > 0}
+            {#each Object.entries(summaryZoneActivity) as [name, sec]}
+              <div class="zone-row">
+                <span class="zone-label">{name}</span>
+                <span class="zone-value">{Math.round(sec)} s</span>
               </div>
             {/each}
           {:else}
@@ -781,7 +1177,7 @@
       </Card>
     </div>
 
-    <!-- Recent Events table (Figma Frame 34: padding 16px, gap 10px, radius 16px, border 1px #E5E5E5) -->
+    <!-- Recent Events: last 10 sessions from radar_session -->
     <div class="recent-events-card">
       <Card variant="default" radius="2xl" padding="lg" fullWidth={true}>
         <div class="section-header standalone">
@@ -794,11 +1190,13 @@
           </div>
         </div>
         <div class="table-wrap">
-          {#if recentEvents.length > 0}
+          {#if summaryLoading}
+            <p class="empty-state-text">Loading…</p>
+          {:else if summaryRecentEvents.length > 0}
             <DataTable
               columns={eventsColumns}
-              data={recentEvents}
-              keyField="zone"
+              data={summaryRecentEvents}
+              keyField="id"
             />
           {:else}
             <div class="empty-state-wrap">
@@ -843,10 +1241,12 @@
                     variant="outline"
                     color="primary"
                     size="sm"
-                    on:click={() => (showSensorConfigDialog = true)}
+                    icon={Upload}
+                    iconPosition="left"
+                    disabled={isPushingToDevice}
+                    on:click={handlePushToDevice}
                   >
-                    <Settings class="icon-sm" slot="icon-left" />
-                    Configure
+                    {isPushingToDevice ? "Pushing…" : "Push to device"}
                   </Button>
                   <Button
                     variant="filled"
@@ -1155,11 +1555,24 @@
             </div>
           </div>
           <div class="analytics-card-actions">
-            <Button variant="outline" color="gray" size="md" class="analytics-date-btn" icon={CalendarDays} iconPosition="left">
-              MM DD, YYYY
-            </Button>
-            <Button variant="outline" color="primary" size="md" icon={Download} iconPosition="left">
-              Export Data
+            <div class="analytics-date-picker-wrap">
+              <InputField
+                id="session-logs-date"
+                type="date"
+                value={sessionLogsDate}
+                label=""
+                placeholder=""
+                suffixIcon={true}
+                aria-label="Session logs date"
+                on:change={(e) => { sessionLogsDate = e.detail; fetchSessionLogs(1); }}
+              >
+                <span slot="suffix-icon" class="analytics-date-icon-wrap" role="button" tabindex="-1" on:click={() => openDatePicker('session-logs-date')} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDatePicker('session-logs-date'); } }}>
+                  <CalendarDays class="analytics-date-icon" size={20} strokeWidth={2} aria-hidden="true" />
+                </span>
+              </InputField>
+            </div>
+            <Button variant="outline" color="primary" size="md" icon={Download} iconPosition="left" disabled={sessionLogsExporting} on:click={() => exportSessionLogsCsv()}>
+              {sessionLogsExporting ? 'Exporting…' : 'Export Data'}
             </Button>
           </div>
         </div>
@@ -1192,11 +1605,24 @@
             </div>
           </div>
           <div class="analytics-card-actions">
-            <Button variant="outline" color="gray" size="md" class="analytics-date-btn" icon={CalendarDays} iconPosition="left">
-              MM DD, YYYY
-            </Button>
-            <Button variant="outline" color="primary" size="md" icon={Download} iconPosition="left">
-              Export Data
+            <div class="analytics-date-picker-wrap">
+              <InputField
+                id="path-tracking-date"
+                type="date"
+                value={pathTrackingDate}
+                label=""
+                placeholder=""
+                suffixIcon={true}
+                aria-label="Path tracking date"
+                on:change={(e) => { pathTrackingDate = e.detail; fetchPathTracking(1); }}
+              >
+                <span slot="suffix-icon" class="analytics-date-icon-wrap" role="button" tabindex="-1" on:click={() => openDatePicker('path-tracking-date')} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDatePicker('path-tracking-date'); } }}>
+                  <CalendarDays class="analytics-date-icon" size={20} strokeWidth={2} aria-hidden="true" />
+                </span>
+              </InputField>
+            </div>
+            <Button variant="outline" color="primary" size="md" icon={Download} iconPosition="left" disabled={pathTrackingExporting} on:click={() => exportPathTrackingCsv()}>
+              {pathTrackingExporting ? 'Exporting…' : 'Export Data'}
             </Button>
           </div>
         </div>
@@ -1218,6 +1644,7 @@
       </Card>
     </div>
   {:else if activeTab === "alert"}
+    <!-- Alert tab: data from config.alertSettings (edit and save via Edit Device modal). -->
     <div class="alert-tab-wrap">
       <!-- Alert Rules card -->
       <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="alert-card">
@@ -1231,7 +1658,6 @@
           </div>
         </div>
         <div class="alert-card-body">
-          <!-- Sensor Offline Alert -->
           <div class="alert-table-wrap">
             <div class="alert-row">
               <div class="alert-cell alert-cell-left">
@@ -1239,7 +1665,7 @@
                 <span class="alert-desc">Alert when sensor stops responding</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-value">Enable</span>
+                <span class="alert-value">{alertDisplay.sensorOffline.text}</span>
               </div>
             </div>
             <div class="alert-row">
@@ -1247,11 +1673,10 @@
                 <span class="alert-text">Threshold</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-text">5 minutes</span>
+                <span class="alert-text">{alertDisplay.sensorOffline.threshold}</span>
               </div>
             </div>
           </div>
-          <!-- No Data Alert -->
           <div class="alert-table-wrap">
             <div class="alert-row">
               <div class="alert-cell alert-cell-left">
@@ -1259,7 +1684,7 @@
                 <span class="alert-desc">Alert when no detections received</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-value">Enable</span>
+                <span class="alert-value">{alertDisplay.noData.text}</span>
               </div>
             </div>
             <div class="alert-row">
@@ -1267,11 +1692,10 @@
                 <span class="alert-text">Threshold</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-text">30 minutes</span>
+                <span class="alert-text">{alertDisplay.noData.threshold}</span>
               </div>
             </div>
           </div>
-          <!-- Dwell Time Alert -->
           <div class="alert-table-wrap">
             <div class="alert-row">
               <div class="alert-cell alert-cell-left">
@@ -1279,61 +1703,59 @@
                 <span class="alert-desc">Alert when dwell time exceeds threshold</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-value">Enable</span>
+                <span class="alert-value">{alertDisplay.dwellTime.text}</span>
               </div>
             </div>
             <div class="alert-row">
               <div class="alert-cell alert-cell-left">
-                <span class="alert-text">Zone 1: Entry</span>
+                <span class="alert-text">{alertDisplay.dwellTime.zoneLabel}</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-text">120 seconds</span>
+                <span class="alert-text">{alertDisplay.dwellTime.threshold}</span>
               </div>
             </div>
           </div>
         </div>
       </Card>
       <!-- Notification Channels card -->
-      <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="alert-card">
+      <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="alert-card alert-card-notification">
         <div class="alert-card-header">
           <div class="alert-card-icon-wrap" aria-hidden="true">
             <BellRing class="alert-card-icon" size={20} strokeWidth={2} />
           </div>
           <div class="alert-card-content-wrap">
             <h2 class="alert-card-title">Notification Channels</h2>
-            <p class="alert-card-subtitle">Configuration how alerts are delivered</p>
+            <p class="alert-card-subtitle">Configure how alerts are delivered</p>
           </div>
         </div>
         <div class="alert-card-body">
-          <!-- Email Notifications -->
           <div class="alert-table-wrap">
             <div class="alert-row">
               <div class="alert-cell alert-cell-left">
                 <span class="alert-label">Email Notifications</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-value">Enable</span>
+                <span class="alert-value">{alertDisplay.email.text}</span>
               </div>
             </div>
             <div class="alert-row">
               <div class="alert-cell alert-cell-full">
-                <span class="alert-text">administrator@inrealities.com</span>
+                <span class="alert-text">{alertDisplay.email.address}</span>
               </div>
             </div>
           </div>
-          <!-- Webhook -->
-          <div class="alert-table-wrap">
+          <div class="alert-table-wrap alert-table-wrap-last">
             <div class="alert-row">
               <div class="alert-cell alert-cell-left">
                 <span class="alert-label">Webhook</span>
               </div>
               <div class="alert-cell alert-cell-right">
-                <span class="alert-value">Enable</span>
+                <span class="alert-value">{alertDisplay.webhook.text}</span>
               </div>
             </div>
             <div class="alert-row">
               <div class="alert-cell alert-cell-full">
-                <span class="alert-text">https://api.example.com/webhook</span>
+                <span class="alert-text">{alertDisplay.webhook.url}</span>
               </div>
             </div>
           </div>
@@ -1366,6 +1788,8 @@
                 trackingArea={config?.trackingArea || null}
                 zones={config?.zones || []}
                 showOverlay={true}
+                on:frame={onLivePreviewFrame}
+                on:stateChange={(e) => { isLivePreviewStreaming = e.detail?.streaming ?? false; }}
               />
             </div>
           </Card>
@@ -1392,30 +1816,37 @@
           </Card>
         {/if}
       </div>
-      <!-- Right: Live Track Details -->
+      <!-- Right: Live Track Details (snapshot; click Refresh to update, so list stays stable for pagination) -->
       <div class="live-preview-right">
         <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="live-preview-card">
-          <div class="live-preview-card-header">
-            <div class="live-preview-card-icon-wrap" aria-hidden="true">
-              <ClipboardList class="live-preview-card-icon" size={20} strokeWidth={2} />
+          <div class="live-preview-card-header live-preview-card-header-with-actions">
+            <div class="live-preview-card-header-left">
+              <div class="live-preview-card-icon-wrap" aria-hidden="true">
+                <ClipboardList class="live-preview-card-icon" size={20} strokeWidth={2} />
+              </div>
+              <div class="live-preview-card-content-wrap">
+                <h2 class="live-preview-card-title">Live Track Details</h2>
+                <p class="live-preview-card-subtitle">{liveTrackSubtitle}</p>
+              </div>
             </div>
-            <div class="live-preview-card-content-wrap">
-              <h2 class="live-preview-card-title">Live Track Details</h2>
-              <p class="live-preview-card-subtitle">Current tracks from this sensor</p>
+            <div class="live-preview-card-actions">
+              <Button variant="outline" color="primary" size="md" on:click={() => refreshLiveTrackSnapshot()}>
+                Refresh
+              </Button>
             </div>
           </div>
           <div class="live-preview-card-body">
             <div class="live-track-table-wrap">
               <DataTable
                 columns={liveTrackColumns}
-                data={liveTrackData}
+                data={liveTrackDataForPage}
                 keyField="id"
                 sortable={false}
-                paginated={true}
+                paginated={liveTrackPagination.totalPages > 0}
                 pagination={liveTrackPagination}
                 bordered={true}
                 cellBorders={true}
-                emptyMessage="No tracks yet."
+                emptyMessage={liveTrackEmptyMessage}
                 on:pageChange={(e) => { liveTrackPagination = { ...liveTrackPagination, page: e.detail }; }}
               />
             </div>
@@ -1435,13 +1866,53 @@
     fd.set("name", payload.name);
     fd.set("location", payload.location);
     const res = await fetch("?/updateSensorInfo", { method: "POST", body: fd });
-    if (res.ok) {
-      toast.success("Device updated.");
-      showEditDeviceModal = false;
-      invalidateAll();
-    } else {
+    if (!res.ok) {
       toast.error("Unable to update device. Please try again.");
+      return;
     }
+    if (payload.alertSettings) {
+      const resAlert = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/alert-settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload.alertSettings),
+      });
+      if (!resAlert.ok) {
+        toast.error("Device info saved, but alert settings failed to save.");
+      }
+    }
+    if (payload.zones && payload.zones.length > 0) {
+      const resZones = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/zones`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload.zones),
+      });
+      if (!resZones.ok) {
+        toast.error("Device info saved, but zone updates failed to save.");
+      }
+    }
+    // Update tracking area and device settings if provided
+    if (payload.trackingArea || payload.deviceSettings) {
+      const configPayload = {
+        trackingArea: payload.trackingArea,
+        deviceSettings: payload.deviceSettings
+      };
+      const resConfig = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configPayload),
+      });
+      if (!resConfig.ok) {
+        toast.error("Device info saved, but configuration failed to save.");
+      }
+    }
+    toast.success("Device updated.");
+    showEditDeviceModal = false;
+    // Reset initialization flags so data will be re-initialized from server
+    zonesInitialized = false;
+    arenaInitialized = false;
+    await invalidateAll();
+    // Re-initialize local state from updated config
+    reinitializeFromConfig();
   }}
   onClose={() => (showEditDeviceModal = false)}
 />
@@ -1666,8 +2137,18 @@
   }
 
   .details-wrap > :global(hr),
+  .details-wrap > :global(.divider),
   .details-wrap > .meta-wrap {
     grid-column: 1 / -1;
+  }
+  /* Make Divider full width by extending beyond both details-wrap and card-body padding */
+  .details-wrap > :global(.divider) {
+    position: relative;
+    left: calc(-1 * var(--ds-space-4) - 16px);
+    width: calc(100% + var(--ds-space-4) * 2 + 32px) !important;
+  }
+  .details-wrap > :global(.divider .line) {
+    width: 100% !important;
   }
 
   .text-display-label {
@@ -1737,6 +2218,13 @@
   .empty-state-text.secondary {
     font-size: var(--ds-text-xs);
     margin-top: var(--ds-space-0-5);
+  }
+
+  .summary-count {
+    font-family: var(--ds-font-family-primary);
+    font-size: var(--ds-text-base);
+    color: var(--ds-text-primary);
+    margin: 0;
   }
 
   .zone-activity-content {
@@ -1888,6 +2376,45 @@
     gap: 8px;
     flex-shrink: 0;
   }
+  .analytics-date-picker-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 140px;
+  }
+  .analytics-date-picker-wrap :global(.input-field-wrapper) {
+    width: 100%;
+    min-width: 140px;
+  }
+  .analytics-date-picker-wrap :global(.input-container) {
+    height: 40px;
+    min-height: 40px;
+    border-radius: var(--ds-radius-lg);
+    cursor: pointer;
+  }
+  .analytics-date-picker-wrap :global(input[type="date"]::-webkit-calendar-picker-indicator) {
+    cursor: pointer;
+    opacity: 0;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .analytics-date-picker-wrap :global(input[type="date"]::-webkit-date-and-time-value) {
+    text-align: left;
+  }
+  .analytics-date-icon-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .analytics-date-picker-wrap .analytics-date-icon {
+    color: var(--ds-text-tertiary);
+    flex-shrink: 0;
+    cursor: pointer;
+    pointer-events: auto;
+  }
   .analytics-date-btn {
     min-width: 100px;
   }
@@ -1982,6 +2509,9 @@
     padding: 16px;
     gap: 16px;
   }
+  .alert-card-notification .alert-card-body .alert-table-wrap:last-child {
+    border-bottom: 1px solid var(--ds-border-default);
+  }
   .alert-table-wrap {
     display: flex;
     flex-direction: column;
@@ -1994,6 +2524,10 @@
     flex-direction: row;
     align-items: center;
     min-height: 52px;
+    border-bottom: 1px solid var(--ds-border-default);
+  }
+  .alert-row:last-child {
+    border-bottom: none;
   }
   .alert-cell {
     display: flex;
@@ -2001,13 +2535,6 @@
     align-items: center;
     padding: 16px;
     gap: 16px;
-    border-bottom: 1px solid var(--ds-border-default);
-  }
-  .alert-cell:last-child {
-    border-bottom: none;
-  }
-  .alert-row:last-child .alert-cell {
-    border-bottom: none;
   }
   .alert-cell-left {
     flex: 1;
@@ -2087,6 +2614,21 @@
     gap: 8px;
     border-bottom: 1px solid var(--ds-border-default);
   }
+  .live-preview-card-header-with-actions {
+    justify-content: space-between;
+  }
+  .live-preview-card-header-left {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .live-preview-card-actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
   .live-preview-card-icon-wrap {
     display: flex;
     align-items: center;
@@ -2128,6 +2670,8 @@
     gap: 16px;
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    overflow: auto;
   }
   .live-track-table-wrap {
     background: var(--ds-bg-primary);
@@ -2441,5 +2985,91 @@
   :global(.radar-detail-wrap .ds-card) {
     border: 1px solid var(--ds-color-neutral-true-200);
     border-radius: 16px;
+  }
+
+  /* ========== RESPONSIVE ========== */
+  
+  /* Tablet: < 1024px */
+  @media (max-width: 1023px) {
+    /* Live Preview: stack vertically */
+    .live-preview-wrap {
+      flex-direction: column;
+    }
+    .live-preview-right {
+      width: 100%;
+    }
+    
+    /* Configuration tab: single column */
+    .config-tab-sections {
+      grid-template-columns: 1fr;
+    }
+    
+    /* Summary: stack cards */
+    .wrap-sections {
+      flex-direction: column;
+    }
+    
+    /* Device Information: 2 columns instead of 4 */
+    .details-wrap {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  
+  /* Mobile: < 640px */
+  @media (max-width: 639px) {
+    .radar-detail-wrap {
+      padding: var(--ds-space-3);
+    }
+    
+    /* Device Information: single column */
+    .details-wrap {
+      grid-template-columns: 1fr;
+      padding: var(--ds-space-3);
+    }
+    
+    /* Adjust Divider for smaller padding */
+    .details-wrap > :global(.divider) {
+      margin-left: calc(-1 * var(--ds-space-3) - 16px);
+      margin-right: calc(-1 * var(--ds-space-3) - 16px);
+      width: calc(100% + var(--ds-space-3) * 2 + 32px);
+    }
+    
+    /* Section headers: smaller gap */
+    .section-header {
+      gap: var(--ds-space-2);
+      padding: var(--ds-space-3);
+    }
+    
+    /* Alert cards: stack cells vertically */
+    .alert-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .alert-cell-right {
+      width: 100%;
+      justify-content: flex-start;
+      padding-top: 0;
+    }
+    
+    /* Live Preview card body: smaller padding */
+    .live-preview-card-body {
+      padding: var(--ds-space-3);
+    }
+    
+    /* Live Preview header: wrap if needed */
+    .live-preview-card-header {
+      flex-wrap: wrap;
+      padding: var(--ds-space-3);
+    }
+    .live-preview-card-header-with-actions {
+      gap: var(--ds-space-2);
+    }
+    .live-preview-card-header-left {
+      flex: 1 1 100%;
+    }
+    .live-preview-card-actions {
+      flex: 1 1 100%;
+      justify-content: flex-end;
+    }
   }
 </style>

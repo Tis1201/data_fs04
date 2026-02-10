@@ -117,6 +117,25 @@ async function seedRadarLogs(options: SeedOptions) {
     const client = await getClickHouseClient();
 
     try {
+        // Ensure logs_raw exists (client uses CLICKHOUSE_DATABASE, so table is in that DB)
+        try {
+            await client.query({
+                query: 'SELECT 1 FROM logs_raw LIMIT 0'
+            });
+        } catch (e: unknown) {
+            const err = e as { code?: string; type?: string };
+            if (err?.code === '60' || err?.type === 'UNKNOWN_TABLE') {
+                console.error('');
+                console.error('❌ ClickHouse table logs_raw (and/or radar MVs) do not exist.');
+                console.error('   Create them by running the ClickHouse init script:');
+                console.error('   • Local Docker: ./scripts/setup-clickhouse.sh');
+                console.error('   • Or run scripts/clickhouse-init.sql against your ClickHouse (e.g. clickhouse-client < scripts/clickhouse-init.sql)');
+                console.error('');
+                throw e;
+            }
+            throw e;
+        }
+
         // Find a real account with a sensor
         let account: any = options.accountId
             ? await prisma.account.findUnique({ where: { id: options.accountId } })
@@ -158,16 +177,18 @@ async function seedRadarLogs(options: SeedOptions) {
 
         console.log(`✅ Using account: ${account.name} (${account.id})`);
 
-        // Find a radar sensor
+        // Find a radar sensor and its controller (for the "open in UI" link)
         let sensorId = 'seed-radar-001';
         let sensorName = 'Seeded Radar Sensor';
         let deviceId = 'seed-device-001';
-        let macAddress = '00:11:22:33:44:55';
+        let controllerId: string | null = null;
+        const macAddress = '00:11:22:33:44:55';
 
         const accountWithDevices = account as typeof account & {
             devices?: Array<{
                 id: string;
                 controllers?: Array<{
+                    id: string;
                     sensors?: Array<{ id: string; name: string }>;
                 }>;
             }>;
@@ -175,15 +196,22 @@ async function seedRadarLogs(options: SeedOptions) {
 
         if (accountWithDevices.devices?.[0]) {
             deviceId = accountWithDevices.devices[0].id;
-            const sensor = accountWithDevices.devices[0].controllers?.[0]?.sensors?.[0];
+            const controller = accountWithDevices.devices[0].controllers?.[0];
+            const sensor = controller?.sensors?.[0];
             if (sensor) {
                 sensorId = sensor.id;
                 sensorName = sensor.name;
+            }
+            if (controller) {
+                controllerId = controller.id;
             }
         }
 
         console.log(`   Device ID: ${deviceId}`);
         console.log(`   Sensor ID: ${sensorId}`);
+        if (controllerId) {
+            console.log(`   Controller ID: ${controllerId}`);
+        }
 
         // Clean existing seed data if requested
         if (options.clean) {
@@ -291,14 +319,56 @@ async function seedRadarLogs(options: SeedOptions) {
             }
         }
 
+        const dbName = process.env.CLICKHOUSE_DATABASE || 'fs04';
+        const dateStart = startTime.toISOString().slice(0, 10);
+        const dateEnd = now.toISOString().slice(0, 10);
+
+        // Verify both MVs have data (so Session Logs and Path Tracking will show in UI)
+        let sessionMvCount = 0;
+        let pathMvCount = 0;
+        try {
+            const sessionCountResult = await client.query({
+                query: `SELECT count() as cnt FROM mv_radar_session WHERE account_id = {accountId:String} AND sensor_id = {sensorId:String}`,
+                query_params: { accountId: account.id, sensorId }
+            });
+            const sessionCountData = (await sessionCountResult.json()).data as Array<{ cnt: string }>;
+            sessionMvCount = parseInt(sessionCountData[0]?.cnt ?? '0', 10);
+
+            const pathCountResult = await client.query({
+                query: `SELECT count() as cnt FROM mv_radar_path WHERE account_id = {accountId:String} AND sensor_id = {sensorId:String}`,
+                query_params: { accountId: account.id, sensorId }
+            });
+            const pathCountData = (await pathCountResult.json()).data as Array<{ cnt: string }>;
+            pathMvCount = parseInt(pathCountData[0]?.cnt ?? '0', 10);
+        } catch (verifyErr) {
+            console.warn('   (Could not verify MV counts:', verifyErr instanceof Error ? verifyErr.message : verifyErr, ')');
+        }
+
         console.log('');
         console.log('🎉 Seed completed!');
         console.log(`   Sessions: ${totalSessions}`);
         console.log(`   Path points: ${totalPathPoints}`);
+        console.log(`   MV mv_radar_session (for this sensor): ${sessionMvCount} rows`);
+        console.log(`   MV mv_radar_path (for this sensor): ${pathMvCount} rows`);
+        if (pathMvCount === 0 && totalPathPoints > 0) {
+            console.log('');
+            console.log('   ⚠️  Path tracking MV has 0 rows. Ensure mv_radar_path exists (run scripts/clickhouse-init.sql or setup-clickhouse.sh), then run seed again with --clean.');
+        }
         console.log('');
-        console.log('📊 Verify with:');
-        console.log(`   SELECT count() FROM fs_04.mv_radar_session WHERE account_id = '${account.id}';`);
-        console.log(`   SELECT count() FROM fs_04.mv_radar_path WHERE account_id = '${account.id}';`);
+        console.log('📋 To see data in the UI:');
+        console.log('   1. Be logged in and select account:', account.name);
+        if (controllerId) {
+            console.log('   2. Open this controller (same sensor that was seeded):');
+            console.log(`      http://localhost:5173/user/controllers/radar/${controllerId}`);
+        } else {
+            console.log('   2. Open the radar controller that has Sensor ID:', sensorId);
+        }
+        console.log('   3. Go to the Analytics tab.');
+        console.log(`   4. Set the date to ${dateStart} or ${dateEnd} (seed data is in this range).`);
+        console.log('');
+        console.log('📊 Verify in ClickHouse:');
+        console.log(`   SELECT count() FROM ${dbName}.mv_radar_session WHERE account_id = '${account.id}';`);
+        console.log(`   SELECT count() FROM ${dbName}.mv_radar_path WHERE account_id = '${account.id}';`);
 
     } catch (error) {
         console.error('❌ Error seeding radar logs:', error);

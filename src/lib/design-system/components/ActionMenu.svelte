@@ -59,9 +59,11 @@
 		}
 	}
 	
-	// Watch external triggerRef changes and calculate position
+	// Watch external triggerRef changes and calculate position (after paint so menu has dimensions)
 	$: if (open && externalTriggerRef && menuRef) {
-		tick().then(() => calculatePosition());
+		tick().then(() => {
+			requestAnimationFrame(() => calculatePosition());
+		});
 	}
 	
 	export function close() {
@@ -210,7 +212,7 @@
 			bind:this={menuRef}
 			class="menu"
 			class:external-trigger={!!externalTriggerRef}
-			style="{menuWidth} {externalTriggerRef ? '' : `top: ${menuPosition.top}px; left: ${menuPosition.left}px;`}"
+			style="{menuWidth} top: {menuPosition.top}px; left: {menuPosition.left}px;"
 			role="menu"
 			tabindex="-1"
 		>
@@ -335,12 +337,6 @@
 		overflow-y: auto;
 	}
 	
-	/* When used with external trigger, use relative positioning */
-	.menu.external-trigger {
-		position: relative;
-		top: auto;
-		left: auto;
-	}
 	
 	/* Menu Item (button and link) */
 	.menu-item {

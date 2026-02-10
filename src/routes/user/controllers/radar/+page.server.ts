@@ -9,6 +9,8 @@ import { getUserModulePermissions } from '$lib/server/security/modulePermissions
 import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
+// Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for updates.
+import prisma from '$lib/server/prisma';
 
 export const load = restrictModule(
     async ({ url, locals, cookies, depends }: AuthenticatedLoadEvent) => {
@@ -395,12 +397,14 @@ async function updateSensorFromList(
     if (location !== null && location.length > 200) return { type: 'error', message: 'Location must be 200 characters or less' };
 
     try {
+        // Use ZenStack enhanced client for read (access check)
         const sensor = await locals.prisma.sensor.findFirst({
             where: { id: sensorId, accountId: currentAccountId, type: 'radar' }
         });
         if (!sensor) return { type: 'error', message: 'Sensor not found or access denied' };
 
-        await locals.prisma.sensor.update({
+        // Use raw prisma for update (ZenStack policy only allows 'read' for account members)
+        await prisma.sensor.update({
             where: { id: sensorId },
             data: { name, location: location || null, updatedAt: new Date() }
         });

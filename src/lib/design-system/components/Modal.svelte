@@ -16,6 +16,7 @@
 	export let open: boolean = false;
 	export let title: string = '';
 	export let size: ModalSize = 'md';
+	export let width: string | undefined = undefined;
 	export let type: ModalType = 'default';
 	export let showCloseButton: boolean = true;
 	export let closeOnBackdrop: boolean = true;
@@ -151,7 +152,7 @@
 	};
 
 	$: currentTypeConfig = typeConfig[type];
-	$: modalWidth = sizeConfig[size];
+	$: modalWidth = width ?? sizeConfig[size];
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -393,12 +394,12 @@
 		justify-content: center;
 	}
 
-	/* Modal Body - using Design System tokens */
+	/* Modal Body - using Design System tokens (Figma: padding 16px, gap 16px) */
 	.modal-body {
 		display: flex;
 		flex-direction: column;
-		align-items: flex-start;
-		padding: var(--ds-space-4);
+		align-items: stretch; /* So slot content fills width */
+		padding: var(--ds-space-4); /* 16px */
 		gap: var(--ds-space-4);
 		width: 100%;
 		box-sizing: border-box;
@@ -417,6 +418,12 @@
 		font-size: var(--ds-text-md);
 		line-height: var(--ds-leading-md);
 		color: var(--ds-text-primary);
+	}
+
+	/* Slot content fills body width */
+	.modal-body :global(> *) {
+		min-width: 0;
+		width: 100%;
 	}
 
 	/* When modal has icon, align body text with title */

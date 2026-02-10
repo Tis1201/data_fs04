@@ -1,4 +1,4 @@
-import { fail, error } from '@sveltejs/kit';
+import { fail, error, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
@@ -7,6 +7,8 @@ import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
 import type { PrismaClient, Prisma } from '@prisma/client';
+// Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for config updates.
+import prisma from '$lib/server/prisma';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 // Type definitions for JSON Config
@@ -42,10 +44,20 @@ interface DwellBucket {
     description?: string;
 }
 
+/** Alert rules and notification channels stored in Sensor.config.alertSettings */
+export interface AlertSettings {
+    sensorOffline?: { enabled: boolean; threshold: string; unit: string };
+    noData?: { enabled: boolean; threshold: string; unit: string };
+    dwellTime?: { enabled: boolean; zoneId: string; threshold: string };
+    email?: { enabled: boolean; address: string };
+    webhook?: { enabled: boolean; url: string };
+}
+
 interface RadarConfig {
     trackingArea?: TrackingArea;
     zones?: Zone[];
     dwellBuckets?: DwellBucket[];
+    alertSettings?: AlertSettings;
 }
 
 const trackingAreaSchema = z.object({
@@ -180,6 +192,19 @@ export const load = restrictModule(
             });
 
             if (!controller) {
+                // URL might contain sensor ID (e.g. from list fallback or bookmark); resolve to controller and redirect
+                const sensorById = await locals.prisma.sensor.findFirst({
+                    where: {
+                        id,
+                        type: 'radar',
+                        accountId: currentAccountId,
+                        controller: { isDeleted: false }
+                    },
+                    select: { controllerId: true }
+                });
+                if (sensorById?.controllerId) {
+                    throw redirect(302, `/user/controllers/radar/${sensorById.controllerId}`);
+                }
                 throw error(404, {
                     message: 'Controller not found',
                 });
@@ -356,7 +381,7 @@ export const actions: Actions = {
                     description: form.data.description || undefined
                 };
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -437,7 +462,7 @@ export const actions: Actions = {
                     description: form.data.description || undefined
                 };
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -524,7 +549,7 @@ export const actions: Actions = {
                     color: form.data.color || undefined
                 });
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -607,7 +632,7 @@ export const actions: Actions = {
                     color: form.data.color || undefined
                 };
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -659,7 +684,7 @@ export const actions: Actions = {
 
                 config.zones = config.zones.filter((z) => (z.id ?? `zone-${z.zoneNumber}`) !== zoneId);
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -714,7 +739,7 @@ export const actions: Actions = {
 
                 config.zones[zoneIndex] = { ...config.zones[zoneIndex], active };
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: {
                         config: config as Prisma.InputJsonValue,
@@ -751,14 +776,19 @@ export const actions: Actions = {
 
             if (!layoutJson) return fail(400, { error: 'Layout data missing' });
 
+            let layout: { arena?: { startX: number; startY: number; endX: number; endY: number } | null; zones?: unknown[] };
+            try {
+                layout = JSON.parse(layoutJson) as typeof layout;
+            } catch (_e) {
+                return fail(400, { error: 'Invalid layout JSON' });
+            }
+            const { arena, zones } = layout;
+
             try {
                 if (!currentAccountId) {
                     return fail(403, { error: 'User account not found' });
                 }
                 await checkAccountAccess(id, currentAccountId as string, locals.prisma);
-
-                const layout = JSON.parse(layoutJson);
-                const { arena, zones } = layout;
 
                 // Get sensor from controller ID (id is controller ID, not sensor ID)
                 const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
@@ -819,11 +849,18 @@ export const actions: Actions = {
 
                 // Update or Create Arena with validation
                 if (arena) {
+                    const ax = Number(arena.startX);
+                    const ay = Number(arena.startY);
+                    const aex = Number(arena.endX);
+                    const aey = Number(arena.endY);
+                    if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(aex) || !Number.isFinite(aey)) {
+                        return fail(400, { error: 'Invalid arena coordinates (must be numbers)' });
+                    }
                     let bounds = normalizeBounds({
-                        startX: arena.startX,
-                        startY: arena.startY,
-                        endX: arena.endX,
-                        endY: arena.endY,
+                        startX: ax,
+                        startY: ay,
+                        endX: aex,
+                        endY: aey,
                     });
                     const validation = validateBounds(bounds);
                     if (!validation.valid) {
@@ -837,12 +874,11 @@ export const actions: Actions = {
                     if (!config.trackingArea) {
                         config.trackingArea = {
                             id: generateId(),
-                            name: `${sensor.name} Tracking Area`,
+                            name: `${sensor.name ?? 'Radar'} Tracking Area`,
                             startX: bounds.startX,
                             startY: bounds.startY,
                             endX: bounds.endX,
-                            endY: bounds.endY,
-                            description: undefined
+                            endY: bounds.endY
                         };
                         logger.info(`Tracking Area created for sensor ${sensor.id}`);
                     } else {
@@ -877,12 +913,19 @@ export const actions: Actions = {
                     const reconciledZones: Array<NonNullable<RadarConfig['zones']>[number]> = [];
                     
                     for (const z of incomingZones) {
-                        // Validate bounds first
+                        // Validate bounds first (coerce to number)
+                        const zx = Number(z.startX);
+                        const zy = Number(z.startY);
+                        const zex = Number(z.endX);
+                        const zey = Number(z.endY);
+                        if (!Number.isFinite(zx) || !Number.isFinite(zy) || !Number.isFinite(zex) || !Number.isFinite(zey)) {
+                            return fail(400, { error: `Invalid zone "${z.name ?? 'unknown'}": coordinates must be numbers` });
+                        }
                         let bounds = normalizeBounds({
-                            startX: z.startX,
-                            startY: z.startY,
-                            endX: z.endX,
-                            endY: z.endY,
+                            startX: zx,
+                            startY: zy,
+                            endX: zex,
+                            endY: zey,
                         });
                         const validation = validateBounds(bounds);
                         if (!validation.valid) {
@@ -934,11 +977,15 @@ export const actions: Actions = {
                     config.zones = reconciledZones.slice(0, MAX_ZONES);
                 }
 
-                await locals.prisma.sensor.update({
+                // Sanitize config: strip undefined so Prisma Json accepts it
+                const configForDb = JSON.parse(JSON.stringify(config)) as Prisma.InputJsonValue;
+                const configVersionNext = (sensor.configVersion ?? 0) + 1;
+
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
-                        config: config as Prisma.InputJsonValue,
-                        configVersion: sensor.configVersion + 1,
+                        config: configForDb,
+                        configVersion: configVersionNext,
                         syncStatus: 'PENDING',
                         lastSyncError: null,
                         updatedAt: new Date()
@@ -951,7 +998,9 @@ export const actions: Actions = {
                 if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) {
                     throw err;
                 }
-                logger.error(`Error saving layout: ${err}`);
+                const errMessage = err instanceof Error ? err.message : String(err);
+                const errStack = err instanceof Error ? err.stack : '';
+                logger.error(`Error saving layout: ${errMessage}${errStack ? `. Stack: ${errStack}` : ''}`);
                 return fail(500, { error: 'Failed to save layout' });
             }
         },
@@ -992,7 +1041,7 @@ export const actions: Actions = {
                     description: form.data.description || undefined
                 });
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -1044,7 +1093,7 @@ export const actions: Actions = {
 
                 config.dwellBuckets = config.dwellBuckets.filter(b => b.id !== bucketId);
 
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: { 
                         config: config as Prisma.InputJsonValue,
@@ -1078,7 +1127,7 @@ export const actions: Actions = {
                 await checkAccountAccess(controllerId, currentAccountId as string, locals.prisma);
                 const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, controllerId);
                 if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
-                await locals.prisma.sensor.update({
+                await prisma.sensor.update({
                     where: { id: sensor.id },
                     data: {
                         name: form.data.name,

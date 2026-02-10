@@ -63,7 +63,12 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
         const result = await sensorDataService.query(queryParams);
         return json(result);
     } catch (err) {
-        console.error('[API sensor-data]', err);
-        return json({ error: 'Failed to query sensor data' }, { status: 500 });
+        const message = err instanceof Error ? err.message : String(err);
+        const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '';
+        console.error('[API sensor-data]', message, code ? `(code: ${code})` : '', err instanceof Error ? err.stack : '');
+        return json(
+            { error: 'Failed to query sensor data', detail: process.env.NODE_ENV === 'development' ? message : undefined },
+            { status: 500 }
+        );
     }
 }, ['ADMIN', 'USER']);

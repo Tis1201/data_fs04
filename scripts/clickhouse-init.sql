@@ -178,5 +178,51 @@ SELECT
 FROM logs_raw
 WHERE c10 = 'DEVICE_APPS';
 
+-- =============================================================================
+-- Radar logs (Session Logs + Path Tracking for Analytics tab)
+-- See docs/architecture/logs/LOGS_RADAR.md. Insert into logs_raw with
+-- c10 = 'SENSOR_RADAR_SESSION' or 'SENSOR_RADAR_PATH'; MVs populate automatically.
+-- =============================================================================
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_radar_session
+ENGINE = MergeTree()
+ORDER BY (account_id, log_creation_time)
+SETTINGS index_granularity = 8192 AS
+SELECT
+    c1 AS processed_at,
+    c2 AS account_id,
+    c4 AS device_id,
+    parseDateTimeBestEffort(c12) AS log_creation_time,
+    toInt16OrZero(c13) AS timezone_offset,
+    c14 AS timezone_label,
+    c15 AS sensor_id,
+    c16 AS sensor_name,
+    c17 AS mac_address,
+    c18 AS target_id,
+    toFloat32OrZero(c19) AS dwell_tracking_area_sec,
+    c20 AS zone_dwell_times_json,
+    toFloat32OrNull(c21) AS proximity_m
+FROM logs_raw
+WHERE c10 = 'SENSOR_RADAR_SESSION';
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_radar_path
+ENGINE = MergeTree()
+ORDER BY (account_id, log_creation_time)
+SETTINGS index_granularity = 8192 AS
+SELECT
+    c1 AS processed_at,
+    c2 AS account_id,
+    c4 AS device_id,
+    parseDateTimeBestEffort(c12) AS log_creation_time,
+    toInt16OrZero(c13) AS timezone_offset,
+    c14 AS timezone_label,
+    c15 AS sensor_id,
+    c16 AS sensor_name,
+    c17 AS mac_address,
+    c18 AS target_id,
+    toFloat32OrZero(c19) AS x_m,
+    toFloat32OrZero(c20) AS y_m
+FROM logs_raw
+WHERE c10 = 'SENSOR_RADAR_PATH';
+
 -- Verify tables created
 SHOW TABLES;

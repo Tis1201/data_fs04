@@ -259,6 +259,21 @@
             };
         }
         // App Pinning Rules (detail at [id], edit form at [id]/edit)
+        if (pathname === '/user/iot/templates' || pathname === '/user/iot/templates/') {
+            return {
+                headerStyle: 'page',
+                title: 'Templates',
+                subtitle: 'Reusable configurations and alert rules'
+            };
+        }
+        if (/^\/user\/iot\/templates\/[^/]+\/?$/.test(pathname.replace(/\/$/, ''))) {
+            return {
+                headerStyle: 'page',
+                title: 'Template Details',
+                subtitle: 'Manage reusable sensor templates for quick deployment',
+                showBackButton: true
+            };
+        }
         if (pathname.includes('/iot/pin-rules')) {
             const isNew = pathname === '/user/iot/pin-rules/new' || pathname === '/user/iot/pin-rules/new/';
             const isEditForm = /\/pin-rules\/[^/]+\/edit\/?$/.test(pathname.replace(/\/$/, ''));
