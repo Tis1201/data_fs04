@@ -80,6 +80,7 @@
                 toast.success('Deployment duplicated successfully!');
                 closeDuplicateModal();
                 await invalidate('app:bundles');
+                await invalidate('app:bundle');
                 goto(`${basePath}/${newId}`);
             } else {
                 toast.error(json.error?.message || 'Unable to duplicate deployment. Please try again!');

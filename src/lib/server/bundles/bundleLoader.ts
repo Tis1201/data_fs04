@@ -6,26 +6,33 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 
 /**
- * Helper function to update bundle status based on wave statuses
+ * Helper function to update bundle status based on wave statuses (on page load).
+ * Does not overwrite PUBLISHED with IN_PROGRESS so that after Publish the status stays "Published"
+ * until the event processor or timeout manager updates it (e.g. when device progress is processed).
+ * Only transitions PUBLISHED -> COMPLETED or FAILED when all waves are terminal.
  */
 async function updateBundleStatus(prisma: any, bundleId: string) {
   try {
-    // Get all waves for this bundle
+    const bundle = await prisma.bundle.findUnique({
+      where: { id: bundleId },
+      select: { status: true }
+    });
+    if (!bundle) return;
+
     const waves = await prisma.bundleWave.findMany({
       where: { bundleId },
       select: { id: true, status: true, startTime: true, endTime: true }
     });
-    
+
     if (!waves || waves.length === 0) {
       return;
     }
-    
-    // Calculate bundle status based on wave statuses
+
     const anyInProgress = waves.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
     const anyFailed = waves.some((w: any) => w.status === 'FAILED');
     const allCompleted = waves.every((w: any) => w.status === 'COMPLETED');
     const allTerminal = waves.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(w.status));
-    
+
     let bundleStatus: string;
     if (anyInProgress) {
       bundleStatus = 'IN_PROGRESS';
@@ -34,18 +41,20 @@ async function updateBundleStatus(prisma: any, bundleId: string) {
     } else if (anyFailed && allTerminal) {
       bundleStatus = 'FAILED';
     } else {
-      // All waves are terminal but mix of completed/cancelled (no failed)
       bundleStatus = 'COMPLETED';
     }
-    
-    // Update bundle status
+
+    // Keep PUBLISHED when waves are in progress so refresh after Publish still shows "Published"
+    const current = (bundle.status || '').toUpperCase();
+    if (current === 'PUBLISHED' && bundleStatus === 'IN_PROGRESS') {
+      return;
+    }
+
     await prisma.bundle.update({
       where: { id: bundleId },
-      data: { 
-        status: bundleStatus
-      }
+      data: { status: bundleStatus }
     });
-    
+
     logger.info(`[PageLoad] Updated bundle ${bundleId} status to ${bundleStatus} (waves: ${waves.length}, inProgress: ${anyInProgress}, failed: ${anyFailed}, allCompleted: ${allCompleted})`);
   } catch (e: any) {
     logger.warn(`[PageLoad] Failed to update bundle status for ${bundleId}: ${String(e?.message || e)}`);

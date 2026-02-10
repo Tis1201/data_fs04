@@ -48,6 +48,8 @@
     export let hideHeaderAddButton: boolean = false;
     /** When false, hide the Actions column (e.g. when Deployment = InProgress | Completed | Canceled) */
     export let showActionsColumn: boolean = true;
+    /** When provided, use this for deployment status logic instead of $page.data.bundle (avoids stale state after duplicate + goto) */
+    export let bundleStatus: string | undefined = undefined;
     
     // Local reactive copy for real-time updates
     let displayDevices: DeviceWithInfo[] = devices;
@@ -99,13 +101,16 @@
     let batchDeleteModalOpen = false;
     let batchDeleteLoading = false;
     
+    // Prefer prop over $page so duplicate + goto shows correct state without refresh
+    $: effectiveBundleStatus = (bundleStatus ?? $page?.data?.bundle?.status ?? '') as string;
+    
     // Check if bundle is editable (DRAFT status)
-    $: isEditable = ($page?.data?.bundle?.status || '').toUpperCase() === 'DRAFT';
+    $: isEditable = (effectiveBundleStatus || '').toUpperCase() === 'DRAFT';
     
     // Device Deployment Status: design rule — when device newly imported but deployment hasn't started → show '—'
     // Deployment has started when bundle status is RUNNING | COMPLETED | FAILED | STOPPED
     $: deploymentHasStarted = (() => {
-        const s = ($page?.data?.bundle?.status || '').toUpperCase();
+        const s = (effectiveBundleStatus || '').toUpperCase();
         return ['RUNNING', 'COMPLETED', 'FAILED', 'STOPPED'].includes(s);
     })();
 

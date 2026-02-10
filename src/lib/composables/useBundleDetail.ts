@@ -84,6 +84,8 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
     const offlineDevicesCount = writable(0);
     const totalDevicesCount = writable(0);
     const derivedWaves = writable<DerivedWave[]>([]);
+    const bundleActualStartTime = writable<string | null>(null);
+    const bundleActualEndTime = writable<string | null>(null);
 
     // Helper to update computed counts
     function updateComputedCounts() {
@@ -149,6 +151,35 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
         });
         
         derivedWaves.set(derived);
+        
+        // Calculate bundle's actual start and end times from waves
+        // Note: Wave endTime is updated in DB every time status changes (even late device updates within 24h window)
+        // so this reflects the most recent completion/failure timestamp
+        const wavesWithTimes = derived.filter(w => w.startTime);
+        if (wavesWithTimes.length > 0) {
+            // Start time = earliest wave start
+            const startTimes = wavesWithTimes.map(w => new Date(w.startTime!).getTime());
+            const earliestStart = new Date(Math.min(...startTimes)).toISOString();
+            bundleActualStartTime.set(earliestStart);
+            
+            // End time = latest wave end (only if all waves are terminal: COMPLETED, FAILED, CANCELLED)
+            const allWavesTerminal = derived.every(w => 
+                ['COMPLETED', 'FAILED', 'CANCELLED', 'STOPPED'].includes(w.status.toUpperCase())
+            );
+            const wavesWithEndTimes = derived.filter(w => w.endTime);
+            
+            if (allWavesTerminal && wavesWithEndTimes.length === derived.length) {
+                const endTimes = wavesWithEndTimes.map(w => new Date(w.endTime!).getTime());
+                const latestEnd = new Date(Math.max(...endTimes)).toISOString();
+                bundleActualEndTime.set(latestEnd);
+            } else {
+                // Bundle still in progress - no end time yet
+                bundleActualEndTime.set(null);
+            }
+        } else {
+            bundleActualStartTime.set(null);
+            bundleActualEndTime.set(null);
+        }
     }
     
     // Update derived waves when wavesVersion changes
@@ -406,6 +437,8 @@ export function useBundleDetail(options: UseBundleDetailOptions) {
         offlineDevicesCount,
         totalDevicesCount,
         derivedWaves,
+        bundleActualStartTime,
+        bundleActualEndTime,
         
         // Action handlers
         handleAppSelect,

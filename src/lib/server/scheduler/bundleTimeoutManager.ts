@@ -535,12 +535,18 @@ async function processBundleWavesFromCache(bundleId: string, waves: WaveTimeoutI
         : 'IN_PROGRESS';
 
       // Update wave status
+      const waveUpdateData: any = {
+        status: waveStatus
+      };
+      
+      // Always update endTime when status is terminal (ensures late device updates refresh endTime)
+      if (waveStatus !== 'IN_PROGRESS') {
+        waveUpdateData.endTime = new Date();
+      }
+      
       await (prisma as any).bundleWave.update({
         where: { id: waveInfo.waveId },
-        data: {
-          status: waveStatus,
-          endTime: waveStatus !== 'IN_PROGRESS' ? new Date() : undefined
-        }
+        data: waveUpdateData
       });
 
       // Update bundle status

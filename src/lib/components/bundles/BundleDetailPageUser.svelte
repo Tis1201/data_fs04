@@ -593,6 +593,8 @@
         offlineDevicesCount,
         totalDevicesCount,
         derivedWaves,
+        bundleActualStartTime,
+        bundleActualEndTime,
         deviceProgressReloadToken,
         handleDeleteBundle,
         handleStopAllWaves,
@@ -863,35 +865,40 @@
 </script>
 
 <div class="bundle-detail-page">
-    <!-- Header: Edit + Publish when Draft | Scheduled | Failed | Stopped; Duplicate always -->
-    {#if showDeploymentDeviceActions || onDuplicateRequested}
+    <!-- Header: Edit + Publish always visible; enabled only when draft, otherwise blurred -->
+    {#if bundle}
         <div class="detail-header">
             <div class="detail-actions">
-                {#if showDeploymentDeviceActions}
-                    <Button
-                        variant="filled"
-                        color="primary"
-                        size="md"
-                        icon={Pencil}
-                        iconSize={18}
-                        on:click={() => onEditRequested ? onEditRequested() : goto(`${basePath}/${bundle.id}/edit`)}
-                    >
-                        Edit Bundle
-                    </Button>
-                    <Button
-                        variant="outline"
-                        color="neutral"
-                        size="md"
-                        icon={Play}
-                        iconSize={18}
-                        disabled={bundle?.status !== 'DRAFT' || publishLoading}
-                        loading={publishLoading}
-                        title={bundle?.status !== 'DRAFT' ? 'Cannot publish: deployment already published' : undefined}
-                        on:click={handlePublish}
-                    >
-                        Publish
-                    </Button>
-                {/if}
+                <Button
+                    class={bundle?.status !== 'DRAFT' ? 'action-blurred' : ''}
+                    variant="filled"
+                    color="primary"
+                    size="md"
+                    icon={Pencil}
+                    iconSize={18}
+                    disabled={bundle?.status !== 'DRAFT'}
+                    title={bundle?.status !== 'DRAFT' ? 'Not editable: deployment already published' : undefined}
+                    on:click={() => {
+                        if (bundle?.status !== 'DRAFT') return;
+                        onEditRequested ? onEditRequested() : goto(`${basePath}/${bundle.id}/edit`);
+                    }}
+                >
+                    Edit Bundle
+                </Button>
+                <Button
+                    class={bundle?.status !== 'DRAFT' ? 'action-blurred' : ''}
+                    variant="outline"
+                    color="neutral"
+                    size="md"
+                    icon={Play}
+                    iconSize={18}
+                    disabled={bundle?.status !== 'DRAFT' || publishLoading}
+                    loading={publishLoading}
+                    title={bundle?.status !== 'DRAFT' ? 'Cannot publish: deployment already published' : undefined}
+                    on:click={handlePublish}
+                >
+                    Publish
+                </Button>
                 {#if onDuplicateRequested}
                     <Button
                         variant="outline"
@@ -947,11 +954,11 @@
                 </div>
                 <div class="overview-field">
                     <p class="overview-label">Start on Date & Time</p>
-                    <p class="overview-value">{bundle.scheduledAt ? formatBundleDate(bundle.scheduledAt) : '—'}</p>
+                    <p class="overview-value">{$bundleActualStartTime ? formatBundleDate($bundleActualStartTime) : '—'}</p>
                 </div>
                 <div class="overview-field">
                     <p class="overview-label">End on Date & Time</p>
-                    <p class="overview-value">{formatBundleEndOn(bundle.scheduledAt, bundleActivePeriodDays)}</p>
+                    <p class="overview-value">{$bundleActualEndTime ? formatBundleDate($bundleActualEndTime) : '—'}</p>
                 </div>
                 <div class="overview-field-empty" aria-hidden="true"></div>
                 <!-- Row 3: Description (full width) -->
@@ -1046,6 +1053,7 @@
                         <BundleDeviceComponent
                             bind:this={deviceComponentRef}
                             bundleId={bundle.id}
+                            bundleStatus={bundle?.status}
                             devices={bundleDevices || []}
                             loading={false}
                             apiPrefix={context === 'admin' ? '/api/admin' : '/api/user'}
@@ -1853,6 +1861,12 @@
         flex-wrap: wrap;
         align-items: center;
         gap: var(--ds-space-2);
+    }
+
+    .detail-actions :global(button.action-blurred) {
+        opacity: 0.55;
+        filter: grayscale(0.8);
+        cursor: not-allowed;
     }
     
     .detail-content {

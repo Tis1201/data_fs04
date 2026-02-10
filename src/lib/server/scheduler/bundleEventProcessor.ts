@@ -209,9 +209,14 @@ async function recomputeWaveAndPublish(waveId: string, bundleId: string, waveNam
 
     // Update only fields that exist: status, startTime, and endTime (do not set numeric progress if schema doesn't have it)
     const updateData: any = {
-      status: waveStatus,
-      endTime: waveStatus !== 'IN_PROGRESS' ? new Date() : undefined
+      status: waveStatus
     };
+    
+    // Always update endTime when status changes to/from terminal state
+    // This ensures late-arriving device updates (within 24h window) update the endTime
+    if (waveStatus !== 'IN_PROGRESS') {
+      updateData.endTime = new Date();
+    }
 
     // Only set startTime if transitioning from PENDING to IN_PROGRESS and startTime is not already set
     if (waveStatus === 'IN_PROGRESS' && currentWave?.status === 'PENDING' && !currentWave?.startTime) {

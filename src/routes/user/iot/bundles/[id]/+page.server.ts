@@ -22,10 +22,10 @@ export const load = restrict(
     }
 
     try {
-      // User routes have basic features only (no advanced admin features)
+      // User routes: use real-time device status (Redis) so bundle device list matches devices list
       return await loadBundleDetail(locals, id, {
         includeAccount: false,          // Users don't need account management
-        checkDeviceOnline: false,       // Users don't get real-time device status
+        checkDeviceOnline: true,       // Use Redis real-time status (same as devices list)
         enableAutoStartWaves: false,    // Users don't auto-start waves
         enableTimeoutChecking: false    // Users don't check timeouts
       });
