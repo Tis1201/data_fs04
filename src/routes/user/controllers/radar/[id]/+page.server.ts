@@ -2,7 +2,9 @@ import { fail, error, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
+// TODO: Re-enable ACL (restrictModule for USER_CONTROLLERS_RADAR) later.
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
@@ -149,7 +151,7 @@ async function getSensorFromControllerId(prisma: PrismaClient, controllerId: str
     return { error: null, sensor };
 }
 
-export const load = restrictModule(
+export const load = restrict(
     async ({ params, locals, cookies }: AuthenticatedLoadEvent) => {
         const { id } = params; // This is the controller ID
 
@@ -282,8 +284,7 @@ export const load = restrictModule(
             throw error(500, 'Failed to load sensor details');
         }
     },
-    'USER_CONTROLLERS_RADAR',
-    { action: 'VIEW' }
+    [SystemRole.USER, SystemRole.ADMIN]
 ) satisfies PageServerLoad;
 
 // Helper function to check account access using controller ID
@@ -325,8 +326,8 @@ async function checkAccountAccess(
 }
 
 export const actions: Actions = {
-    createTrackingArea: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    createTrackingArea: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -402,12 +403,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to create tracking area' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    updateTrackingArea: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    updateTrackingArea: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -482,12 +482,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to update tracking area' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    createZone: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    createZone: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -569,12 +568,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to create zone' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    updateZone: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    updateZone: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -652,12 +650,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to update zone' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    deleteZone: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    deleteZone: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -704,12 +701,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete zone' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    setZoneActive: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    setZoneActive: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -759,12 +755,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to update zone status' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    saveLayout: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    saveLayout: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -1004,12 +999,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to save layout' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    createDwellBucket: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    createDwellBucket: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -1061,12 +1055,11 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to create dwell bucket' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 
-    deleteDwellBucket: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    deleteDwellBucket: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
@@ -1113,11 +1106,10 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to delete dwell bucket' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
-    updateSensorInfo: restrictModule(
-        async ({ request, params, locals, cookies }: ModuleAuthenticatedEvent) => {
+    updateSensorInfo: restrict(
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const { id: controllerId } = params;
             const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) return fail(403, { error: 'User account not found' });
@@ -1142,8 +1134,7 @@ export const actions: Actions = {
                 return fail(500, { error: 'Failed to update sensor. Please try again.' });
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
 };
 

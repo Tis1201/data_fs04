@@ -8,7 +8,6 @@
     import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
     import type { BadgeColor, SortState } from '$lib/design-system/components';
     import { Search, Filter, Plus, Info, Trash2 } from 'lucide-svelte';
-    import { canCreate } from '$lib/utils/permissions';
     import type { PageData } from './$types';
     import type { Sensor } from '@prisma/client';
 
@@ -16,7 +15,8 @@
 
     type SensorRow = Sensor & { controller?: { id: string } | null };
 
-    $: showCreateButton = canCreate(data.modulePermissions, 'USER_CONTROLLERS_RADAR', data.user?.systemRole);
+    // TODO: Re-enable ACL check when radar module ACL is turned back on.
+    $: showCreateButton = !!data.user;
 
     // Search: bind to local value, debounce then sync to URL
     let searchValue = $page.url.searchParams.get('search') || '';
