@@ -86,19 +86,40 @@ export class ProfileConfigBuilder {
                 };
             }
 
-            // 4. Apply overrides
+            // 4. Apply overrides (including keys not in global profile — device-only overrides)
             let overrideCount = 0;
+            const appliedKeys: string[] = [];
+            const addedKeys: string[] = [];
             if (override?.overriddenSettings) {
+                logger.info(`[ProfileConfigBuilder] Applying overrides for device ${deviceId}`, {
+                    overriddenSettingKeys: override.overriddenSettings.map((s: any) => s.key),
+                    count: override.overriddenSettings.length
+                });
                 for (const overriddenSetting of override.overriddenSettings) {
                     if (config[overriddenSetting.key]) {
                         config[overriddenSetting.key].value = overriddenSetting.value;
                         config[overriddenSetting.key].isOverridden = true;
                         overrideCount++;
+                        appliedKeys.push(overriddenSetting.key);
                     } else {
-                        // Override for setting that no longer exists in global
-                        logger.warn(`[ProfileConfigBuilder] Override for non-existent setting ${overriddenSetting.key} on device ${deviceId}`);
+                        // Key not in global profile: add to config so effective config includes it
+                        config[overriddenSetting.key] = {
+                            value: overriddenSetting.value,
+                            dataType: overriddenSetting.dataType || 'string',
+                            label: overriddenSetting.key,
+                            category: null,
+                            isOverridden: true
+                        };
+                        overrideCount++;
+                        addedKeys.push(overriddenSetting.key);
                     }
                 }
+                logger.info(`[ProfileConfigBuilder] Overrides applied`, {
+                    deviceId,
+                    overrideCount,
+                    appliedKeys,
+                    addedKeysNotInProfile: addedKeys
+                });
             }
 
             // 5. Build metadata
@@ -164,17 +185,24 @@ export class ProfileConfigBuilder {
             globalSettings.map(s => [s.key, { value: s.value, dataType: s.dataType }])
         );
 
+        const skippedNotInProfile: string[] = [];
         for (const [key, newValue] of Object.entries(newSettings)) {
             const globalSetting = globalMap.get(key);
-            
+            const newValueStr = String(newValue ?? '');
+
             if (!globalSetting) {
-                logger.warn(`[ProfileConfigBuilder] Setting ${key} not found in global profile`);
+                // Key not in global profile: still save as override so device-specific values persist (e.g. schedule keys)
+                overrides.push({
+                    key: key,
+                    value: newValueStr,
+                    dataType: 'string'
+                });
+                skippedNotInProfile.push(key);
                 continue;
             }
 
             // Convert both to string for comparison (all values stored as strings in DB)
             const globalValueStr = String(globalSetting.value);
-            const newValueStr = String(newValue);
 
             // Only include if different from global
             if (globalValueStr !== newValueStr) {
@@ -186,10 +214,12 @@ export class ProfileConfigBuilder {
             }
         }
 
-        logger.debug(`[ProfileConfigBuilder] Identified ${overrides.length} override(s)`, {
+        logger.info(`[ProfileConfigBuilder] Identified ${overrides.length} override(s)`, {
             totalSettings: newSettings ? Object.keys(newSettings).length : 0,
             overrideCount: overrides.length,
-            overrideKeys: overrides.map(o => o.key)
+            overrideKeys: overrides.map(o => o.key),
+            keysNotInProfileIncluded: skippedNotInProfile.length,
+            keysNotInProfile: skippedNotInProfile
         });
 
         return overrides;

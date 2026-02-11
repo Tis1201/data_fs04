@@ -141,11 +141,22 @@ export class DeviceProfileService {
                 };
             }
 
-            // 2. Identify which settings differ from global
+            // 2. Identify which settings differ from global (includes keys not in profile)
+            logger.info(`[DeviceProfileService] updateDeviceSettings called`, {
+                deviceId,
+                newSettingsKeys: Object.keys(newSettings),
+                newSettingsKeyCount: Object.keys(newSettings).length,
+                globalProfileSettingKeys: (assignment.profile.settings as any[]).map((s: any) => s.key)
+            });
             const overrides = this.configBuilder.identifyOverrides(
                 assignment.profile.settings,
                 newSettings
             );
+            logger.info(`[DeviceProfileService] identifyOverrides result`, {
+                deviceId,
+                overrideCount: overrides.length,
+                overrideKeys: overrides.map(o => o.key)
+            });
 
             // 3. Save or remove overrides
             if (overrides.length > 0) {

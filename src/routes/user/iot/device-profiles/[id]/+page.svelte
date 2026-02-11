@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { goto, invalidate } from '$app/navigation';
+    import { goto, invalidate, invalidateAll } from '$app/navigation';
     import { page } from '$app/stores';
     import { onMount, onDestroy } from 'svelte';
     import { Button, Card, Badge, TabGroup, ConfirmModal, ActionMenu, Modal } from '$lib/design-system/components';
@@ -57,10 +57,10 @@
     function closeEditProfileModal() {
         showEditProfileModal = false;
     }
-    function onEditProfileSuccess() {
+    async function onEditProfileSuccess() {
         toast.success('Profile updated successfully!');
         closeEditProfileModal();
-        invalidate('app:deviceProfile');
+        await invalidateAll();
     }
     const UPDATE_PROFILE_ERROR_MSG = 'Unable to update Profile. Please try again!';
     function isGenericError(msg: string | null): boolean {
@@ -151,13 +151,19 @@
         'timezone',
         'home_launcher'
     ];
-    const SCHEDULE_KEYS = ['power_management_schedule', 'reboot_schedule_enabled', 'download_schedule_enabled'];
-
     function settingRow(key: string): { key: string; label: string; description: string; value: string } | null {
         const settingsList = Array.isArray(availableSettings) ? availableSettings : [];
         const def = settingsList.find((a: { key: string }) => a.key === key);
         if (!def) return null;
-        if (def.dependsOn && getSettingValue(def.dependsOn) !== 'enabled') return null;
+        if (def.dependsOn) {
+            const parentVal = getSettingValue(def.dependsOn);
+            const parentDef = settingsList.find((a: { key: string }) => a.key === def.dependsOn);
+            if (parentDef?.dataType === 'boolean') {
+                if (parentVal !== 'enabled') return null;
+            } else if (parentDef?.options && (key === 'reboot_schedule_day' || key === 'download_schedule_day')) {
+                if (parentVal !== 'weekly') return null;
+            }
+        }
         let value = getSettingDisplayValue(key);
         if ((key === 'volume_level' || key === 'brightness_level') && value !== '—' && value !== '') {
             value = value + '%';
@@ -172,7 +178,6 @@
 
     $: kioskSettingsRows = KIOSK_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
     $: displaySettingsRows = DISPLAY_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
-    $: scheduleSettingsRows = SCHEDULE_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
 
     $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null }; status?: string; appliedAt?: Date | string | null }) => {
         const d = a.device;
@@ -645,7 +650,8 @@
             />
 
             {#if activeTab === 'configuration'}
-                <!-- Device Configuration (read-only) - same blocks as Device tab: Kiosk, Display, Schedule -->
+                <!-- Key so Configuration re-renders when load returns after save -->
+                {#key (data?.profile?.updatedAt ? String(data.profile.updatedAt) : '') + (data?.profile?.settings?.length ?? 0)}
                 <Card variant="default" padding="none" class="config-card">
                     <div slot="header" class="config-header">
                         <div class="icon-wrap">
@@ -691,23 +697,85 @@
                         {/each}
                     </div>
 
-                    <!-- Schedule Settings Section -->
+                    <!-- Schedule Settings Section (grouped, same as Device tab Configuration) -->
                     <div class="config-table-wrap">
-                        {#each scheduleSettingsRows as item, i}
-                            <div class="config-row" class:last={i === scheduleSettingsRows.length - 1}>
-                                <div class="config-cell label-cell">
-                                    <div class="cell-content">
-                                        <span class="cell-title">{item.label}</span>
-                                        <span class="cell-desc">{item.description}</span>
-                                    </div>
-                                </div>
-                                <div class="config-cell value-cell">
-                                    <span class="cell-value">{item.value}</span>
+                        <!-- Power Management Schedule (grouped) -->
+                        <div class="config-row">
+                            <div class="config-cell label-cell">
+                                <div class="cell-content">
+                                    <span class="cell-title">Power Management Schedule</span>
+                                    <span class="cell-desc">Scheduled power on/off times</span>
                                 </div>
                             </div>
-                        {/each}
+                            <div class="config-cell value-cell">
+                                {#if (getSettingValue('power_management_schedule') || 'disabled') === 'enabled'}
+                                    <div class="schedule-detail">
+                                        <span class="schedule-badge enabled">Enabled</span>
+                                        <div class="schedule-items">
+                                            <span class="schedule-item"><span class="schedule-label">On:</span> {(getSettingValue('power_on_datetime') || '—').replace('T', ' ')}</span>
+                                            <span class="schedule-item"><span class="schedule-label">Off:</span> {(getSettingValue('power_off_datetime') || '—').replace('T', ' ')}</span>
+                                        </div>
+                                    </div>
+                                {:else}
+                                    <span class="schedule-badge disabled">Disabled</span>
+                                {/if}
+                            </div>
+                        </div>
+
+                        <!-- Reboot Schedule (grouped) -->
+                        <div class="config-row">
+                            <div class="config-cell label-cell">
+                                <div class="cell-content">
+                                    <span class="cell-title">Reboot Schedule</span>
+                                    <span class="cell-desc">Scheduled device reboots</span>
+                                </div>
+                            </div>
+                            <div class="config-cell value-cell">
+                                {#if (getSettingValue('reboot_schedule_enabled') || 'disabled') === 'enabled'}
+                                    <div class="schedule-detail">
+                                        <span class="schedule-badge enabled">Enabled</span>
+                                        <div class="schedule-items">
+                                            <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getSettingValue('reboot_schedule_frequency') || 'daily'}</span></span>
+                                            {#if (getSettingValue('reboot_schedule_frequency') || 'daily') === 'weekly'}
+                                                <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getSettingValue('reboot_schedule_day') || 'monday'}</span></span>
+                                            {/if}
+                                            <span class="schedule-item"><span class="schedule-label">Time:</span> {getSettingValue('reboot_schedule_time') || '02:00'}</span>
+                                        </div>
+                                    </div>
+                                {:else}
+                                    <span class="schedule-badge disabled">Disabled</span>
+                                {/if}
+                            </div>
+                        </div>
+
+                        <!-- Download Schedule (grouped) -->
+                        <div class="config-row last">
+                            <div class="config-cell label-cell">
+                                <div class="cell-content">
+                                    <span class="cell-title">Download Schedule</span>
+                                    <span class="cell-desc">Scheduled content downloads</span>
+                                </div>
+                            </div>
+                            <div class="config-cell value-cell">
+                                {#if (getSettingValue('download_schedule_enabled') || 'disabled') === 'enabled'}
+                                    <div class="schedule-detail">
+                                        <span class="schedule-badge enabled">Enabled</span>
+                                        <div class="schedule-items">
+                                            <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getSettingValue('download_schedule_frequency') || 'daily'}</span></span>
+                                            {#if (getSettingValue('download_schedule_frequency') || 'daily') === 'weekly'}
+                                                <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getSettingValue('download_schedule_day') || 'monday'}</span></span>
+                                            {/if}
+                                            <span class="schedule-item"><span class="schedule-label">Time:</span> {getSettingValue('download_schedule_time') || '03:00'}</span>
+                                        </div>
+                                    </div>
+                                {:else}
+                                    <span class="schedule-badge disabled">Disabled</span>
+                                {/if}
+                            </div>
+                        </div>
                     </div>
                 </Card>
+                {/key}
             {:else if activeTab === 'devices'}
                 <!-- Assigned Devices card (Figma: Frame 34 – header + content + pagination) -->
                 <Card variant="default" padding="none" class="assigned-devices-card">
@@ -1223,6 +1291,54 @@
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
         color: var(--ds-text-primary);
+    }
+
+    /* Schedule grouped display (same as Device tab Configuration) */
+    .schedule-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .schedule-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 10px;
+        border-radius: 9999px;
+        font-size: var(--ds-text-xs, 12px);
+        font-weight: var(--ds-font-medium, 500);
+        line-height: var(--ds-leading-sm, 20px);
+        width: fit-content;
+    }
+
+    .schedule-badge.enabled {
+        background: var(--ds-color-success-50, #ECFDF5);
+        color: var(--ds-color-success-700, #047857);
+    }
+
+    .schedule-badge.disabled {
+        background: var(--ds-color-gray-100, #F3F4F6);
+        color: var(--ds-text-tertiary, #6B7280);
+    }
+
+    .schedule-items {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .schedule-item {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm, 13px);
+        line-height: var(--ds-leading-sm, 20px);
+        color: var(--ds-text-primary);
+    }
+
+    .schedule-label {
+        color: var(--ds-text-tertiary, #6B7280);
+        font-weight: var(--ds-font-regular, 400);
+        margin-right: 4px;
     }
 
     /* Assigned Devices card – Figma Frame 34 (padding 16px on card root) */

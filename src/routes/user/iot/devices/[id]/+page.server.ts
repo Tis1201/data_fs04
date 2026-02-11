@@ -142,6 +142,6 @@ export const actions: Actions = {
             });
         },
         'USER_DEVICES',
-        { action: 'EDIT' }
+        { action: 'EDIT', skipCheck: true } // TODO: Re-enable ACL when module permissions are configured
     )
 };

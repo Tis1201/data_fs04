@@ -1,6 +1,5 @@
 <script lang="ts">
     import { createEventDispatcher, tick } from 'svelte';
-    import { invalidate } from '$app/navigation';
     import { Modal, InputField, Toggle, TabGroup, Dropdown, TextareaField, Button, Alert } from '$lib/design-system/components';
     import type { TabItem } from '$lib/design-system/components/TabGroup.svelte';
     import { Eye, EyeOff } from 'lucide-svelte';
@@ -95,10 +94,34 @@
     let editTimezone = "";
     let editHomeLauncher = "";
     let editPowerManagementSchedule = false;
+    let editPowerOnDatetime = "";
+    let editPowerOffDatetime = "";
     let editRebootSchedule = false;
+    let editRebootFrequency = "daily";
+    let editRebootDay = "monday";
+    let editRebootTime = "02:00";
     let editDownloadSchedule = false;
+    let editDownloadFrequency = "daily";
+    let editDownloadDay = "monday";
+    let editDownloadTime = "03:00";
     let hasCustomOverrides = false;
     let originalProfileId: string | null = null;
+
+    // Schedule options from availableSettings (same as admin device-profiles edit)
+    $: frequencyOptions = (() => {
+        const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_frequency');
+        if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
+        return [{ id: 'daily', label: 'Daily' }, { id: 'weekly', label: 'Weekly' }, { id: 'monthly', label: 'Monthly' }];
+    })();
+    $: dayOptions = (() => {
+        const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_day');
+        if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
+        return [
+            { id: 'monday', label: 'Monday' }, { id: 'tuesday', label: 'Tuesday' }, { id: 'wednesday', label: 'Wednesday' },
+            { id: 'thursday', label: 'Thursday' }, { id: 'friday', label: 'Friday' }, { id: 'saturday', label: 'Saturday' },
+            { id: 'sunday', label: 'Sunday' }
+        ];
+    })();
 
     // Edit Device tabs
     const editDeviceTabs: TabItem[] = [
@@ -424,6 +447,44 @@
                     editDownloadSchedule = downloadScheduleValue === 'enabled' || downloadScheduleValue === true;
                 }
             }
+
+            // Schedule sub-fields: power on/off datetime
+            const powerOnValue = settingsMap.get('power_on_datetime') || settingsMap.get('powerOnDatetime');
+            if (powerOnValue !== undefined && powerOnValue !== '') {
+                editPowerOnDatetime = String(powerOnValue);
+            }
+            const powerOffValue = settingsMap.get('power_off_datetime') || settingsMap.get('powerOffDatetime');
+            if (powerOffValue !== undefined && powerOffValue !== '') {
+                editPowerOffDatetime = String(powerOffValue);
+            }
+
+            // Schedule sub-fields: reboot frequency, day, time
+            const rebootFreqValue = settingsMap.get('reboot_schedule_frequency') || settingsMap.get('rebootFrequency');
+            if (rebootFreqValue !== undefined && rebootFreqValue !== '') {
+                editRebootFrequency = String(rebootFreqValue);
+            }
+            const rebootDayValue = settingsMap.get('reboot_schedule_day') || settingsMap.get('rebootDay');
+            if (rebootDayValue !== undefined && rebootDayValue !== '') {
+                editRebootDay = String(rebootDayValue);
+            }
+            const rebootTimeValue = settingsMap.get('reboot_schedule_time') || settingsMap.get('rebootTime');
+            if (rebootTimeValue !== undefined && rebootTimeValue !== '') {
+                editRebootTime = String(rebootTimeValue);
+            }
+
+            // Schedule sub-fields: download frequency, day, time
+            const downloadFreqValue = settingsMap.get('download_schedule_frequency') || settingsMap.get('downloadFrequency');
+            if (downloadFreqValue !== undefined && downloadFreqValue !== '') {
+                editDownloadFrequency = String(downloadFreqValue);
+            }
+            const downloadDayValue = settingsMap.get('download_schedule_day') || settingsMap.get('downloadDay');
+            if (downloadDayValue !== undefined && downloadDayValue !== '') {
+                editDownloadDay = String(downloadDayValue);
+            }
+            const downloadTimeValue = settingsMap.get('download_schedule_time') || settingsMap.get('downloadTime');
+            if (downloadTimeValue !== undefined && downloadTimeValue !== '') {
+                editDownloadTime = String(downloadTimeValue);
+            }
         } catch (error) {
             console.error('Error loading profile settings:', error);
         } finally {
@@ -550,8 +611,16 @@
             editTimezone = fullDeviceData.timezone || "UTC";
             editHomeLauncher = fullDeviceData.homeLauncher || "";
             editPowerManagementSchedule = fullDeviceData.powerManagementSchedule === 'enabled' || fullDeviceData.powerManagementSchedule === true || fullDeviceData.powerManagementSchedule === 'true';
+            editPowerOnDatetime = fullDeviceData.powerOnDatetime || '';
+            editPowerOffDatetime = fullDeviceData.powerOffDatetime || '';
             editRebootSchedule = fullDeviceData.rebootSchedule === 'enabled' || fullDeviceData.rebootSchedule === true || fullDeviceData.rebootSchedule === 'true';
+            editRebootFrequency = fullDeviceData.rebootFrequency || 'daily';
+            editRebootDay = fullDeviceData.rebootDay || 'monday';
+            editRebootTime = fullDeviceData.rebootTime || '02:00';
             editDownloadSchedule = fullDeviceData.downloadSchedule === 'enabled' || fullDeviceData.downloadSchedule === true || fullDeviceData.downloadSchedule === 'true';
+            editDownloadFrequency = fullDeviceData.downloadFrequency || 'daily';
+            editDownloadDay = fullDeviceData.downloadDay || 'monday';
+            editDownloadTime = fullDeviceData.downloadTime || '03:00';
         } else if (deviceProfileId) {
             console.log('[EditDeviceModal] Setting assigned profile:', deviceProfileId);
             const profileIdString = String(deviceProfileId);
@@ -621,6 +690,35 @@
         editDeviceError = null;
         
         try {
+            // Validate schedule sub-fields when toggles are enabled
+            if (editPowerManagementSchedule) {
+                if (!editPowerOnDatetime || !editPowerOffDatetime) {
+                    throw new Error('Power Management Schedule is enabled. Please set both Power-On and Power-Off date/time.');
+                }
+            }
+            if (editRebootSchedule) {
+                if (!editRebootFrequency) {
+                    throw new Error('Reboot Schedule is enabled. Please select a Reboot Frequency.');
+                }
+                if (editRebootFrequency === 'weekly' && !editRebootDay) {
+                    throw new Error('Reboot Schedule is set to Weekly. Please select a Reboot Day.');
+                }
+                if (!editRebootTime) {
+                    throw new Error('Reboot Schedule is enabled. Please set a Reboot Time.');
+                }
+            }
+            if (editDownloadSchedule) {
+                if (!editDownloadFrequency) {
+                    throw new Error('Download Schedule is enabled. Please select a Download Frequency.');
+                }
+                if (editDownloadFrequency === 'weekly' && !editDownloadDay) {
+                    throw new Error('Download Schedule is set to Weekly. Please select a Download Day.');
+                }
+                if (!editDownloadTime) {
+                    throw new Error('Download Schedule is enabled. Please set a Download Time.');
+                }
+            }
+
             const fd = new FormData();
             fd.set('id', device.id);
             fd.set('name', editDeviceName || '');
@@ -628,13 +726,14 @@
             fd.set('description', editDeviceDescription || '');
             fd.set('tags', JSON.stringify(editDeviceTags || []));
             
-            // Configuration fields
-            if (editAssignedProfile === '__CUSTOM__') {
-                if (!originalProfileId) {
+            // Configuration fields: send overrides whenever a profile is set (so config changes are persisted even if user didn't select "Custom")
+            const baseProfileId = editAssignedProfile === '__CUSTOM__' ? originalProfileId : (editAssignedProfile || null);
+            if (baseProfileId) {
+                if (editAssignedProfile === '__CUSTOM__' && !originalProfileId) {
                     throw new Error('Cannot save custom settings without a base profile. Please select a profile first, then edit the settings.');
                 }
                 fd.set('isCustom', 'true');
-                fd.set('profileId', String(originalProfileId));
+                fd.set('profileId', String(baseProfileId));
                 
                 fd.set('kioskLockMode', String(editKioskLockMode));
                 if (editExitLockdownPassword) {
@@ -649,21 +748,32 @@
                 fd.set('timezone', editTimezone);
                 fd.set('homeLauncher', editHomeLauncher);
                 fd.set('powerManagementSchedule', String(editPowerManagementSchedule));
+                if (editPowerManagementSchedule) {
+                    fd.set('powerOnDatetime', editPowerOnDatetime);
+                    fd.set('powerOffDatetime', editPowerOffDatetime);
+                }
                 fd.set('rebootSchedule', String(editRebootSchedule));
+                if (editRebootSchedule) {
+                    fd.set('rebootFrequency', editRebootFrequency);
+                    fd.set('rebootDay', editRebootDay);
+                    fd.set('rebootTime', editRebootTime);
+                }
                 fd.set('downloadSchedule', String(editDownloadSchedule));
-            } else if (editAssignedProfile && editAssignedProfile !== '__CUSTOM__') {
-                fd.set('profileId', editAssignedProfile);
+                if (editDownloadSchedule) {
+                    fd.set('downloadFrequency', editDownloadFrequency);
+                    fd.set('downloadDay', editDownloadDay);
+                    fd.set('downloadTime', editDownloadTime);
+                }
             }
             
             const res = await fetch(saveActionUrl, { method: 'POST', body: fd });
-            
+
             if (res.status >= 200 && res.status < 300) {
                 try {
                     await res.json();
                 } catch (e) {
                     // Non-JSON response is fine
                 }
-                
                 if (onSaveSuccess) {
                     onSaveSuccess();
                 }
@@ -721,8 +831,16 @@
             editTimezone = "UTC";
             editHomeLauncher = "";
             editPowerManagementSchedule = false;
+            editPowerOnDatetime = "";
+            editPowerOffDatetime = "";
             editRebootSchedule = false;
+            editRebootFrequency = "daily";
+            editRebootDay = "monday";
+            editRebootTime = "02:00";
             editDownloadSchedule = false;
+            editDownloadFrequency = "daily";
+            editDownloadDay = "monday";
+            editDownloadTime = "03:00";
             
             await loadProfileSettings(newProfileId, undefined, true);
         } else {
@@ -1048,6 +1166,36 @@
                         on:change={() => switchToCustom()}
                     />
                 </div>
+                {#if editPowerManagementSchedule}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Power-On Date & Time</p>
+                        <p class="config-description">Scheduled time to turn on the device</p>
+                    </div>
+                    <div style="width: 220px;">
+                        <input
+                            type="datetime-local"
+                            class="config-input"
+                            bind:value={editPowerOnDatetime}
+                            on:change={() => switchToCustom()}
+                        />
+                    </div>
+                </div>
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Power-Off Date & Time</p>
+                        <p class="config-description">Scheduled time to turn off the device</p>
+                    </div>
+                    <div style="width: 220px;">
+                        <input
+                            type="datetime-local"
+                            class="config-input"
+                            bind:value={editPowerOffDatetime}
+                            on:change={() => switchToCustom()}
+                        />
+                    </div>
+                </div>
+                {/if}
 
                 <!-- Reboot Schedule -->
                 <div class="config-row">
@@ -1061,9 +1209,61 @@
                         on:change={() => switchToCustom()}
                     />
                 </div>
+                {#if editRebootSchedule}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Reboot Frequency</p>
+                        <p class="config-description">How often to reboot the device</p>
+                    </div>
+                    <div style="width: 200px;">
+                        <Dropdown
+                            placeholder="Select"
+                            options={frequencyOptions}
+                            value={editRebootFrequency}
+                            on:change={(e) => {
+                                editRebootFrequency = String(e.detail);
+                                switchToCustom();
+                            }}
+                        />
+                    </div>
+                </div>
+                {#if editRebootFrequency === 'weekly'}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Reboot Day</p>
+                        <p class="config-description">Day of the week for scheduled reboot</p>
+                    </div>
+                    <div style="width: 200px;">
+                        <Dropdown
+                            placeholder="Select"
+                            options={dayOptions}
+                            value={editRebootDay}
+                            on:change={(e) => {
+                                editRebootDay = String(e.detail);
+                                switchToCustom();
+                            }}
+                        />
+                    </div>
+                </div>
+                {/if}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Reboot Time</p>
+                        <p class="config-description">Time for scheduled reboot</p>
+                    </div>
+                    <div style="width: 200px;">
+                        <input
+                            type="time"
+                            class="config-input"
+                            bind:value={editRebootTime}
+                            on:change={() => switchToCustom()}
+                        />
+                    </div>
+                </div>
+                {/if}
 
                 <!-- Download Schedule -->
-                <div class="config-row config-row-last">
+                <div class="config-row{!editDownloadSchedule ? ' config-row-last' : ''}">
                     <div>
                         <p class="config-label">Download Schedule</p>
                         <p class="config-description">Enable scheduled content downloads</p>
@@ -1074,6 +1274,58 @@
                         on:change={() => switchToCustom()}
                     />
                 </div>
+                {#if editDownloadSchedule}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Download Frequency</p>
+                        <p class="config-description">How often to download content</p>
+                    </div>
+                    <div style="width: 200px;">
+                        <Dropdown
+                            placeholder="Select"
+                            options={frequencyOptions}
+                            value={editDownloadFrequency}
+                            on:change={(e) => {
+                                editDownloadFrequency = String(e.detail);
+                                switchToCustom();
+                            }}
+                        />
+                    </div>
+                </div>
+                {#if editDownloadFrequency === 'weekly'}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Download Day</p>
+                        <p class="config-description">Day of the week for scheduled downloads</p>
+                    </div>
+                    <div style="width: 200px;">
+                        <Dropdown
+                            placeholder="Select"
+                            options={dayOptions}
+                            value={editDownloadDay}
+                            on:change={(e) => {
+                                editDownloadDay = String(e.detail);
+                                switchToCustom();
+                            }}
+                        />
+                    </div>
+                </div>
+                {/if}
+                <div class="config-row config-sub-row config-row-last">
+                    <div>
+                        <p class="config-label config-sub-label">Download Time</p>
+                        <p class="config-description">Time for scheduled downloads</p>
+                    </div>
+                    <div style="width: 200px;">
+                        <input
+                            type="time"
+                            class="config-input"
+                            bind:value={editDownloadTime}
+                            on:change={() => switchToCustom()}
+                        />
+                    </div>
+                </div>
+                {/if}
             </div>
         </div>
     {/if}
@@ -1146,6 +1398,36 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-text-tertiary);
         margin: 0;
+    }
+
+    /* Sub-row for schedule detail fields */
+    .config-sub-row {
+        padding-left: calc(var(--ds-space-5) + 16px);
+        background: var(--ds-bg-primary);
+    }
+
+    .config-sub-label {
+        font-size: var(--ds-text-sm);
+    }
+
+    /* Native datetime/time input styling */
+    .config-input {
+        width: 100%;
+        height: 40px;
+        padding: 6px 12px;
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-sm);
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        background: #FFFFFF;
+        color: var(--ds-text-primary);
+        box-sizing: border-box;
+    }
+
+    .config-input:focus {
+        outline: none;
+        border-color: var(--ds-color-primary-500);
+        box-shadow: 0px 0px 0px 3px var(--ds-color-primary-100);
     }
 
     /* Edit Device Modal - Slider styles */

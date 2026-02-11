@@ -107,7 +107,8 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
         });
 
         // Merge global settings with overrides
-        const effectiveSettings = globalProfile.settings.map((setting: any) => {
+        const globalKeys = new Set((globalProfile.settings as any[]).map((s: any) => s.key));
+        const effectiveSettings = (globalProfile.settings as any[]).map((setting: any) => {
             const overrideSetting = override?.overriddenSettings.find(
                 (os: any) => os.key === setting.key
             );
@@ -119,19 +120,37 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
             };
         });
 
+        // Include override-only keys (e.g. schedule keys not in global profile) so UI shows them after save/refresh
+        if (override?.overriddenSettings?.length) {
+            for (const os of override.overriddenSettings) {
+                if (!globalKeys.has(os.key)) {
+                    effectiveSettings.push({
+                        key: os.key,
+                        value: os.value,
+                        dataType: (os as any).dataType || 'string',
+                        label: (os as any).label ?? os.key,
+                        category: (os as any).category ?? null,
+                        order: effectiveSettings.length,
+                        isOverridden: true
+                    });
+                }
+            }
+        }
+
         // Return profile with merged settings
         const profileWithOverrides = {
             ...globalProfile,
             settings: effectiveSettings,
             hasOverrides: !!override,
-            overrideCount: override?.overriddenSettings.length || 0
+            overrideCount: override?.overriddenSettings?.length || 0
         };
 
         console.log('[DeviceProfileLoader] Found GLOBAL profile with overrides', {
             profileId: globalProfile.id,
             deviceId,
             hasOverrides: !!override,
-            overrideCount: override?.overriddenSettings.length || 0
+            overrideCount: override?.overriddenSettings?.length || 0,
+            effectiveSettingKeys: effectiveSettings.map((s: any) => s.key)
         });
 
         return profileWithOverrides;
