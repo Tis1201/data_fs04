@@ -4,6 +4,7 @@
     import type { PageData } from "./$types";
     import { page } from "$app/stores";
     import { goto, invalidate } from "$app/navigation";
+    import { enhance } from "$app/forms";
     import { TabGroup, Button, Badge, Tag, Modal, ConfirmModal, InputField, Card, ActionMenu, Checkbox, DataTable, Alert } from "$lib/design-system/components";
     import type { ColumnDef, PaginationState } from "$lib/design-system/components";
     import type { TabItem } from "$lib/design-system/components/TabGroup.svelte";
@@ -1333,20 +1334,25 @@
         showGenerateKeyConfirm = true;
     }
 
-    // Confirm and execute key generation
+    // Confirm and execute key generation (form submit is handled by use:enhance below)
     function confirmGenerateKey() {
         if (!generateKeyForm) return;
-
         isGeneratingKey = true;
-        // Submit form - SvelteKit will handle the action
+        showGenerateKeyConfirm = false;
         generateKeyForm.requestSubmit();
+    }
 
-        // After form submits, refresh data
-        setTimeout(async () => {
-            await invalidate('app:device');
+    // Handle generateApiKey form result (success or 400 error from server)
+    function handleGenerateKeyEnhance() {
+        return async ({ result }: { result: { type: string; data?: { error?: string } } }) => {
             isGeneratingKey = false;
-            toast.success('New API Key generated successfully!');
-        }, 500);
+            if (result.type === 'failure' && result.data?.error) {
+                toast.error(result.data.error);
+            } else if (result.type === 'success') {
+                await invalidate('app:device');
+                toast.success('New API Key generated successfully!');
+            }
+        };
     }
 
     // Format API Key for display
@@ -1687,8 +1693,10 @@
                                 method="POST"
                                 action="?/generateApiKey"
                                 style="display: inline-block"
+                                use:enhance={handleGenerateKeyEnhance}
                             >
                                 <Button
+                                    type="button"
                                     variant="text"
                                     color="primary"
                                     size="sm"

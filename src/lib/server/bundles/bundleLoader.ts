@@ -6,26 +6,38 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 
 /**
- * Helper function to update bundle status based on wave statuses
+ * Helper function to update bundle status based on wave statuses (on page load).
+ *
+ * Respects user-set statuses:
+ * - STOPPED / CANCELLED: Never overwritten. User set these via Stop/Cancel so they can Resume later;
+ *   we do not transition to COMPLETED/FAILED when the in-progress wave finishes.
+ * - PUBLISHED: Not overwritten with IN_PROGRESS (keeps "Published" until event processor updates it).
+ * - Only transitions to COMPLETED or FAILED when bundle is not STOPPED/CANCELLED and all waves are terminal.
  */
 async function updateBundleStatus(prisma: any, bundleId: string) {
   try {
-    // Get all waves for this bundle
+    const bundle = await prisma.bundle.findUnique({
+      where: { id: bundleId },
+      select: { status: true }
+    });
+    if (!bundle) return;
+
+    const current = (bundle.status || '').toUpperCase();
+
     const waves = await prisma.bundleWave.findMany({
       where: { bundleId },
       select: { id: true, status: true, startTime: true, endTime: true }
     });
-    
+
     if (!waves || waves.length === 0) {
       return;
     }
-    
-    // Calculate bundle status based on wave statuses
+
     const anyInProgress = waves.some((w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING');
     const anyFailed = waves.some((w: any) => w.status === 'FAILED');
     const allCompleted = waves.every((w: any) => w.status === 'COMPLETED');
-    const allTerminal = waves.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(w.status));
-    
+    const allTerminal = waves.every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED', 'STOPPED'].includes(w.status));
+
     let bundleStatus: string;
     if (anyInProgress) {
       bundleStatus = 'IN_PROGRESS';
@@ -34,19 +46,29 @@ async function updateBundleStatus(prisma: any, bundleId: string) {
     } else if (anyFailed && allTerminal) {
       bundleStatus = 'FAILED';
     } else {
-      // All waves are terminal but mix of completed/cancelled (no failed)
       bundleStatus = 'COMPLETED';
     }
-    
-    // Update bundle status
+
+    // Keep PUBLISHED when waves are in progress so refresh after Publish still shows "Published"
+    if (current === 'PUBLISHED' && bundleStatus === 'IN_PROGRESS') {
+      return;
+    }
+
+    // Never overwrite user-set STOPPED/CANCELLED (so user can Resume later).
+    if (current === 'STOPPED' || current === 'CANCELLED') {
+      return;
+    }
+
+    if (current === bundleStatus) {
+      return; // No change needed
+    }
+
     await prisma.bundle.update({
       where: { id: bundleId },
-      data: { 
-        status: bundleStatus
-      }
+      data: { status: bundleStatus }
     });
-    
-    logger.info(`[PageLoad] Updated bundle ${bundleId} status to ${bundleStatus} (waves: ${waves.length}, inProgress: ${anyInProgress}, failed: ${anyFailed}, allCompleted: ${allCompleted})`);
+
+    logger.info(`[PageLoad] Updated bundle ${bundleId} status from ${current} to ${bundleStatus} (waves: ${waves.length}, inProgress: ${anyInProgress}, failed: ${anyFailed}, allCompleted: ${allCompleted})`);
   } catch (e: any) {
     logger.warn(`[PageLoad] Failed to update bundle status for ${bundleId}: ${String(e?.message || e)}`);
   }

@@ -1,0 +1,50 @@
+-- SQLBook: Code
+CREATE USER IF NOT EXISTS fs04_prd
+IDENTIFIED WITH SHA256_PASSWORD BY 'Admin0823Prd!';
+GRANT SELECT ON system.parts TO fs04_prd; GRANT SELECT ON system.tables TO fs04_prd;
+GRANT CREATE, DROP, ALTER, SELECT, INSERT ON fs_04_prd.* TO fs04_prd;
+GRANT SELECT ON fs_04_prd.* TO fs04_prd;
+
+
+GRANT SELECT ON system.parts TO fs04_prd; GRANT SELECT ON system.tables TO fs04_prd;
+GRANT CREATE, DROP, ALTER, SELECT, INSERT ON fs_04_prd.* TO fs04_prd;
+GRANT SELECT ON fs_04_prd.* TO fs04_prd;
+-- SQLBook: Code
+-- 1. Create database
+CREATE DATABASE IF NOT EXISTS fs_04_prd;
+
+-- 2. Create application role
+CREATE ROLE IF NOT EXISTS fs04_app_role_prd;
+
+-- 3. Grant app-level privileges (recommended for apps)
+GRANT
+    SHOW DATABASES,
+    SHOW TABLES,
+    SHOW COLUMNS,
+    SELECT,
+    INSERT,
+    ALTER,
+    CREATE TABLE,
+    DROP TABLE,
+    TRUNCATE,
+    OPTIMIZE
+ON fs_04_prd.*
+TO fs04_app_role_prd;
+
+-- Optional: enable views & dictionaries if needed
+GRANT
+    CREATE VIEW,
+    DROP VIEW,
+    CREATE DICTIONARY,
+    DROP DICTIONARY,
+    dictGet
+ON fs_04_prd.*
+TO fs04_app_role_prd;
+
+-- 4. Create application user (password hash example)
+-- Replace PASSWORD_PLAIN_TEXT before running
+CREATE USER IF NOT EXISTS fs04
+IDENTIFIED WITH sha256_hash BY lower(hex(SHA256('admin0823')));
+
+-- 5. Attach role to user
+GRANT fs04_app_role TO fs04;

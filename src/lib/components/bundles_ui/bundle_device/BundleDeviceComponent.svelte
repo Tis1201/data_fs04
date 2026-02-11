@@ -48,6 +48,8 @@
     export let hideHeaderAddButton: boolean = false;
     /** When false, hide the Actions column (e.g. when Deployment = InProgress | Completed | Canceled) */
     export let showActionsColumn: boolean = true;
+    /** When provided, use this for deployment status logic instead of $page.data.bundle (avoids stale state after duplicate + goto) */
+    export let bundleStatus: string | undefined = undefined;
     
     // Local reactive copy for real-time updates
     let displayDevices: DeviceWithInfo[] = devices;
@@ -99,28 +101,50 @@
     let batchDeleteModalOpen = false;
     let batchDeleteLoading = false;
     
-    // Check if bundle is editable (DRAFT status)
-    $: isEditable = ($page?.data?.bundle?.status || '').toUpperCase() === 'DRAFT';
+    // Prefer prop over $page so duplicate + goto shows correct state without refresh
+    $: effectiveBundleStatus = (bundleStatus ?? $page?.data?.bundle?.status ?? '') as string;
+    
+    // Check if bundle is editable (Cancelled = permanent, view only like Completed)
+    // Editable for: DRAFT, PUBLISHED+scheduledAt (Scheduled), FAILED, STOPPED (not CANCELLED)
+    $: isEditable = (() => {
+        const s = (effectiveBundleStatus || '').toUpperCase();
+        if (['DRAFT', 'FAILED', 'STOPPED'].includes(s)) return true;
+        if (s === 'PUBLISHED' && !!($page?.data?.bundle?.scheduledAt)) return true;
+        return false;
+    })();
+
+    /** When Stopped: only devices in a cancelled wave can be removed. When Cancelled: no remove (view only). */
+    function canRemoveDevice(row: DeviceWithInfo): boolean {
+        const s = (effectiveBundleStatus || '').toUpperCase();
+        if (s === 'CANCELLED') return false;
+        if (s === 'STOPPED') {
+            const deviceStatus = (row.status ?? '').toUpperCase();
+            return deviceStatus === 'CANCELLED';
+        }
+        return isEditable;
+    }
     
     // Device Deployment Status: design rule — when device newly imported but deployment hasn't started → show '—'
-    // Deployment has started when bundle status is RUNNING | COMPLETED | FAILED | STOPPED
+    // Deployment has started when bundle status is IN_PROGRESS | COMPLETED | FAILED | STOPPED | CANCELLED
     $: deploymentHasStarted = (() => {
-        const s = ($page?.data?.bundle?.status || '').toUpperCase();
-        return ['RUNNING', 'COMPLETED', 'FAILED', 'STOPPED'].includes(s);
+        const s = (effectiveBundleStatus || '').toUpperCase();
+        return ['IN_PROGRESS', 'COMPLETED', 'FAILED', 'STOPPED', 'CANCELLED'].includes(s);
     })();
 
     function getDeploymentStatusLabel(status: string | null | undefined): string {
         if (status == null || status === '') return '—';
         const u = status.toUpperCase();
-        if (u === 'PENDING') return 'In Progress';
+        if (u === 'PENDING' || u === 'IN_PROGRESS') return 'In Progress';
         if (u === 'INCLUDED' || u === 'COMPLETED') return 'Completed';
         if (u === 'EXCLUDED' || u === 'FAILED') return 'Failed';
+        if (u === 'CANCELLED' || u === 'STOPPED') return 'Cancelled';
         return status;
     }
     function getDeploymentStatusColor(displayLabel: string): BadgeColor {
         if (displayLabel === 'In Progress') return 'warning';
         if (displayLabel === 'Completed') return 'success';
         if (displayLabel === 'Failed') return 'error';
+        if (displayLabel === 'Cancelled') return 'rose';
         return 'gray'; // — or unknown
     }
 
@@ -190,19 +214,15 @@
             header: 'Actions',
             type: 'moreMenu',
             align: 'right',
-            getMenuActions: (row) => [
-                {
-                    id: 'view',
-                    label: 'View Device',
-                    onClick: () => dispatch('viewDevice', { device: row })
-                },
-                {
-                    id: 'remove',
-                    label: 'Remove',
-                    color: 'danger',
-                    onClick: () => confirmDelete(row)
+            getMenuActions: (row) => {
+                const actions: { id: string; label: string; color?: string; onClick: () => void }[] = [
+                    { id: 'view', label: 'View Device', onClick: () => dispatch('viewDevice', { device: row }) }
+                ];
+                if (canRemoveDevice(row)) {
+                    actions.push({ id: 'remove', label: 'Remove', color: 'danger', onClick: () => confirmDelete(row) });
                 }
-            ]
+                return actions;
+            }
         }
     ];
 
@@ -255,9 +275,18 @@
     
     async function handleBatchDeleteConfirm() {
         if (selectedRows.length === 0) return;
+
+        const removable = selectedRows.filter((r) => canRemoveDevice(r));
+        if (removable.length === 0) {
+            toast.error('No selected devices can be removed. When deployment is Stopped or Cancelled, only devices in cancelled waves can be removed.');
+            return;
+        }
+        if (removable.length < selectedRows.length) {
+            toast.info(`${selectedRows.length - removable.length} selected device(s) cannot be removed (only devices in cancelled waves can be removed). Removing ${removable.length} device(s).`);
+        }
         
         batchDeleteLoading = true;
-        const idsToRemove = selectedRows.map(r => r.id);
+        const idsToRemove = removable.map((r) => r.id);
         
         try {
             const promises = idsToRemove.map((id) =>

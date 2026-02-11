@@ -3,7 +3,9 @@ import type { Actions, PageServerLoad } from './$types';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { generateId } from 'lucia';
-import { restrictModule, type AuthenticatedLoadEvent, type ModuleAuthenticatedEvent } from '$lib/server/security/guards';
+// TODO: Re-enable ACL (restrictModule for USER_CONTROLLERS_RADAR) later.
+import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
@@ -12,7 +14,7 @@ import type { Prisma } from '@prisma/client';
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for updates.
 import prisma from '$lib/server/prisma';
 
-export const load = restrictModule(
+export const load = restrict(
     async ({ url, locals, cookies, depends }: AuthenticatedLoadEvent) => {
         depends('app:userControllersRadar');
         // Get current account ID from cookie or locals
@@ -199,8 +201,7 @@ export const load = restrictModule(
             throw error(500, 'Failed to load radar sensors');
         }
     },
-    'USER_CONTROLLERS_RADAR',
-    { action: 'VIEW' }
+    [SystemRole.USER, SystemRole.ADMIN]
 ) satisfies PageServerLoad;
 
 /**
@@ -208,7 +209,7 @@ export const load = restrictModule(
  * Returns deviceId to use for creating Controller + Sensor.
  */
 async function resolveDeviceIdByPin(
-    prisma: ModuleAuthenticatedEvent['locals']['prisma'],
+    prisma: AuthenticatedEvent['locals']['prisma'],
     pin: string,
     currentAccountId: string,
     userId: string,
@@ -285,8 +286,8 @@ async function resolveDeviceIdByPin(
  */
 async function createRadarController(
     request: Request,
-    locals: ModuleAuthenticatedEvent['locals'],
-    cookies: ModuleAuthenticatedEvent['cookies']
+    locals: AuthenticatedEvent['locals'],
+    cookies: AuthenticatedEvent['cookies']
 ) {
     const form = await superValidate(request, zod(radarSensorSchema));
     const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
@@ -380,7 +381,7 @@ async function createRadarController(
  */
 async function updateSensorFromList(
     request: Request,
-    locals: ModuleAuthenticatedEvent['locals']
+    locals: AuthenticatedEvent['locals']
 ): Promise<{ type: 'success' } | { type: 'error'; message: string }> {
     const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
     if (!currentAccountId) {
@@ -419,18 +420,16 @@ async function updateSensorFromList(
  * Delete sensor action - requires DELETE permission on USER_CONTROLLERS_RADAR.
  */
 export const actions: Actions = {
-    create: restrictModule(
-        async ({ request, locals, cookies }: ModuleAuthenticatedEvent) => createRadarController(request, locals, cookies),
-        'USER_CONTROLLERS_RADAR',
-        { action: 'CREATE' }
+    create: restrict(
+        async ({ request, locals, cookies }: AuthenticatedEvent) => createRadarController(request, locals, cookies),
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
-    updateSensor: restrictModule(
-        async ({ request, locals }: ModuleAuthenticatedEvent) => updateSensorFromList(request, locals),
-        'USER_CONTROLLERS_RADAR',
-        { action: 'EDIT' }
+    updateSensor: restrict(
+        async ({ request, locals }: AuthenticatedEvent) => updateSensorFromList(request, locals),
+        [SystemRole.USER, SystemRole.ADMIN]
     ),
-    delete: restrictModule(
-        async ({ request, locals }: ModuleAuthenticatedEvent) => {
+    delete: restrict(
+        async ({ request, locals }: AuthenticatedEvent) => {
             const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
             if (!currentAccountId) {
                 return { type: 'error', message: 'User account not found' };
@@ -454,8 +453,7 @@ export const actions: Actions = {
                 return { type: 'error', message: err instanceof Error ? err.message : 'Failed to delete sensor' };
             }
         },
-        'USER_CONTROLLERS_RADAR',
-        { action: 'DELETE' }
+        [SystemRole.USER, SystemRole.ADMIN]
     )
 };
 

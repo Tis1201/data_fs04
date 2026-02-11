@@ -46,10 +46,12 @@
         (!showScheduleFields || (startDate && endDate));
 
     const OS_OPTIONS_DS: DropdownOption[] = OS_OPTIONS.map((o) => ({ id: o.value, label: o.label }));
-    const BATCH_OPTIONS: DropdownOption[] = [100, 200, 300, 400, 500].map((n) => ({
-        id: String(n),
-        label: String(n)
-    }));
+    const BATCH_PRESETS = [100, 200, 300, 400, 500];
+    const BATCH_OPTIONS: DropdownOption[] = [
+        ...BATCH_PRESETS.map((n) => ({ id: String(n), label: String(n) })),
+        { id: 'custom', label: 'Custom' }
+    ];
+    let batchSizeSelect: string = '500';
     const SCHEDULE_OPTIONS: DropdownOption[] = [
         { id: 'none', label: 'None' },
         { id: 'immediately', label: 'Immediately' },
@@ -78,6 +80,7 @@
         os = bundle.os || 'ANDROID';
         version = bundle.version || '1.0.0';
         waveSize = Number(bundle.waveSize) || 500;
+        batchSizeSelect = BATCH_PRESETS.includes(waveSize) ? String(waveSize) : 'custom';
         reboot = !!bundle.reboot;
         forceUpdate = !!(bundle as any).forceUpdate;
 
@@ -224,7 +227,22 @@
     }
 
     function handleWaveSizeChange(e: CustomEvent<string | string[]>) {
-        waveSize = parseInt(Array.isArray(e.detail) ? e.detail[0] : e.detail || '500', 10) || 500;
+        const val = Array.isArray(e.detail) ? e.detail[0] : e.detail || '500';
+        if (val === 'custom') {
+            batchSizeSelect = 'custom';
+        } else {
+            batchSizeSelect = String(val);
+            waveSize = parseInt(val, 10) || 500;
+        }
+    }
+
+    function switchToPreset() {
+        batchSizeSelect = '500';
+        waveSize = 500;
+    }
+
+    function handleCustomBatchSizeBlur() {
+        waveSize = Math.max(1, Math.min(999999, Math.floor(Number(waveSize)) || 1));
     }
 </script>
 
@@ -259,7 +277,7 @@
                     />
                 </div>
                 <div class="row-version-batch">
-                    <div class="field-wrap">
+                    <div class="field-wrap version-field">
                         <InputField
                             type="text"
                             label="Version"
@@ -267,15 +285,28 @@
                             bind:value={version}
                         />
                     </div>
-                    <div class="field-wrap">
-                        <Dropdown
-                            label="Batch Size"
-                            placeholder="Select"
-                            options={BATCH_OPTIONS}
-                            value={String(waveSize)}
-                            required={true}
-                            on:change={handleWaveSizeChange}
-                        />
+                    <div class="field-wrap batch-size-field">
+                        {#if batchSizeSelect === 'custom'}
+                            <InputField
+                                type="number"
+                                label="Batch Size"
+                                placeholder="Enter number"
+                                min={1}
+                                bind:value={waveSize}
+                                on:blur={handleCustomBatchSizeBlur}
+                                required={true}
+                            />
+                            <button type="button" class="batch-size-preset-link" on:click={switchToPreset}>Use preset</button>
+                        {:else}
+                            <Dropdown
+                                label="Batch Size"
+                                placeholder="Select"
+                                options={BATCH_OPTIONS}
+                                value={batchSizeSelect}
+                                required={true}
+                                on:change={handleWaveSizeChange}
+                            />
+                        {/if}
                     </div>
                 </div>
             </div>
@@ -359,15 +390,33 @@
         gap: var(--form-col-gap);
         min-width: 0;
     }
+    /* Version + Batch Size row: align at top so "Use preset" under Batch Size doesn't make Version look off */
     .row-version-batch {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: var(--form-col-gap);
         width: 100%;
         min-width: 0;
-        align-items: end;
+        align-items: start;
     }
     .row-version-batch .field-wrap { min-width: 0; }
+    /* Version: plain text input (no dropdown-like min-height) */
+    .row-version-batch .field-wrap.version-field > :global(.input-field-wrapper) {
+        min-height: auto;
+    }
+    .batch-size-preset-link {
+        margin-top: 4px;
+        padding: 0;
+        font-size: 12px;
+        color: var(--ds-text-link, #2563eb);
+        background: none;
+        border: none;
+        cursor: pointer;
+        text-decoration: underline;
+    }
+    .batch-size-preset-link:hover {
+        color: var(--ds-text-link-hover, #1d4ed8);
+    }
     .row-version-batch .field-wrap > :global(.input-field-wrapper),
     .row-version-batch .field-wrap > :global(.dropdown-container) { width: 100%; }
     .field-wrap { min-width: 0; }

@@ -12,8 +12,9 @@ import type { Prisma } from '@prisma/client';
  * User: Can delete bundles
  * 
  * Restrictions:
- * - Cannot delete PUBLISHED or IN_PROGRESS bundles
- * - Checks wave status before deletion
+ * - Cannot delete IN_PROGRESS or COMPLETED bundles
+ * - PUBLISHED bundles can only be deleted if they are scheduled (have scheduledAt)
+ * - Allowed statuses: DRAFT, PUBLISHED (scheduled only), FAILED, STOPPED (Cancelled is permanent – not deletable)
  * - Cascades delete to related entities
  */
 export const DELETE = unifiedEndpoint(
@@ -30,41 +31,63 @@ export const DELETE = unifiedEndpoint(
       );
     }
 
-    // If bundle is PUBLISHED or IN_PROGRESS, recompute status from waves
-    if (bundle.status === 'PUBLISHED' || bundle.status === 'IN_PROGRESS') {
-      const waves = await prisma.bundleWave.findMany({
-        where: { bundleId },
-        select: { status: true }
-      });
+    // Determine deletable statuses:
+    // DRAFT, FAILED, STOPPED are deletable; CANCELLED is permanent (not deletable)
+    // PUBLISHED is only deletable if scheduled (has scheduledAt)
+    // IN_PROGRESS and COMPLETED are not deletable
+    const alwaysDeletable = ['DRAFT', 'FAILED', 'STOPPED'];
+    const isScheduledPublished = bundle.status === 'PUBLISHED' && !!(bundle as any).scheduledAt;
+    
+    if (!alwaysDeletable.includes(bundle.status) && !isScheduledPublished) {
+      // For IN_PROGRESS or non-scheduled PUBLISHED, check waves to see if status should be recomputed
+      if (bundle.status === 'PUBLISHED' || bundle.status === 'IN_PROGRESS') {
+        const waves = await prisma.bundleWave.findMany({
+          where: { bundleId },
+          select: { status: true }
+        });
 
-      if (Array.isArray(waves) && waves.length > 0) {
-        const anyInProgress = waves.some(
-          (w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING'
-        );
+        if (Array.isArray(waves) && waves.length > 0) {
+          const anyActive = waves.some(
+            (w: any) => w.status === 'IN_PROGRESS' || w.status === 'PENDING'
+          );
 
-        if (anyInProgress) {
+          if (anyActive) {
+            throw Object.assign(
+              new Error('Cannot delete an in-progress deployment. Stop or cancel it first.'),
+              { status: 409, code: ErrorCodes.CONFLICT }
+            );
+          }
+
+          // All waves are terminal - recompute bundle status
+          const anyFailed = waves.some((w: any) => w.status === 'FAILED');
+          const allDone = waves.every((w: any) =>
+            ['COMPLETED', 'FAILED', 'CANCELLED', 'STOPPED'].includes(w.status)
+          );
+          const newStatus = allDone ? (anyFailed ? 'FAILED' : 'COMPLETED') : bundle.status;
+
+          if (newStatus !== bundle.status) {
+            await prisma.bundle.update({
+              where: { id: bundleId },
+              data: { status: newStatus }
+            });
+          }
+          // After recomputing, if the new status still isn't deletable, block
+          if (!alwaysDeletable.includes(newStatus)) {
+            throw Object.assign(
+              new Error('Cannot delete this deployment in its current status.'),
+              { status: 409, code: ErrorCodes.CONFLICT }
+            );
+          }
+        } else {
           throw Object.assign(
-            new Error('Cannot delete a published or in-progress bundle'),
+            new Error('Cannot delete this deployment in its current status.'),
             { status: 409, code: ErrorCodes.CONFLICT }
           );
         }
-
-        const anyFailed = waves.some((w: any) => w.status === 'FAILED');
-        const allDone = waves.every((w: any) =>
-          ['COMPLETED', 'FAILED'].includes(w.status)
-        );
-        const newStatus = allDone ? (anyFailed ? 'FAILED' : 'COMPLETED') : bundle.status;
-
-        if (newStatus !== bundle.status) {
-          await prisma.bundle.update({
-            where: { id: bundleId },
-            data: { status: newStatus }
-          });
-        }
       } else {
-        // No waves; still treat as not deletable if status not DRAFT
+        // COMPLETED or any other non-deletable status
         throw Object.assign(
-          new Error('Cannot delete a published or in-progress bundle'),
+          new Error('Cannot delete this deployment in its current status.'),
           { status: 409, code: ErrorCodes.CONFLICT }
         );
       }

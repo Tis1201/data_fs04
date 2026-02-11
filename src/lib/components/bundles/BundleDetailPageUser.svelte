@@ -31,7 +31,11 @@
         ChevronRight,
         Expand,
         Search,
-        Tag as TagIcon
+        Tag as TagIcon,
+        Square,
+        XCircle,
+        RotateCcw,
+        RefreshCw
 
     } from 'lucide-svelte';
     import { postV2 } from '$lib/utils/v2ApiHandler';
@@ -122,6 +126,18 @@
     let deleteLoading = false;
 
     let publishLoading = false;
+    let stopLoading = false;
+    let cancelLoading = false;
+    let resumeLoading = false;
+    let retryLoading = false;
+    let runLoading = false;
+
+    // Confirmation modals for deployment actions
+    let showStopModal = false;
+    let showCancelModal = false;
+    let showResumeModal = false;
+    let showRetryModal = false;
+    let showRunModal = false;
 
     // Devices tab modals
     let showImportCsvModal = false;
@@ -593,6 +609,8 @@
         offlineDevicesCount,
         totalDevicesCount,
         derivedWaves,
+        bundleActualStartTime,
+        bundleActualEndTime,
         deviceProgressReloadToken,
         handleDeleteBundle,
         handleStopAllWaves,
@@ -680,47 +698,100 @@
         }
     }
 
-    // Action buttons configuration
-    $: actionButtons = [
-        {
-            label: "Back",
-            icon: ArrowLeft,
-            onClick: () => goto(basePath),
-            variant: "outline" as const
-        },
-        {
-            label: "Edit",
-            icon: Settings,
-            onClick: () => {
-                if (bundle.status !== 'DRAFT') return;
-                goto(`${basePath}/${bundle.id}/edit`);
-            },
-            variant: bundle.status === 'DRAFT' ? 'default' as const : 'outline' as const,
-            disabled: bundle.status !== 'DRAFT',
-            title: bundle.status !== 'DRAFT' ? 'Not editable: bundle already published' : undefined
-        },
-        {
-            label: "Publish",
-            icon: Play,
-            onClick: handlePublish,
-            variant: "outline" as const,
-            disabled: bundle.status !== 'DRAFT',
-            title: bundle.status !== 'DRAFT' ? 'Cannot publish: bundle already published' : undefined
-        },
-        {
-            label: "Duplicate",
-            icon: Copy,
-            onClick: handleDuplicate,
-            variant: "outline" as const,
-            title: "Create a copy of this bundle with same apps and devices"
-        },
-        {
-            label: "Delete",
-            icon: Trash2,
-            onClick: openDeleteModal,
-            variant: "destructive" as const
+    async function handleStopConfirm() {
+        stopLoading = true;
+        try {
+            await postV2(`/api/v2/bundles/${bundle.id}/stop`, {});
+            // Immediately update local status so UI reacts without waiting for invalidate round-trip
+            bundle = { ...bundle, status: 'STOPPED' };
+            toast.success('Deployment stopped successfully.');
+            showStopModal = false;
+            await invalidate('app:bundle');
+        } catch (e) {
+            toast.error('Failed to stop deployment. Please try again.');
+        } finally {
+            stopLoading = false;
         }
-    ];
+    }
+
+    async function handleCancelConfirm() {
+        cancelLoading = true;
+        try {
+            await postV2(`/api/v2/bundles/${bundle.id}/cancel`, {});
+            bundle = { ...bundle, status: 'CANCELLED' };
+            toast.success('Deployment cancelled successfully.');
+            showCancelModal = false;
+            await invalidate('app:bundle');
+        } catch (e) {
+            toast.error('Failed to cancel deployment. Please try again.');
+        } finally {
+            cancelLoading = false;
+        }
+    }
+
+    async function handleResumeConfirm() {
+        resumeLoading = true;
+        try {
+            const result = await postV2<{ status?: string }>(`/api/v2/bundles/${bundle.id}/resume`, {});
+            bundle = { ...bundle, status: result?.status || 'IN_PROGRESS' };
+            toast.success('Deployment resumed successfully.');
+            showResumeModal = false;
+            await invalidate('app:bundle');
+        } catch (e) {
+            toast.error('Failed to resume deployment. Please try again.');
+        } finally {
+            resumeLoading = false;
+        }
+    }
+
+    async function handleRetryConfirm() {
+        retryLoading = true;
+        try {
+            const result = await postV2<{ status?: string }>(`/api/v2/bundles/${bundle.id}/retry`, {});
+            bundle = { ...bundle, status: result?.status || 'IN_PROGRESS' };
+            toast.success('Deployment retry initiated.');
+            showRetryModal = false;
+            await invalidate('app:bundle');
+        } catch (e) {
+            toast.error('Failed to retry deployment. Please try again.');
+        } finally {
+            retryLoading = false;
+        }
+    }
+
+    async function handleRunConfirm() {
+        runLoading = true;
+        try {
+            await postV2(`/api/v2/bundles/${bundle.id}/run`, {});
+            bundle = { ...bundle, status: 'IN_PROGRESS' };
+            toast.success('Deployment started successfully.');
+            showRunModal = false;
+            await invalidate('app:bundle');
+        } catch (e) {
+            toast.error('Failed to run deployment. Please try again.');
+        } finally {
+            runLoading = false;
+        }
+    }
+
+    // Status-based permission helpers
+    // Note: PUBLISHED with scheduledAt = "Scheduled" in the spec
+    $: bundleStatusUpper = (bundle?.status || '').toUpperCase();
+    $: isScheduled = bundleStatusUpper === 'PUBLISHED' && !!bundle?.scheduledAt;
+
+    // Spec: which actions are allowed per status
+    // Edit: DRAFT, Scheduled, FAILED. Not Stopped (wave structure frozen; Duplicate for changes).
+    $: canEdit = ['DRAFT', 'FAILED'].includes(bundleStatusUpper) || isScheduled;
+    $: canPublish = bundleStatusUpper === 'DRAFT';
+    $: canDuplicate = true; // always allowed
+    $: canDelete = ['DRAFT', 'FAILED', 'STOPPED'].includes(bundleStatusUpper) || isScheduled;
+    $: canStop = ['IN_PROGRESS', 'PUBLISHED'].includes(bundleStatusUpper) && !isScheduled;
+    $: canCancel = ['IN_PROGRESS', 'STOPPED'].includes(bundleStatusUpper) || (bundleStatusUpper === 'PUBLISHED' && !isScheduled);
+    $: canResume = bundleStatusUpper === 'STOPPED';
+    $: canRetry = bundleStatusUpper === 'FAILED';
+    $: canRun = isScheduled || bundleStatusUpper === 'COMPLETED';
+
+    // Action buttons are now rendered inline with status-based visibility (see template below)
 
     $: tabItems = [
         { id: 'devices', label: 'Devices', badge: null, disabled: false },
@@ -856,52 +927,159 @@
         }
     }
 
-    // Edit Bundle button: show when Draft | Scheduled | Failed | Stopped
-    $: showDeploymentDeviceActions = ['DRAFT', 'SCHEDULED', 'FAILED', 'STOPPED'].includes((bundle?.status || '').toUpperCase());
-    // Add Device and Import CSV only when status is Draft
-    $: canAddOrImportDevices = (bundle?.status || '').toUpperCase() === 'DRAFT';
+    // Full CRUD for Devices + Apps: allowed for DRAFT, Scheduled, FAILED
+    // Stopped: wave structure is frozen (no add devices/apps, no change wave size/schedule).
+    //          Only remove devices from cancelled waves + view. Use Duplicate for bigger changes.
+    // View-only for: IN_PROGRESS, COMPLETED, CANCELLED, PUBLISHED (non-scheduled)
+    $: canCrudDevicesApps = bundleStatusUpper === 'DRAFT'
+        || isScheduled
+        || bundleStatusUpper === 'FAILED';
+    // When Stopped: show Actions column (Remove for cancelled-wave devices) but no Add/Import
+    $: showDeploymentDeviceActions = canCrudDevicesApps || bundleStatusUpper === 'STOPPED';
+    // Add/Import devices: only when wave structure hasn't been created yet or needs rebuild (DRAFT/Scheduled/Failed)
+    $: canAddOrImportDevices = canCrudDevicesApps;
 </script>
 
 <div class="bundle-detail-page">
-    <!-- Header: Edit + Publish when Draft | Scheduled | Failed | Stopped; Duplicate always -->
-    {#if showDeploymentDeviceActions || onDuplicateRequested}
+    <!-- Header: Status-based action buttons -->
+    {#if bundle}
         <div class="detail-header">
             <div class="detail-actions">
-                {#if showDeploymentDeviceActions}
+                <!-- Edit: DRAFT, Scheduled, FAILED (not Stopped - wave structure frozen; not Cancelled - permanent) -->
+                {#if canEdit}
                     <Button
                         variant="filled"
                         color="primary"
                         size="md"
                         icon={Pencil}
                         iconSize={18}
-                        on:click={() => onEditRequested ? onEditRequested() : goto(`${basePath}/${bundle.id}/edit`)}
+                        on:click={() => {
+                            onEditRequested ? onEditRequested() : goto(`${basePath}/${bundle.id}/edit`);
+                        }}
                     >
-                        Edit Bundle
+                        Edit
                     </Button>
+                {/if}
+
+                <!-- Publish: DRAFT only -->
+                {#if canPublish}
                     <Button
                         variant="outline"
                         color="neutral"
                         size="md"
                         icon={Play}
                         iconSize={18}
-                        disabled={bundle?.status !== 'DRAFT' || publishLoading}
+                        disabled={publishLoading}
                         loading={publishLoading}
-                        title={bundle?.status !== 'DRAFT' ? 'Cannot publish: deployment already published' : undefined}
                         on:click={handlePublish}
                     >
                         Publish
                     </Button>
                 {/if}
-                {#if onDuplicateRequested}
+
+                <!-- Run Deployment: Scheduled (PUBLISHED+scheduledAt), COMPLETED -->
+                {#if canRun}
+                    <Button
+                        variant="filled"
+                        color="primary"
+                        size="md"
+                        icon={Play}
+                        iconSize={18}
+                        disabled={runLoading}
+                        loading={runLoading}
+                        on:click={() => showRunModal = true}
+                    >
+                        Run Deployment
+                    </Button>
+                {/if}
+
+                <!-- Resume: STOPPED only (Cancelled is permanent) -->
+                {#if canResume}
+                    <Button
+                        variant="filled"
+                        color="primary"
+                        size="md"
+                        icon={RotateCcw}
+                        iconSize={18}
+                        disabled={resumeLoading}
+                        loading={resumeLoading}
+                        on:click={() => showResumeModal = true}
+                    >
+                        Resume
+                    </Button>
+                {/if}
+
+                <!-- Retry: FAILED -->
+                {#if canRetry}
+                    <Button
+                        variant="filled"
+                        color="primary"
+                        size="md"
+                        icon={RefreshCw}
+                        iconSize={18}
+                        disabled={retryLoading}
+                        loading={retryLoading}
+                        on:click={() => showRetryModal = true}
+                    >
+                        Retry
+                    </Button>
+                {/if}
+
+                <!-- Stop: IN_PROGRESS, PUBLISHED (non-scheduled) -->
+                {#if canStop}
                     <Button
                         variant="outline"
-                        color="neutral"
+                        color="warning"
                         size="md"
-                        icon={Copy}
+                        icon={Square}
                         iconSize={18}
-                        on:click={onDuplicateRequested}
+                        disabled={stopLoading}
+                        loading={stopLoading}
+                        on:click={() => showStopModal = true}
                     >
-                        Duplicate
+                        Stop
+                    </Button>
+                {/if}
+
+                <!-- Cancel: IN_PROGRESS, PUBLISHED (non-scheduled), STOPPED -->
+                {#if canCancel}
+                    <Button
+                        variant="outline"
+                        color="error"
+                        size="md"
+                        icon={XCircle}
+                        iconSize={18}
+                        disabled={cancelLoading}
+                        loading={cancelLoading}
+                        on:click={() => showCancelModal = true}
+                    >
+                        Cancel
+                    </Button>
+                {/if}
+
+                <!-- Duplicate: always -->
+                <Button
+                    variant="outline"
+                    color="neutral"
+                    size="md"
+                    icon={Copy}
+                    iconSize={18}
+                    on:click={() => onDuplicateRequested ? onDuplicateRequested() : handleDuplicate()}
+                >
+                    Duplicate
+                </Button>
+
+                <!-- Delete: DRAFT, Scheduled, FAILED, STOPPED (not Cancelled - permanent) -->
+                {#if canDelete}
+                    <Button
+                        variant="destructive"
+                        color="error"
+                        size="md"
+                        icon={Trash2}
+                        iconSize={18}
+                        on:click={openDeleteModal}
+                    >
+                        Delete
                     </Button>
                 {/if}
             </div>
@@ -947,11 +1125,11 @@
                 </div>
                 <div class="overview-field">
                     <p class="overview-label">Start on Date & Time</p>
-                    <p class="overview-value">{bundle.scheduledAt ? formatBundleDate(bundle.scheduledAt) : '—'}</p>
+                    <p class="overview-value">{$bundleActualStartTime ? formatBundleDate($bundleActualStartTime) : '—'}</p>
                 </div>
                 <div class="overview-field">
                     <p class="overview-label">End on Date & Time</p>
-                    <p class="overview-value">{formatBundleEndOn(bundle.scheduledAt, bundleActivePeriodDays)}</p>
+                    <p class="overview-value">{$bundleActualEndTime ? formatBundleDate($bundleActualEndTime) : '—'}</p>
                 </div>
                 <div class="overview-field-empty" aria-hidden="true"></div>
                 <!-- Row 3: Description (full width) -->
@@ -1011,7 +1189,7 @@
                                         icon={Download}
                                         iconSize={18}
                                         disabled={!canAddOrImportDevices}
-                                        title={!canAddOrImportDevices ? 'Only editable when deployment is in Draft' : undefined}
+                                        title={!canAddOrImportDevices ? 'Not editable in current deployment status' : undefined}
                                         on:click={() => canAddOrImportDevices && (showImportCsvModal = true)}
                                     >
                                         Import CSV
@@ -1023,7 +1201,7 @@
                                         icon={TagIcon}
                                         iconSize={18}
                                         disabled={!canAddOrImportDevices}
-                                        title={!canAddOrImportDevices ? 'Only editable when deployment is in Draft' : undefined}
+                                        title={!canAddOrImportDevices ? 'Not editable in current deployment status' : undefined}
                                         on:click={() => canAddOrImportDevices && openAssignByTagModal()}
                                     >
                                         Assign by tag
@@ -1035,7 +1213,7 @@
                                         icon={Plus}
                                         iconSize={18}
                                         disabled={!canAddOrImportDevices}
-                                        title={!canAddOrImportDevices ? 'Only editable when deployment is in Draft' : undefined}
+                                        title={!canAddOrImportDevices ? 'Not editable in current deployment status' : undefined}
                                         on:click={() => canAddOrImportDevices && (showAddDeviceModal = true)}
                                     >
                                         Add Device
@@ -1046,12 +1224,13 @@
                         <BundleDeviceComponent
                             bind:this={deviceComponentRef}
                             bundleId={bundle.id}
+                            bundleStatus={bundle?.status}
                             devices={bundleDevices || []}
                             loading={false}
                             apiPrefix={context === 'admin' ? '/api/admin' : '/api/user'}
                             deviceLinkPrefix={context === 'admin' ? '/admin/iot/devices' : '/user/iot/devices'}
                             hideHeaderAddButton={true}
-                            showActionsColumn={canAddOrImportDevices}
+                            showActionsColumn={showDeploymentDeviceActions}
                             on:viewDevice={handleViewDevice}
                         />
                     </Card>
@@ -1077,8 +1256,8 @@
                                             icon={Plus}
                                             iconSize={18}
                                             on:click={() => appsComponentRef?.openAddDialog?.()}
-                                            disabled={bundle.status !== 'DRAFT'}
-                                            title={bundle.status !== 'DRAFT' ? 'Not editable: bundle already published' : undefined}
+                                            disabled={!canCrudDevicesApps}
+                                            title={!canCrudDevicesApps ? 'Not editable in current deployment status' : undefined}
                                         >
                                             Add App
                                         </Button>
@@ -1833,6 +2012,86 @@
     <p class="delete-confirm-text">Are you sure you want to delete this deployment? This action cannot be undone.</p>
 </Modal>
 
+<!-- Stop Deployment Modal -->
+<Modal
+    open={showStopModal}
+    title="Stop Deployment"
+    type="warning"
+    size="md"
+    cancelText="Cancel"
+    confirmText="Stop"
+    confirmLoading={stopLoading}
+    confirmDisabled={stopLoading}
+    on:close={() => showStopModal = false}
+    on:confirm={handleStopConfirm}
+>
+    <p class="delete-confirm-text">Are you sure you want to stop this deployment? Pending batches will be cancelled, but the current running batch will complete normally. You can resume later.</p>
+</Modal>
+
+<!-- Cancel Deployment Modal -->
+<Modal
+    open={showCancelModal}
+    title="Cancel Deployment"
+    type="error"
+    size="md"
+    cancelText="Go Back"
+    confirmText="Cancel Deployment"
+    confirmLoading={cancelLoading}
+    confirmDisabled={cancelLoading}
+    on:close={() => showCancelModal = false}
+    on:confirm={handleCancelConfirm}
+>
+    <p class="delete-confirm-text">Are you sure you want to permanently cancel this deployment? All pending batches will be cancelled. This cannot be undone – you will only be able to Duplicate the deployment.</p>
+</Modal>
+
+<!-- Resume Deployment Modal -->
+<Modal
+    open={showResumeModal}
+    title="Resume Deployment"
+    type="info"
+    size="md"
+    cancelText="Cancel"
+    confirmText="Resume"
+    confirmLoading={resumeLoading}
+    confirmDisabled={resumeLoading}
+    on:close={() => showResumeModal = false}
+    on:confirm={handleResumeConfirm}
+>
+    <p class="delete-confirm-text">Resume this deployment? Cancelled batches will be reactivated and the deployment will continue from where it left off.</p>
+</Modal>
+
+<!-- Retry Deployment Modal -->
+<Modal
+    open={showRetryModal}
+    title="Retry Deployment"
+    type="info"
+    size="md"
+    cancelText="Cancel"
+    confirmText="Retry"
+    confirmLoading={retryLoading}
+    confirmDisabled={retryLoading}
+    on:close={() => showRetryModal = false}
+    on:confirm={handleRetryConfirm}
+>
+    <p class="delete-confirm-text">Retry this failed deployment? Failed batches and device statuses will be reset and the deployment will run again.</p>
+</Modal>
+
+<!-- Run Deployment Modal -->
+<Modal
+    open={showRunModal}
+    title="Run Deployment"
+    type="info"
+    size="md"
+    cancelText="Cancel"
+    confirmText="Run"
+    confirmLoading={runLoading}
+    confirmDisabled={runLoading}
+    on:close={() => showRunModal = false}
+    on:confirm={handleRunConfirm}
+>
+    <p class="delete-confirm-text">Run this deployment now? New batches will be created and the first batch will start automatically.</p>
+</Modal>
+
 <style>
     .bundle-detail-page {
         padding: var(--ds-space-6);
@@ -1853,6 +2112,12 @@
         flex-wrap: wrap;
         align-items: center;
         gap: var(--ds-space-2);
+    }
+
+    .detail-actions :global(button.action-blurred) {
+        opacity: 0.55;
+        filter: grayscale(0.8);
+        cursor: not-allowed;
     }
     
     .detail-content {

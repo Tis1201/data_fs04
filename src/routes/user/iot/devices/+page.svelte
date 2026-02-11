@@ -537,7 +537,7 @@
             { id: 'assign-tag', label: 'Assign Tag', icon: Tags },
             { id: 'assign-deployment', label: 'Assign Deployment', icon: GitFork },
             { id: 'install-app', label: 'Install App', icon: Server },
-            { id: 'update', label: 'Update', icon: BookUp2 },
+            // { id: 'update', label: 'Update', icon: BookUp2 },
             { id: 'deactivate', label: deactivateLabel, destructive: true },
             { id: 'reboot', label: 'Reboot', destructive: true }
         ];
@@ -599,131 +599,87 @@
         }, 150);
     }
 
-    // Assign Deployment Modal state (Add App modal per Figma)
-    interface DeploymentAppOption {
+    // Assign Deployment Modal state: select a draft bundle and add selected devices to it
+    interface DraftBundleOption {
         id: string;
         name: string;
-        packageName: string;
-    }
-
-    interface SelectedDeploymentApp {
-        id: string;
-        autoOpen: boolean;
     }
 
     let showAssignDeploymentModal = false;
     let assignDeploymentSearch = "";
-    let assignDeploymentSelectedApps: SelectedDeploymentApp[] = [];
+    let assignDeploymentSelectedBundleId: string | null = null;
     let assignDeploymentLoading = false;
-    let assignDeploymentDropdownOpen = false;
-    let assignDeploymentDropdownInteracting = false;
-    let assignDeploymentInputContainer: HTMLDivElement;
-    let assignDeploymentDropdownPosition = { top: 0, left: 0, width: 0 };
-    let availableDeploymentApps: DeploymentAppOption[] = [];
-    let assignDeploymentAppsLoading = false;
+    let availableDraftBundles: DraftBundleOption[] = [];
+    let assignDeploymentBundlesLoading = false;
 
-    // Computed: filtered apps for Assign Deployment modal
-    $: assignDeploymentFilteredOptions = availableDeploymentApps.filter((app) =>
-        app.name.toLowerCase().includes(assignDeploymentSearch.toLowerCase()) ||
-        app.packageName.toLowerCase().includes(assignDeploymentSearch.toLowerCase())
-    );
-
-    // Check if app is selected for deployment
-    function isDeploymentAppSelected(appId: string): boolean {
-        return assignDeploymentSelectedApps.some(a => a.id === appId);
+    // Debounced search: when user types in the box, call search API after 300ms
+    let assignDeploymentSearchTimeout: ReturnType<typeof setTimeout>;
+    function onAssignDeploymentSearchInput() {
+        clearTimeout(assignDeploymentSearchTimeout);
+        assignDeploymentSearchTimeout = setTimeout(() => {
+            loadDraftBundles(assignDeploymentSearch);
+        }, 300);
     }
 
-    async function loadAvailableDeploymentApps() {
-        assignDeploymentAppsLoading = true;
+    function isDeploymentBundleSelected(bundleId: string): boolean {
+        return assignDeploymentSelectedBundleId === bundleId;
+    }
+
+    async function loadDraftBundles(search?: string) {
+        assignDeploymentBundlesLoading = true;
         try {
-            const res = await fetch('/api/user/resources/apps?pageSize=100');
-            if (!res.ok) throw new Error('Failed to load apps');
+            const params = new URLSearchParams({ status: 'DRAFT' });
+            if (search && search.trim()) params.set('search', search.trim());
+            const res = await fetch(`/api/v2/bundles?${params.toString()}`);
+            if (!res.ok) throw new Error('Failed to load bundles');
             const data = await res.json();
-            availableDeploymentApps = (data.items || []).map((item: { id: string; name?: string; packageName?: string }) => ({
-                id: item.id,
-                name: item.name || 'Unknown App',
-                packageName: item.packageName || '-'
+            const list = data?.data?.bundles ?? data?.bundles ?? [];
+            availableDraftBundles = list.map((b: { id: string; name?: string }) => ({
+                id: b.id,
+                name: b.name || 'Unnamed deployment'
             }));
         } catch (_e) {
-            availableDeploymentApps = [];
+            availableDraftBundles = [];
         } finally {
-            assignDeploymentAppsLoading = false;
+            assignDeploymentBundlesLoading = false;
         }
     }
 
     function openAssignDeploymentModal() {
         assignDeploymentSearch = "";
-        assignDeploymentSelectedApps = [];
-        assignDeploymentDropdownOpen = false;
-        assignDeploymentDropdownInteracting = false;
-        availableDeploymentApps = [];
+        assignDeploymentSelectedBundleId = null;
+        availableDraftBundles = [];
         showAssignDeploymentModal = true;
-        loadAvailableDeploymentApps();
+        loadDraftBundles();
     }
 
-    // Update dropdown position
-    function updateAssignDeploymentDropdownPosition() {
-        if (assignDeploymentInputContainer) {
-            const rect = assignDeploymentInputContainer.getBoundingClientRect();
-            assignDeploymentDropdownPosition = {
-                top: rect.bottom + 4, // 4px = var(--ds-space-1) margin
-                left: rect.left,
-                width: rect.width
-            };
-        }
-    }
-
-    async function handleAssignDeploymentFocus(e: CustomEvent<FocusEvent>) {
-        assignDeploymentDropdownOpen = true;
-        // Wait for DOM to render then compute position
-        await tick();
-        updateAssignDeploymentDropdownPosition();
-    }
-
-    function handleAssignDeploymentBlur(e: CustomEvent<FocusEvent>) {
-        // Only close if not interacting with dropdown
-        setTimeout(() => {
-            if (!assignDeploymentDropdownInteracting) {
-                assignDeploymentDropdownOpen = false;
-            }
-        }, 150);
-    }
-
-    function toggleAssignDeploymentApp(appId: string) {
-        if (isDeploymentAppSelected(appId)) {
-            assignDeploymentSelectedApps = assignDeploymentSelectedApps.filter(a => a.id !== appId);
-        } else {
-            assignDeploymentSelectedApps = [...assignDeploymentSelectedApps, { id: appId, autoOpen: false }];
-        }
-        // Reset interaction flag
-        assignDeploymentDropdownInteracting = false;
-    }
-
-    function removeAssignDeploymentApp(appId: string) {
-        assignDeploymentSelectedApps = assignDeploymentSelectedApps.filter(a => a.id !== appId);
-    }
-
-    function toggleDeploymentAutoOpen(appId: string) {
-        assignDeploymentSelectedApps = assignDeploymentSelectedApps.map(a =>
-            a.id === appId ? { ...a, autoOpen: !a.autoOpen } : a
-        );
+    function selectAssignDeploymentBundle(bundleId: string) {
+        assignDeploymentSelectedBundleId = assignDeploymentSelectedBundleId === bundleId ? null : bundleId;
     }
 
     async function confirmAssignDeployment() {
-        if (assignDeploymentSelectedApps.length === 0 || selectedRows.length === 0) return;
+        if (!assignDeploymentSelectedBundleId || selectedRows.length === 0) return;
         assignDeploymentLoading = true;
         try {
-            // TODO: Implement actual API call to add apps to devices
-            // For now, simulate API call
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            showAssignDeploymentModal = false;
-            selectedRows = [];
-            toast.success( 'App added successfully!');
-            await invalidate('app:userDevices');
+            const deviceIds = selectedRows.map((r) => r.id);
+            const res = await fetch(`/api/v2/bundles/${assignDeploymentSelectedBundleId}/devices`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceIds })
+            });
+            const result = await res.json().catch(() => ({}));
+            if (res.ok && result?.success !== false) {
+                const added = result?.data?.addedCount ?? deviceIds.length;
+                showAssignDeploymentModal = false;
+                selectedRows = [];
+                toast.success(added === 1 ? 'Device added to deployment.' : `${added} devices added to deployment.`);
+                await invalidate('app:userDevices');
+            } else {
+                toast.error(result?.error?.message || 'Unable to add devices to deployment. Please try again!');
+            }
         } catch (e) {
-            toast.error( 'Unable to add App. Please try again!');
-            console.error('Failed to add app:', e);
+            toast.error( 'Unable to add devices to deployment. Please try again!');
+            console.error('Failed to assign deployment:', e);
         } finally {
             assignDeploymentLoading = false;
         }
@@ -1209,6 +1165,22 @@
         </Button>
     </div>
 
+    <!-- Bulk actions bar - under search bar, above table -->
+    {#if selectedRows.length > 0}
+        <div
+            class="w-full flex justify-center z-10"
+            style="margin-bottom: 8px;"
+        >
+            <BulkActionsBar
+                selectedCount={selectedRows.length}
+                totalCount={pagination.total}
+                actions={[...bulkActions]}
+                on:action={handleBulkAction}
+                on:clearSelection={() => (selectedRows = [])}
+            />
+        </div>
+    {/if}
+
     <!-- Device Table -->
     <DeviceTable
         data={displayData}
@@ -1226,22 +1198,6 @@
         on:reboot={handleReboot}
         on:delete={handleDelete}
     />
-
-    <!-- Bulk actions bar (Figma) - centered at bottom of table area -->
-    {#if selectedRows.length > 0}
-        <div
-            class="w-full flex justify-center z-10"
-            style="margin-top: 24px; margin-bottom: 16px;"
-        >
-            <BulkActionsBar
-                selectedCount={selectedRows.length}
-                totalCount={pagination.total}
-                actions={[...bulkActions]}
-                on:action={handleBulkAction}
-                on:clearSelection={() => (selectedRows = [])}
-            />
-        </div>
-    {/if}
 </div>
 
 <!-- Add Device Modal (Figma) -->
@@ -1612,10 +1568,10 @@
     </div>
 </Modal>
 
-<!-- Assign Deployment Modal (Add App - Figma) -->
+<!-- Assign Deployment Modal: select a draft bundle and add selected devices to it -->
 <Modal
     open={showAssignDeploymentModal}
-    title="Add App"
+    title="Assign to deployment"
     size="md"
     overlayBg="rgba(0, 78, 235, 0.03)"
     closeOnBackdrop={true}
@@ -1623,144 +1579,75 @@
     showFooter={true}
     on:close={() => (showAssignDeploymentModal = false)}
 >
-    <!-- Search Input with Dropdown - uses InputField and Checkbox from design-system -->
-    <!-- Container needs position relative and overflow visible so dropdown is not clipped -->
-    <div
-        class="w-full assign-deployment-input-container"
-        style="margin-bottom: var(--ds-space-4);"
-        bind:this={assignDeploymentInputContainer}
-    >
+    <p style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085; margin: 0 0 12px 0;">
+        Add {selectedRows.length} selected device(s) to a draft deployment. Select one deployment below.
+    </p>
+
+    <div class="w-full" style="margin-bottom: var(--ds-space-4);">
         <InputField
             type="text"
-            placeholder="Search and select app"
+            placeholder="Search deployments by name..."
             bind:value={assignDeploymentSearch}
-            state={assignDeploymentDropdownOpen ? 'focused' : 'default'}
-            on:focus={handleAssignDeploymentFocus}
-            on:blur={handleAssignDeploymentBlur}
+            on:input={onAssignDeploymentSearchInput}
         >
             <svelte:fragment slot="suffix-icon">
                 <Search size={22} />
             </svelte:fragment>
         </InputField>
+    </div>
 
-        <!-- App Options Dropdown (only show when focused) - uses Checkbox from design-system -->
-        <!-- position: fixed so it is not clipped by modal-body overflow -->
-        {#if assignDeploymentDropdownOpen}
-            <div
-                role="listbox"
-                tabindex="-1"
-                class="assign-deployment-dropdown"
-                style="top: {assignDeploymentDropdownPosition.top}px; left: {assignDeploymentDropdownPosition.left}px; width: {assignDeploymentDropdownPosition.width}px;"
-                on:mouseenter={() => assignDeploymentDropdownInteracting = true}
-                on:mouseleave={() => assignDeploymentDropdownInteracting = false}
-            >
-                {#each assignDeploymentFilteredOptions as app (app.id)}
-                    {@const isSelected = assignDeploymentSelectedApps.some(a => a.id === app.id)}
-                    <button
-                        type="button"
-                        class="assign-deployment-option"
-                        on:mousedown|preventDefault={() => toggleAssignDeploymentApp(app.id)}
-                    >
+    <!-- Draft bundles list (single select) -->
+    <div class="w-full" style="max-height: 280px; overflow-y: auto; border: 1px solid #EAECF0; border-radius: 8px;">
+        {#if assignDeploymentBundlesLoading}
+            <div style="padding: 24px; text-align: center; color: #667085;">Loading draft deployments…</div>
+        {:else if availableDraftBundles.length === 0}
+            <div style="padding: 24px; text-align: center; color: #667085;">
+                {assignDeploymentSearch ? 'No draft deployments match your search.' : 'No draft deployments. Create one from Deployments first.'}
+            </div>
+        {:else}
+            {#each availableDraftBundles as bundle (bundle.id)}
+                {@const selected = isDeploymentBundleSelected(bundle.id)}
+                <button
+                    type="button"
+                    class="assign-deployment-option"
+                    style="
+                        width: 100%;
+                        display: flex;
+                        align-items: flex-start;
+                        gap: 12px;
+                        padding: 12px 16px;
+                        border: none;
+                        border-bottom: 1px solid #EAECF0;
+                        background: {selected ? 'rgba(0, 78, 235, 0.06)' : 'transparent'};
+                        cursor: pointer;
+                        text-align: left;
+                        font-family: var(--ds-font-family-primary);
+                    "
+                    on:click={() => selectAssignDeploymentBundle(bundle.id)}
+                >
+                    <div style="flex-shrink: 0; margin-top: 2px;">
                         <Checkbox
-                            checked={isSelected}
+                            checked={selected}
                             size="sm"
                             disabled={false}
                         />
-                        <div class="assign-deployment-option-content">
-                            <span class="assign-deployment-option-name">{app.name}</span>
-                            <span class="assign-deployment-option-package">{app.packageName}</span>
-                        </div>
-                    </button>
-                {/each}
-                {#if assignDeploymentFilteredOptions.length === 0}
-                    <div class="assign-deployment-empty">
-                        {assignDeploymentAppsLoading ? 'Loading…' : 'No apps found'}
                     </div>
-                {/if}
-            </div>
+                    <div class="assign-deployment-option-content" style="flex: 1; min-width: 0;">
+                        <span style="font-size: 14px; font-weight: 500; color: #292929;">{bundle.name}</span>
+                    </div>
+                </button>
+            {/each}
         {/if}
     </div>
 
-    <!-- Selected Apps (List format with Auto open toggle) -->
-    <div class="w-full">
-        <p style="font-family: var(--ds-font-family-primary); font-weight: 500; font-size: 16px; line-height: 24px; color: #292929; margin: 0 0 8px 0;">
-            Selected ({assignDeploymentSelectedApps.length} items)
-        </p>
-        <div class="flex flex-col" style="gap: 0;">
-            {#each assignDeploymentSelectedApps as selectedApp}
-                {@const app = availableDeploymentApps.find(a => a.id === selectedApp.id)}
-                {#if app}
-                    <div
-                        class="flex items-center justify-between"
-                        style="
-                            padding: 12px 0;
-                            border-bottom: 1px solid #EAECF0;
-                        "
-                    >
-                        <div class="flex flex-col">
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; font-weight: 500; color: #292929;">
-                                {app.name}
-                            </span>
-                            <span style="font-family: var(--ds-font-family-primary); font-size: 12px; line-height: 16px; color: #667085;">
-                                {app.packageName}
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <!-- Auto open toggle with tooltip -->
-                            <div class="flex items-center gap-2" title="Enable to open app automatically after installation">
-                                <span style="font-family: var(--ds-font-family-primary); font-size: 14px; line-height: 20px; color: #667085;">
-                                    Auto open
-                                </span>
-                                <button
-                                    type="button"
-                                    on:click={() => toggleDeploymentAutoOpen(selectedApp.id)}
-                                    style="
-                                        width: 44px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        border: none;
-                                        cursor: pointer;
-                                        position: relative;
-                                        transition: background-color 0.2s ease;
-                                        background: {selectedApp.autoOpen ? 'var(--ds-color-blue-light-600)' : '#E5E5E5'};
-                                    "
-                                >
-                                    <span
-                                        style="
-                                            position: absolute;
-                                            top: 2px;
-                                            left: {selectedApp.autoOpen ? '22px' : '2px'};
-                                            width: 20px;
-                                            height: 20px;
-                                            background: #FFFFFF;
-                                            border-radius: 50%;
-                                            transition: left 0.2s ease;
-                                            box-shadow: 0px 1px 3px rgba(16, 24, 40, 0.1);
-                                        "
-                                    />
-                                </button>
-                            </div>
-                            <!-- Remove button -->
-                            <button
-                                type="button"
-                                on:click={() => removeAssignDeploymentApp(selectedApp.id)}
-                                style="padding: 4px; background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;"
-                            >
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M12 4L4 12M4 4L12 12" stroke="#A3A3A3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                {/if}
-            {/each}
-            {#if assignDeploymentSelectedApps.length === 0}
-                <span style="font-family: var(--ds-font-family-primary); font-size: 14px; color: #667085; padding: 12px 0;">
-                    No apps selected
-                </span>
-            {/if}
-        </div>
-    </div>
+    {#if assignDeploymentSelectedBundleId}
+        {@const sel = availableDraftBundles.find(b => b.id === assignDeploymentSelectedBundleId)}
+        {#if sel}
+            <p style="font-family: var(--ds-font-family-primary); font-size: 13px; color: #667085; margin: 12px 0 0 0;">
+                Selected: <strong style="color: #292929;">{sel.name}</strong> — {selectedRows.length} device(s) will be added.
+            </p>
+        {/if}
+    {/if}
 
     <!-- Footer -->
     <div slot="footer" class="flex items-center justify-end gap-4 w-full">
@@ -1779,10 +1666,10 @@
             color="primary"
             size="lg"
             on:click={confirmAssignDeployment}
-            disabled={assignDeploymentLoading || assignDeploymentSelectedApps.length === 0}
-            style="height: 44px; min-width: 100px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
+            disabled={assignDeploymentLoading || !assignDeploymentSelectedBundleId || selectedRows.length === 0}
+            style="height: 44px; min-width: 120px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
         >
-            {assignDeploymentLoading ? 'Adding…' : 'Assign'}
+            {assignDeploymentLoading ? 'Adding…' : 'Add to deployment'}
         </Button>
     </div>
 </Modal>

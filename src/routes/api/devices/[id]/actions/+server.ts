@@ -230,17 +230,21 @@ export const POST: RequestHandler = restrict(
                 }
             }
 
-            if (!device.connected) {
+            // Reboot is allowed when offline (queued for delivery when device reconnects); other actions require device online
+            if (!device.connected && action !== 'reboot') {
                 logger.warn(`[UnifiedActionAPI] Device is offline: ${deviceId}`);
-                return json({ 
-                    success: false, 
-                    error: { 
-                        code: 'DEVICE_OFFLINE', 
+                return json({
+                    success: false,
+                    error: {
+                        code: 'DEVICE_OFFLINE',
                         message: 'Device is offline',
                         timestamp: new Date().toISOString(),
                         requestId: crypto.randomUUID()
                     }
                 }, { status: 400 });
+            }
+            if (!device.connected && action === 'reboot') {
+                logger.info(`[UnifiedActionAPI] Device is offline; queuing reboot for delivery when device reconnects: ${deviceId}`);
             }
 
             logger.info(`[UnifiedActionAPI] Creating action log entry...`);
