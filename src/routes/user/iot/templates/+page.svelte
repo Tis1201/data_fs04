@@ -443,8 +443,8 @@
 </svelte:head>
 
 <div class="templates-page flex flex-col" style="padding: 24px; gap: 16px;">
-    <div class="flex flex-row items-center" style="gap: 16px; height: 48px; width: 100%;">
-        <div style="width: 320px; height: 48px;">
+    <div class="flex flex-row items-center justify-between" style="gap: 16px; height: 48px; width: 100%;">
+        <div style="width: 320px; height: 48px; flex-shrink: 0;">
             <InputField
                 type="search"
                 placeholder="Search by Template name"
@@ -454,7 +454,6 @@
                 <Search size={22} slot="prefix-icon" />
             </InputField>
         </div>
-        <div style="flex: 1;"></div>
         <div
             class="add-template-trigger flex items-center"
             role="button"

@@ -170,6 +170,14 @@
                 subtitle: isDetailView ? 'Key information about this profile' : 'Manage device profiles and assignments'
             };
         }
+        // Data module (analytics/radar)
+        if (pathname === '/user/analytics/radar' || pathname === '/user/analytics/radar/') {
+            return {
+                headerStyle: 'page',
+                title: 'Data',
+                subtitle: 'View and export sensors data logs'
+            };
+        }
         // Sensors listing only (not detail /radar/[id] or /radar/new)
         if (pathname === '/user/controllers/radar' || pathname === '/user/controllers/radar/') {
             return {

@@ -200,6 +200,7 @@ export interface ActionDef<T = any> {
     icon?: any;
     variant?: 'filled' | 'outline' | 'text' | 'ghost';
     color?: 'primary' | 'gray' | 'danger';
+    destructive?: boolean;
     onClick?: (row: T) => void;
     disabled?: (row: T) => boolean;
     hidden?: (row: T) => boolean;

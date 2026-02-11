@@ -105,6 +105,7 @@
         icon?: any;
         variant?: 'filled' | 'outline' | 'text' | 'ghost';
         color?: 'primary' | 'gray' | 'danger';
+        destructive?: boolean;
         onClick?: (row: T) => void;
         href?: string | ((row: T) => string);
         disabled?: (row: T) => boolean;
@@ -775,7 +776,7 @@
                                                             id: a.id,
                                                             label: a.label ?? a.id,
                                                             icon: a.icon,
-                                                            destructive: a.color === 'danger',
+                                                            destructive: a.destructive || a.color === 'danger',
                                                             disabled: a.disabled ? a.disabled(row) : false,
                                                             href: typeof a.href === 'function' ? a.href(row) : a.href
                                                         }))}
