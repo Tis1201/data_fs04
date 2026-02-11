@@ -25,6 +25,11 @@ enum SetStatus {
   EXPIRED
 }
 
+enum SensorTemplateType {
+  CONFIGURATION
+  ALERT
+}
+
 enum CronJobStatus {
   ACTIVE
   INACTIVE
@@ -70,6 +75,7 @@ model Account {
   childAccountAssignments  AccountAssignment[]      @relation("ChildAccountAssignments")
   controllers              Controller[]
   sensors                  Sensor[]
+  sensorTemplates          SensorTemplate[]
 
   @@index([slug])
 }
@@ -217,15 +223,15 @@ model UserPermissionOverride {
 }
 
 model User {
-  id                        String                   @id() @default(cuid())
+  id                        String                     @id() @default(cuid())
   name                      String?
-  status                    String                   @default("ACTIVE")
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt()
-  email                     String                   @unique()
+  status                    String                     @default("ACTIVE")
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt()
+  email                     String                     @unique()
   password                  String
-  rolesString               String                   @default("")
-  systemRole                String                   @default("USER")
+  rolesString               String                     @default("")
+  systemRole                String                     @default("USER")
   primaryAccountId          String?
   sessions                  Session[]
   keys                      Key[]
@@ -234,22 +240,24 @@ model User {
   listeners                 ListenerEndpoint[]
   devices                   Device[]
   accountMemberships        AccountMembership[]
-  primaryAccount            Account?                 @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  primaryAccount            Account?                   @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
   invitationTokens          InvitationToken[]
   jwtSigningKeys            JwtSigningKey[]
   tokenUsageLogs            TokenUsageLog[]
   refreshTokens             RefreshToken[]
-  actionLogs                DeviceActionLog[]        @relation("UserToActionLogs")
-  bundleInstallSessions     BundleInstallSession[]   @relation("UserToBundleInstallSession")
+  actionLogs                DeviceActionLog[]          @relation("UserToActionLogs")
+  bundleInstallSessions     BundleInstallSession[]     @relation("UserToBundleInstallSession")
   cronJobs                  CronJob[]
   pinRules                  PinRule[]
   userAppActions            UserAppAction[]
   createdAccountAssignments AccountAssignment[]
   createdControllers        Controller[]
   createdSensors            Sensor[]
+  createdSensorTemplates    SensorTemplate[]
+  sensorTemplateAssignments SensorTemplateAssignment[]
   auditLogs                 AuditLog[]
   permissionOverrides       UserPermissionOverride[]
-  createdOverrides          UserPermissionOverride[] @relation("OverrideCreator")
+  createdOverrides          UserPermissionOverride[]   @relation("OverrideCreator")
 
   @@index([primaryAccountId])
 }
@@ -1307,32 +1315,68 @@ model Controller {
 }
 
 model Sensor {
-  id            String     @id() @default(cuid())
-  name          String
-  type          String
-  serialNumber  String     @unique()
-  status        String     @default("INACTIVE")
-  controllerId  String
-  controller    Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
-  accountId     String
-  account       Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt()
-  createdBy     String?
-  creator       User?      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
-  description   String?
-  location      String?
-  firmware      String?
-  config        Json?
-  configVersion Int        @default(0)
-  syncStatus    String     @default("SYNCED")
-  lastSyncedAt  DateTime?
-  lastSyncError String?
+  id                  String                     @id() @default(cuid())
+  name                String
+  type                String
+  serialNumber        String                     @unique()
+  status              String                     @default("INACTIVE")
+  controllerId        String
+  controller          Controller                 @relation(fields: [controllerId], references: [id], onDelete: Cascade)
+  accountId           String
+  account             Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt()
+  createdBy           String?
+  creator             User?                      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  description         String?
+  location            String?
+  firmware            String?
+  config              Json?
+  configVersion       Int                        @default(0)
+  syncStatus          String                     @default("SYNCED")
+  lastSyncedAt        DateTime?
+  lastSyncError       String?
+  templateAssignments SensorTemplateAssignment[]
 
   @@index([controllerId])
   @@index([accountId])
   @@index([type])
   @@index([status])
+}
+
+model SensorTemplate {
+  id                String                     @id() @default(cuid())
+  name              String
+  description       String?
+  type              SensorTemplateType         @default(CONFIGURATION)
+  isDefault         Boolean                    @default(false)
+  config            Json?
+  accountId         String
+  account           Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt()
+  createdBy         String?
+  creator           User?                      @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  sensorAssignments SensorTemplateAssignment[]
+
+  @@index([accountId])
+  @@index([type])
+  @@index([isDefault])
+}
+
+model SensorTemplateAssignment {
+  id         String         @id() @default(cuid())
+  templateId String
+  template   SensorTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  sensorId   String
+  sensor     Sensor         @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+  assignedAt DateTime       @default(now())
+  assignedBy String?
+  assigner   User?          @relation(fields: [assignedBy], references: [id], onDelete: SetNull)
+
+  @@unique([templateId, sensorId])
+  @@index([templateId])
+  @@index([sensorId])
 }
 
 model CronJob {

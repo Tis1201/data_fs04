@@ -74,6 +74,9 @@ model Account {
   controllers      Controller[]
   sensors          Sensor[]
   
+  // Sensor Templates
+  sensorTemplates  SensorTemplate[]
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   
@@ -356,6 +359,10 @@ model User {
   // Controller and Sensor relations
   createdControllers Controller[]
   createdSensors     Sensor[]
+  
+  // Sensor Template relations
+  createdSensorTemplates SensorTemplate[]
+  sensorTemplateAssignments SensorTemplateAssignment[]
   
   // Audit log relation
   auditLogs          AuditLog[]
@@ -1973,6 +1980,9 @@ model Sensor {
   lastSyncedAt  DateTime?                    // When config was last pushed to device
   lastSyncError String?                      // Error message if sync failed
   
+  // Template assignments
+  templateAssignments SensorTemplateAssignment[]
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
@@ -1983,6 +1993,71 @@ model Sensor {
   @@index([accountId])
   @@index([type])
   @@index([status])
+}
+
+// Sensor Template - Reusable configuration templates for sensors
+enum SensorTemplateType {
+  CONFIGURATION
+  ALERT
+}
+
+model SensorTemplate {
+  id            String              @id @default(cuid())
+  name          String
+  description   String?
+  type          SensorTemplateType  @default(CONFIGURATION)
+  isDefault     Boolean             @default(false)
+  
+  // Configuration data (JSON)
+  // For CONFIGURATION type: { trackingArea, zones, deviceSettings }
+  // For ALERT type: { alertRules, notifications }
+  config        Json?
+  
+  // Account ownership
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Audit fields
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  // Many-to-many: Templates can be assigned to multiple sensors
+  sensorAssignments SensorTemplateAssignment[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([accountId])
+  @@index([type])
+  @@index([isDefault])
+}
+
+// Junction table for Template-Sensor many-to-many relationship
+model SensorTemplateAssignment {
+  id            String          @id @default(cuid())
+  
+  templateId    String
+  template      SensorTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  sensorId      String
+  sensor        Sensor          @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+  
+  assignedAt    DateTime        @default(now())
+  assignedBy    String?
+  assigner      User?           @relation(fields: [assignedBy], references: [id], onDelete: SetNull)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,create,delete', auth() != null && template.account.members?[userId == auth().id])
+  
+  @@unique([templateId, sensorId])
+  @@index([templateId])
+  @@index([sensorId])
 }
 
 // CronJob System - Database-driven task scheduler

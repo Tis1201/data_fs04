@@ -18,13 +18,19 @@
         Braces,
         Layers,
         Plus,
-        Radio
+        Radio,
+        ShieldAlert,
+        BellRing
     } from 'lucide-svelte';
     import RadarVisualEditor from '$lib/components/ui_components_sveltekit/radar/RadarVisualEditor.svelte';
+    import AddZoneModal from '$lib/components/ui_components_sveltekit/radar/AddZoneModal.svelte';
+    import EditZoneModal from '$lib/components/ui_components_sveltekit/radar/EditZoneModal.svelte';
+    import EditTemplateModal from '$lib/components/ui_components_sveltekit/templates/EditTemplateModal.svelte';
     import { getZoneColors } from '$lib/components/ui_components_sveltekit/radar/zoneColors';
+    import { RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
     import { formatTableDateTime } from '$lib/utils/format';
     import type { PageData } from './$types';
-    import type { TemplateDetail, TemplateConfig } from './+page.server';
+    import type { TemplateDetail, TemplateConfig, TemplateAlertSettings } from './+page.server';
     import { toast } from '$lib/stores/alertToast';
     import { invalidate } from '$app/navigation';
 
@@ -34,40 +40,460 @@
     $: config = (template?.config ?? null) as TemplateConfig | null;
     $: trackingArea = config?.trackingArea ?? null;
     $: zones = config?.zones ?? [];
+    $: alertSettings = (config?.alertSettings ?? null) as TemplateAlertSettings | null;
+
+    // Zone data interface (same as Sensor Detail)
+    interface ZoneData {
+        id?: string;
+        name: string;
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+        color?: string;
+        zoneNumber?: number;
+        active?: boolean;
+        // Support both formats
+        xMin?: number;
+        xMax?: number;
+        yMin?: number;
+        yMax?: number;
+    }
+
+    interface CoordinateBounds {
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+    }
+
+    // Editor state - mutable copies for visual editor
+    let editorZonesValue: ZoneData[] = [];
+    let editorArenaValue: CoordinateBounds | null = null;
+    let zonesInitialized = false;
+    let arenaInitialized = false;
+    let configSaving = false;
+
+    // Initialize editor values from config
+    $: if (config?.zones && !zonesInitialized) {
+        editorZonesValue = config.zones.map((z, i) => ({
+            id: z.id,
+            name: z.name ?? `Zone ${z.zoneNumber ?? i + 1}`,
+            startX: z.startX ?? z.xMin ?? 0,
+            startY: z.startY ?? z.yMin ?? 0,
+            endX: z.endX ?? z.xMax ?? 0,
+            endY: z.endY ?? z.yMax ?? 0,
+            color: z.color,
+            zoneNumber: z.zoneNumber ?? i + 1,
+            active: z.active ?? true
+        }));
+        zonesInitialized = true;
+    }
+
+    $: if (!arenaInitialized) {
+        const ta = trackingArea;
+        editorArenaValue = ta
+            ? {
+                startX: ta.startX ?? ta.xMin ?? -4,
+                startY: ta.startY ?? ta.yMin ?? 0,
+                endX: ta.endX ?? ta.xMax ?? 4,
+                endY: ta.endY ?? ta.yMax ?? 7
+            }
+            : {
+                startX: RADAR_CONSTRAINTS.X_MIN,
+                startY: RADAR_CONSTRAINTS.Y_MIN,
+                endX: RADAR_CONSTRAINTS.X_MAX,
+                endY: RADAR_CONSTRAINTS.Y_MAX
+            };
+        arenaInitialized = true;
+    }
+
+    // Reinitialize from config (after save)
+    function reinitializeFromConfig(): void {
+        if (config?.zones) {
+            editorZonesValue = config.zones.map((z, i) => ({
+                id: z.id,
+                name: z.name ?? `Zone ${z.zoneNumber ?? i + 1}`,
+                startX: z.startX ?? z.xMin ?? 0,
+                startY: z.startY ?? z.yMin ?? 0,
+                endX: z.endX ?? z.xMax ?? 0,
+                endY: z.endY ?? z.yMax ?? 0,
+                color: z.color,
+                zoneNumber: z.zoneNumber ?? i + 1,
+                active: z.active ?? true
+            }));
+        }
+        if (trackingArea) {
+            editorArenaValue = {
+                startX: trackingArea.startX ?? trackingArea.xMin ?? -4,
+                startY: trackingArea.startY ?? trackingArea.yMin ?? 0,
+                endX: trackingArea.endX ?? trackingArea.xMax ?? 4,
+                endY: trackingArea.endY ?? trackingArea.yMax ?? 7
+            };
+        }
+    }
+
+    // Handle arena change from visual editor
+    function handleArenaChange(event: CustomEvent<CoordinateBounds>): void {
+        editorArenaValue = event.detail;
+    }
+
+    // Handle zones change from visual editor
+    function handleZonesChange(event: CustomEvent<ZoneData[]>): void {
+        editorZonesValue = event.detail;
+    }
 
     let activeTab = 'configuration';
     let activeZoneTab = 'all';
     let showAddZoneModal = false;
+    let showEditZoneModal = false;
+    let zoneToEdit: ZoneData | null = null;
+    let showZoneConfirmModal = false;
+    let zoneConfirmKind: 'deactivate' | 'activate' | 'delete' | null = null;
+    let pendingZoneId = '';
+    let pendingZoneName = '';
     let showRemoveSensorModal = false;
     let sensorToRemove: { id: string; name: string } | null = null;
     let removeSensorLoading = false;
+    let showEditModal = false;
+    let editSaving = false;
+
+    // Prepare template data for EditTemplateModal
+    interface EditTemplateData {
+        id: string;
+        name: string;
+        type: 'Alert' | 'Configuration';
+        description?: string | null;
+        config?: TemplateConfig | null;
+        assignedSensors?: { id: string; name: string; mac?: string }[];
+    }
+    
+    let editTemplateData: EditTemplateData | null = null;
+    $: {
+        if (template && assignedSensors) {
+            editTemplateData = {
+                id: template.id,
+                name: template.name,
+                type: template.type as 'Alert' | 'Configuration',
+                description: template.description,
+                config: config,
+                assignedSensors: assignedSensors.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    mac: undefined
+                }))
+            };
+        } else {
+            editTemplateData = null;
+        }
+    }
+
+    // Available sensors for edit modal (all sensors from the account)
+    $: availableSensorsForEdit = (data.availableSensors ?? []) as { id: string; name: string; mac?: string }[];
+
+    function openEditModal() {
+        showEditModal = true;
+    }
+
+    function closeEditModal() {
+        showEditModal = false;
+    }
+
+    // Zone tabs for Zones Configuration: All + one per zone
+    $: zoneTabs = (() => {
+        const zoneList = editorZonesValue;
+        if (zoneList.length === 0) return [];
+        const allTab = { id: 'all', label: 'All' };
+        const zoneItems = zoneList.map((z) => ({
+            id: z.id ?? `zone-${z.zoneNumber ?? 0}`,
+            label: z.name ?? `Zone ${z.zoneNumber ?? 0}`
+        }));
+        return [allTab, ...zoneItems];
+    })();
+
+    // Next zone number for Add Zone modal
+    $: nextZoneNumberForAdd = (() => {
+        const existing = editorZonesValue.map((z) => z.zoneNumber || 0);
+        return Math.max(1, ...existing, 0) + 1;
+    })();
+
+    // Tracking area dimensions for Add Zone modal
+    $: addZoneTrackingArea = (() => {
+        const a = editorArenaValue;
+        if (a) return { width: Math.abs(a.endX - a.startX), height: Math.abs(a.endY - a.startY) };
+        return { width: 8, height: 7 };
+    })();
+
+    // Build ActionMenu items for a zone row
+    function getZoneMenuItems(active: boolean): Array<{ id: string; label: string; destructive?: boolean }> {
+        return [
+            { id: 'edit', label: 'Edit' },
+            { id: active ? 'deactivate' : 'activate', label: active ? 'Deactivate' : 'Activate' },
+            { id: 'delete', label: 'Delete', destructive: true }
+        ];
+    }
+
+    // Handle zone action menu selection
+    function handleZoneAction(zoneId: string, zoneName: string, action: string, active: boolean): void {
+        if (action === 'edit') {
+            const zone = editorZonesValue.find((z) => (z.id ?? `zone-${z.zoneNumber}`) === zoneId);
+            if (zone) {
+                zoneToEdit = zone;
+                showEditZoneModal = true;
+            }
+        } else if (action === 'deactivate' || action === 'activate') {
+            pendingZoneId = zoneId;
+            pendingZoneName = zoneName;
+            zoneConfirmKind = action === 'deactivate' ? 'deactivate' : 'activate';
+            showZoneConfirmModal = true;
+        } else if (action === 'delete') {
+            pendingZoneId = zoneId;
+            pendingZoneName = zoneName;
+            zoneConfirmKind = 'delete';
+            showZoneConfirmModal = true;
+        }
+    }
+
+    // Add a new zone from Add Zone modal
+    function handleAddZoneFromModal(zone: {
+        name: string;
+        zoneNumber: number;
+        color: string;
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+        active: boolean;
+    }): void {
+        const newZone: ZoneData = {
+            id: `zone-${zone.zoneNumber}`,
+            name: zone.name,
+            zoneNumber: zone.zoneNumber,
+            color: zone.color,
+            startX: zone.startX,
+            startY: zone.startY,
+            endX: zone.endX,
+            endY: zone.endY,
+            active: zone.active
+        };
+        editorZonesValue = [...editorZonesValue, newZone];
+        showAddZoneModal = false;
+        toast.success('Zone added! Click "Save Configuration" to persist changes.');
+    }
+
+    // Save zone from Edit Zone modal
+    function handleEditZoneSave(updated: {
+        id?: string;
+        name: string;
+        zoneNumber: number;
+        color: string;
+        startX: number;
+        startY: number;
+        endX: number;
+        endY: number;
+        active: boolean;
+    }): void {
+        const zoneId = zoneToEdit?.id ?? (zoneToEdit != null ? `zone-${zoneToEdit.zoneNumber}` : null);
+        if (zoneId == null) return;
+
+        editorZonesValue = editorZonesValue.map((z) => {
+            const key = z.id ?? `zone-${z.zoneNumber}`;
+            if (key === zoneId) {
+                return {
+                    ...z,
+                    name: updated.name,
+                    color: updated.color,
+                    startX: updated.startX,
+                    startY: updated.startY,
+                    endX: updated.endX,
+                    endY: updated.endY,
+                    active: updated.active
+                };
+            }
+            return z;
+        });
+        showEditZoneModal = false;
+        zoneToEdit = null;
+        toast.success('Zone updated! Click "Save Configuration" to persist changes.');
+    }
+
+    // Confirm zone action (deactivate/activate/delete)
+    function confirmZoneAction(): void {
+        if (zoneConfirmKind === 'delete') {
+            editorZonesValue = editorZonesValue.filter((z) => (z.id ?? `zone-${z.zoneNumber}`) !== pendingZoneId);
+            toast.success('Zone deleted! Click "Save Configuration" to persist changes.');
+        } else if (zoneConfirmKind === 'deactivate' || zoneConfirmKind === 'activate') {
+            editorZonesValue = editorZonesValue.map((z) => {
+                const key = z.id ?? `zone-${z.zoneNumber}`;
+                if (key === pendingZoneId) {
+                    return { ...z, active: zoneConfirmKind === 'activate' };
+                }
+                return z;
+            });
+            toast.success(`Zone ${zoneConfirmKind === 'activate' ? 'activated' : 'deactivated'}! Click "Save Configuration" to persist changes.`);
+        }
+        showZoneConfirmModal = false;
+        zoneConfirmKind = null;
+        pendingZoneId = '';
+        pendingZoneName = '';
+    }
+
+    // Save configuration (tracking area + zones) to database
+    async function saveConfiguration(): Promise<void> {
+        if (!template) return;
+        configSaving = true;
+        try {
+            const fd = new FormData();
+            fd.set('id', template.id);
+            fd.set('trackingArea', JSON.stringify(editorArenaValue ? {
+                xMin: editorArenaValue.startX,
+                xMax: editorArenaValue.endX,
+                yMin: editorArenaValue.startY,
+                yMax: editorArenaValue.endY,
+                startX: editorArenaValue.startX,
+                startY: editorArenaValue.startY,
+                endX: editorArenaValue.endX,
+                endY: editorArenaValue.endY
+            } : null));
+            fd.set('zones', JSON.stringify(editorZonesValue.map((z) => ({
+                id: z.id,
+                name: z.name,
+                zoneNumber: z.zoneNumber,
+                startX: z.startX,
+                startY: z.startY,
+                endX: z.endX,
+                endY: z.endY,
+                xMin: z.startX,
+                xMax: z.endX,
+                yMin: z.startY,
+                yMax: z.endY,
+                color: z.color,
+                active: z.active
+            }))));
+
+            const res = await fetch('?/saveConfig', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result?.success === false) {
+                toast.error(result?.error || 'Unable to save configuration. Please try again!');
+                return;
+            }
+            toast.success('Configuration saved successfully!');
+            await invalidate('app:userTemplates');
+        } catch {
+            toast.error('Unable to save configuration. Please try again!');
+        } finally {
+            configSaving = false;
+        }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async function handleSaveTemplate(event: CustomEvent<any>) {
+        editSaving = true;
+        try {
+            const detail = event.detail;
+            const fd = new FormData();
+            fd.set('id', detail.id);
+            fd.set('name', detail.name);
+            fd.set('description', detail.description);
+            fd.set('trackingArea', JSON.stringify({
+                xMin: parseFloat(detail.trackingArea.xMin) || 0,
+                xMax: parseFloat(detail.trackingArea.xMax) || 0,
+                yMin: parseFloat(detail.trackingArea.yMin) || 0,
+                yMax: parseFloat(detail.trackingArea.yMax) || 0
+            }));
+            // Preserve all zone data including position
+            fd.set('zones', JSON.stringify(detail.zones.map((z: ZoneData) => ({
+                id: z.id,
+                name: z.name,
+                active: z.active,
+                zoneNumber: z.zoneNumber,
+                startX: z.startX ?? z.xMin,
+                startY: z.startY ?? z.yMin,
+                endX: z.endX ?? z.xMax,
+                endY: z.endY ?? z.yMax,
+                xMin: z.xMin ?? z.startX,
+                xMax: z.xMax ?? z.endX,
+                yMin: z.yMin ?? z.startY,
+                yMax: z.yMax ?? z.endY,
+                color: z.color
+            }))));
+            fd.set('deviceSettings', JSON.stringify(detail.deviceSettings));
+            fd.set('selectedSensors', JSON.stringify(detail.selectedSensors));
+            // Send alertSettings whenever the modal included it (EditTemplateModal sends it for Alert type)
+            if (detail.alertSettings != null) {
+                fd.set('alertSettings', JSON.stringify(detail.alertSettings));
+            }
+
+            const res = await fetch('?/update', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result?.success === false) {
+                toast.error(result?.error || 'Unable to save template. Please try again!');
+                return;
+            }
+            toast.success('Template updated successfully!');
+            closeEditModal();
+            await invalidate('app:userTemplates');
+        } catch {
+            toast.error('Unable to save template. Please try again!');
+        } finally {
+            editSaving = false;
+        }
+    }
 
     const TABS = [
         { id: 'configuration', label: 'Configuration' },
         { id: 'assigned-sensor', label: 'Assigned Sensor' }
     ];
 
-    $: zoneTabs = (() => {
-        if (zones.length === 0) return [];
-        const allTab = { id: 'all', label: 'All' };
-        const zoneItems = zones.map((z, i) => ({
-            id: z.id ?? `zone-${z.zoneNumber ?? i + 1}`,
-            label: z.name ?? `Zone ${z.zoneNumber ?? i + 1}`
-        }));
-        return [allTab, ...zoneItems];
+    // Device settings from config
+    $: deviceSettings = config?.deviceSettings ?? null;
+
+    /** Alert tab: display values from config.alertSettings (same shape as Sensor detail Alert tab). */
+    $: alertDisplay = (() => {
+        const as = alertSettings ?? {};
+        const so = as.sensorOffline ?? { enabled: false, threshold: '5', unit: 'minutes' };
+        const nd = as.noData ?? { enabled: false, threshold: '30', unit: 'minutes' };
+        const dt = as.dwellTime ?? { enabled: false, zoneId: '', threshold: '120' };
+        const zoneName = zones?.find((z) => (z.id ?? `zone-${z.zoneNumber}`) === dt.zoneId)?.name ?? dt.zoneId ?? '—';
+        const em = as.email ?? { enabled: false, address: '' };
+        const wh = as.webhook ?? { enabled: false, url: '' };
+        return {
+            sensorOffline: { text: so.enabled ? 'Enable' : 'Disable', threshold: `${so.threshold ?? '5'} ${so.unit ?? 'minutes'}` },
+            noData: { text: nd.enabled ? 'Enable' : 'Disable', threshold: `${nd.threshold ?? '30'} ${nd.unit ?? 'minutes'}` },
+            dwellTime: { text: dt.enabled ? 'Enable' : 'Disable', zoneLabel: zoneName, threshold: `${dt.threshold ?? '120'} seconds` },
+            email: { text: em.enabled ? 'Enable' : 'Disable', address: em.address ?? '—' },
+            webhook: { text: wh.enabled ? 'Enable' : 'Disable', url: wh.url ?? '—' }
+        };
     })();
 
     $: trackingAreaDisplay = (() => {
         const ta = trackingArea;
+        if (!ta) {
+            return {
+                leftM: 0,
+                rightM: 0,
+                fwdStart: 0,
+                fwdRange: 0,
+                xMin: 0,
+                xMax: 0,
+                yMin: 0,
+                yMax: 0
+            };
+        }
+        // Support both xMin/xMax/yMin/yMax and startX/startY/endX/endY formats
+        const xMin = ta.xMin ?? ta.startX ?? 0;
+        const xMax = ta.xMax ?? ta.endX ?? 0;
+        const yMin = ta.yMin ?? ta.startY ?? 0;
+        const yMax = ta.yMax ?? ta.endY ?? 0;
         return {
-            leftM: ta ? Math.abs(ta.startX) : 5,
-            rightM: ta ? Math.abs(ta.endX) : 5,
-            fwdStart: ta ? ta.startY : 0,
-            fwdRange: ta ? ta.endY - ta.startY : 10,
-            xMin: ta ? ta.startX : -5,
-            xMax: ta ? ta.endX : 5,
-            yMin: ta ? ta.startY : 0,
-            yMax: ta ? ta.endY : 10
+            leftM: Math.abs(xMin),
+            rightM: Math.abs(xMax),
+            fwdStart: yMin,
+            fwdRange: yMax - yMin,
+            xMin,
+            xMax,
+            yMin,
+            yMax
         };
     })();
 
@@ -165,7 +591,7 @@
             color="primary"
             size="lg"
             iconLeft={true}
-            on:click={() => goto(`/user/iot/templates/${template?.id ?? ''}/edit`)}
+            on:click={openEditModal}
         >
             <PenLine size={20} slot="icon-left" />
             Edit Template
@@ -180,22 +606,29 @@
             </div>
             <div class="section-header-content">
                 <h2 class="section-title-sm">Template Information</h2>
-                <p class="section-subtitle">lorem</p>
+                <p class="section-subtitle">View and manage template details</p>
             </div>
         </div>
         <div class="info-card-body">
-            <div class="info-row">
-                <span class="info-label">Template Name</span>
-                <span class="info-value">{template?.name ?? '—'}</span>
+            <!-- Row 1: Template Name + Type -->
+            <div class="info-grid-row">
+                <div class="info-field">
+                    <span class="info-label">Template Name</span>
+                    <span class="info-value">{template?.name ?? '—'}</span>
+                </div>
+                <div class="info-field">
+                    <span class="info-label">Type</span>
+                    <span class="info-value">{template?.type ? `${template.type} Template` : '—'}</span>
+                </div>
             </div>
-            <div class="info-row">
-                <span class="info-label">Type</span>
-                <span class="info-value">{template?.type ?? '—'}</span>
-            </div>
-            <div class="info-row">
+            <!-- Row 2: Description -->
+            <div class="info-field info-field-full">
                 <span class="info-label">Description</span>
-                <span class="info-value">{template?.description ?? '–'}</span>
+                <span class="info-value">{template?.description || '–'}</span>
             </div>
+            <!-- Divider -->
+            <div class="info-divider"></div>
+            <!-- Audit info -->
             <div class="info-audit">
                 <p class="info-audit-line">Created by {template?.createdBy ?? '—'} at {formatAuditDate(template?.createdAt)}</p>
                 <p class="info-audit-line">Last updated by {template?.updatedBy ?? '—'} at {formatAuditDate(template?.updatedAt)}</p>
@@ -206,13 +639,131 @@
     <TabGroup
         tabs={TABS}
         activeTab={activeTab}
-        type="button"
+        type="underline"
         size="md"
         fullWidth={false}
         on:change={(e) => (activeTab = e.detail)}
     />
 
     {#if activeTab === 'configuration'}
+        {#if template?.type === 'Alert'}
+            <!-- Alert template: same UI as Sensor detail Alert tab (read-only) -->
+            <div class="alert-tab-wrap">
+                <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="alert-card">
+                    <div class="alert-card-header">
+                        <div class="alert-card-icon-wrap" aria-hidden="true">
+                            <ShieldAlert class="alert-card-icon" size={20} strokeWidth={2} />
+                        </div>
+                        <div class="alert-card-content-wrap">
+                            <h2 class="alert-card-title">Alert Rules</h2>
+                            <p class="alert-card-subtitle">Configure when sensor stops responding</p>
+                        </div>
+                    </div>
+                    <div class="alert-card-body">
+                        <div class="alert-table-wrap">
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-label">Sensor Offline Alert</span>
+                                    <span class="alert-desc">Alert when sensor stops responding</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-value">{alertDisplay.sensorOffline.text}</span>
+                                </div>
+                            </div>
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-text">Threshold</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-text">{alertDisplay.sensorOffline.threshold}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert-table-wrap">
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-label">No Data Alert</span>
+                                    <span class="alert-desc">Alert when no detections received</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-value">{alertDisplay.noData.text}</span>
+                                </div>
+                            </div>
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-text">Threshold</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-text">{alertDisplay.noData.threshold}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert-table-wrap">
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-label">Dwell Time Alert</span>
+                                    <span class="alert-desc">Alert when dwell time exceeds threshold</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-value">{alertDisplay.dwellTime.text}</span>
+                                </div>
+                            </div>
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-text">{alertDisplay.dwellTime.zoneLabel}</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-text">{alertDisplay.dwellTime.threshold}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+                <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="alert-card alert-card-notification">
+                    <div class="alert-card-header">
+                        <div class="alert-card-icon-wrap" aria-hidden="true">
+                            <BellRing class="alert-card-icon" size={20} strokeWidth={2} />
+                        </div>
+                        <div class="alert-card-content-wrap">
+                            <h2 class="alert-card-title">Notification Channels</h2>
+                            <p class="alert-card-subtitle">Configure how alerts are delivered</p>
+                        </div>
+                    </div>
+                    <div class="alert-card-body">
+                        <div class="alert-table-wrap">
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-label">Email Notifications</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-value">{alertDisplay.email.text}</span>
+                                </div>
+                            </div>
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-full">
+                                    <span class="alert-text">{alertDisplay.email.address}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert-table-wrap alert-table-wrap-last">
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-left">
+                                    <span class="alert-label">Webhook</span>
+                                </div>
+                                <div class="alert-cell alert-cell-right">
+                                    <span class="alert-value">{alertDisplay.webhook.text}</span>
+                                </div>
+                            </div>
+                            <div class="alert-row">
+                                <div class="alert-cell alert-cell-full">
+                                    <span class="alert-text">{alertDisplay.webhook.url}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </Card>
+            </div>
+        {:else}
         <div class="config-tab-sections">
             <div class="config-column">
                 <!-- Visual Editor -->
@@ -227,14 +778,28 @@
                         </div>
                     </div>
                     <div class="config-card-body">
-                        {#if trackingArea}
+                        {#if editorArenaValue}
                             <div class="visual-editor-wrap">
                                 <RadarVisualEditor
-                                    arena={trackingArea}
-                                    zones={zones}
+                                    arena={editorArenaValue}
+                                    zones={editorZonesValue}
                                     maxZones={5}
-                                    readonly={true}
+                                    readonly={false}
+                                    on:arenaChange={handleArenaChange}
+                                    on:zonesChange={handleZonesChange}
                                 />
+                            </div>
+                            <div class="visual-editor-actions">
+                                <Button
+                                    variant="filled"
+                                    color="primary"
+                                    size="md"
+                                    loading={configSaving}
+                                    disabled={configSaving}
+                                    on:click={saveConfiguration}
+                                >
+                                    Save Configuration
+                                </Button>
                             </div>
                         {:else}
                             <div class="visual-editor-placeholder">
@@ -258,20 +823,28 @@
                         <div class="config-label-value-list">
                             <div class="config-label-value-row">
                                 <span class="config-label">Device Mode</span>
-                                <span class="config-value">Live Preview</span>
+                                <span class="config-value">{deviceSettings?.deviceMode || '—'}</span>
                             </div>
                             <div class="config-label-value-row">
                                 <span class="config-label">Timezone</span>
-                                <span class="config-value">Ho Chi Minh (UTC+7)</span>
+                                <span class="config-value">{deviceSettings?.timezone || '—'}</span>
                             </div>
                             <div class="config-label-value-row">
                                 <span class="config-label">Path Tracking</span>
-                                <span class="config-value">Enable</span>
+                                <span class="config-value">{deviceSettings?.pathTracking ? 'Enabled' : 'Disabled'}</span>
                             </div>
+                            {#if deviceSettings?.dataReportingInterval}
                             <div class="config-label-value-row">
                                 <span class="config-label">Data Reporting Interval</span>
-                                <span class="config-value">100 ms</span>
+                                <span class="config-value">{deviceSettings.dataReportingInterval} ms</span>
                             </div>
+                            {/if}
+                            {#if deviceSettings?.dwellThreshold}
+                            <div class="config-label-value-row">
+                                <span class="config-label">Dwell Threshold</span>
+                                <span class="config-value">{deviceSettings.dwellThreshold} s</span>
+                            </div>
+                            {/if}
                         </div>
                     </div>
                 </Card>
@@ -335,7 +908,7 @@
                             color="primary"
                             size="sm"
                             iconLeft={true}
-                            disabled={zones.length >= 5}
+                            disabled={editorZonesValue.length >= 5}
                             on:click={() => (showAddZoneModal = true)}
                         >
                             <Plus class="icon-sm" slot="icon-left" />
@@ -343,7 +916,7 @@
                         </Button>
                     </div>
                     <div class="config-card-body">
-                        {#if zones.length > 0}
+                        {#if editorZonesValue.length > 0}
                             <TabGroup
                                 tabs={zoneTabs}
                                 activeTab={activeZoneTab}
@@ -354,7 +927,8 @@
                             />
                             <div class="config-zone-tab-content">
                                 <div class="config-zone-list">
-                                    {#each zones as zone, zoneIndex}
+                                    {#each editorZonesValue as zone, zoneIndex}
+                                        {@const zoneId = zone.id ?? `zone-${zone.zoneNumber}`}
                                         {@const zoneColors = getZoneColors(zone.zoneNumber ?? zoneIndex + 1)}
                                         {@const active = zone.active !== false}
                                         <div class="config-zone-row">
@@ -364,18 +938,15 @@
                                             ></div>
                                             <div class="config-zone-info">
                                                 <span class="config-zone-name">{zone.name || `Zone ${zone.zoneNumber}`}</span>
-                                                <span class="config-zone-detail">Position: ({zone.startX}, {zone.startY}) | Size: {(zone.endX - zone.startX).toFixed(1)} × {(zone.endY - zone.startY).toFixed(1)} m</span>
+                                                <span class="config-zone-detail">Position: ({zone.startX.toFixed(1)}, {zone.startY.toFixed(1)}) | Size: {(zone.endX - zone.startX).toFixed(1)} × {(zone.endY - zone.startY).toFixed(1)} m</span>
                                             </div>
                                             <Badge variant="filled" color={active ? 'success' : 'gray'} size="sm" label={active ? 'Active' : 'Inactive'} />
                                             <ActionMenu
                                                 triggerIcon="dots-vertical"
                                                 align="right"
                                                 width="auto"
-                                                items={[
-                                                    { id: 'edit', label: 'Edit' },
-                                                    { id: 'delete', label: 'Delete', destructive: true }
-                                                ]}
-                                                on:select={() => {}}
+                                                items={getZoneMenuItems(active)}
+                                                on:select={(e) => handleZoneAction(zoneId, zone.name, e.detail.id, active)}
                                             />
                                         </div>
                                     {/each}
@@ -393,6 +964,7 @@
                 </Card>
             </div>
         </div>
+        {/if}
     {:else if activeTab === 'assigned-sensor'}
         <Card variant="default" radius="2xl" padding="md" fullWidth={true} class="assigned-card">
             <div slot="header" class="section-header">
@@ -401,7 +973,7 @@
                 </div>
                 <div class="section-header-content">
                     <h2 class="section-title-sm">Assigned Sensor</h2>
-                    <p class="section-subtitle">lorem</p>
+                    <p class="section-subtitle">Sensors using this template configuration</p>
                 </div>
             </div>
             <div class="assigned-card-body">
@@ -434,6 +1006,63 @@
     confirmDisabled={removeSensorLoading}
     on:close={closeRemoveSensorModal}
     on:confirm={confirmRemoveSensor}
+/>
+
+<!-- Edit Template Modal -->
+<EditTemplateModal
+    open={showEditModal}
+    template={editTemplateData}
+    availableSensors={availableSensorsForEdit}
+    on:close={closeEditModal}
+    on:save={handleSaveTemplate}
+/>
+
+<!-- Add Zone Modal -->
+<AddZoneModal
+    open={showAddZoneModal}
+    nextZoneNumber={nextZoneNumberForAdd}
+    trackingAreaWidth={addZoneTrackingArea.width}
+    trackingAreaHeight={addZoneTrackingArea.height}
+    onClose={() => (showAddZoneModal = false)}
+    onAdd={handleAddZoneFromModal}
+/>
+
+<!-- Edit Zone Modal -->
+{#if zoneToEdit}
+    <EditZoneModal
+        open={showEditZoneModal}
+        zone={{
+            id: zoneToEdit.id,
+            name: zoneToEdit.name,
+            zoneNumber: zoneToEdit.zoneNumber ?? 1,
+            color: zoneToEdit.color ?? '',
+            startX: zoneToEdit.startX,
+            startY: zoneToEdit.startY,
+            endX: zoneToEdit.endX,
+            endY: zoneToEdit.endY,
+            active: zoneToEdit.active ?? true
+        }}
+        trackingAreaWidth={addZoneTrackingArea.width}
+        trackingAreaHeight={addZoneTrackingArea.height}
+        onClose={() => { showEditZoneModal = false; zoneToEdit = null; }}
+        onSave={handleEditZoneSave}
+    />
+{/if}
+
+<!-- Zone Confirm Modal (Deactivate/Activate/Delete) -->
+<ConfirmModal
+    open={showZoneConfirmModal}
+    title={zoneConfirmKind === 'delete' ? 'Delete Zone' : zoneConfirmKind === 'deactivate' ? 'Deactivate Zone' : 'Activate Zone'}
+    description={zoneConfirmKind === 'delete' 
+        ? `Are you sure you want to delete "${pendingZoneName}"? This action cannot be undone.`
+        : zoneConfirmKind === 'deactivate'
+        ? `Are you sure you want to deactivate "${pendingZoneName}"?`
+        : `Are you sure you want to activate "${pendingZoneName}"?`}
+    cancelText="Cancel"
+    confirmText={zoneConfirmKind === 'delete' ? 'Delete' : zoneConfirmKind === 'deactivate' ? 'Deactivate' : 'Activate'}
+    type={zoneConfirmKind === 'delete' ? 'warning' : 'info'}
+    on:close={() => { showZoneConfirmModal = false; zoneConfirmKind = null; pendingZoneId = ''; pendingZoneName = ''; }}
+    on:confirm={confirmZoneAction}
 />
 
 <style>
@@ -507,12 +1136,20 @@
         gap: var(--ds-space-4);
     }
 
-    .info-row {
+    .info-grid-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--ds-space-6);
+    }
+
+    .info-field {
         display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-        gap: var(--ds-space-4);
+        flex-direction: column;
+        gap: var(--ds-space-1);
+    }
+
+    .info-field-full {
+        width: 100%;
     }
 
     .info-label {
@@ -523,14 +1160,18 @@
     .info-value {
         font: var(--ds-text-md-medium);
         color: var(--ds-text-primary);
-        text-align: right;
+    }
+
+    .info-divider {
+        height: 1px;
+        background: var(--ds-border-default);
+        margin: var(--ds-space-2) 0;
     }
 
     .info-audit {
         display: flex;
         flex-direction: column;
         gap: var(--ds-space-1);
-        margin-top: var(--ds-space-2);
     }
 
     .info-audit-line {
@@ -544,6 +1185,146 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--ds-space-4);
         width: 100%;
+    }
+
+    /* Alert tab: same as Sensor detail Alert tab (Alert Rules + Notification Channels) */
+    .alert-tab-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--ds-space-4);
+        width: 100%;
+    }
+    .alert-card {
+        width: 100%;
+    }
+    .alert-card :global(.ds-card) {
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-2xl);
+        background: var(--ds-bg-primary);
+    }
+    .alert-card :global(.card-body) {
+        padding: 0 !important;
+        display: flex;
+        flex-direction: column;
+    }
+    .alert-card-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 16px;
+        gap: 8px;
+        border-bottom: 1px solid var(--ds-border-default);
+    }
+    .alert-card-icon-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        border-radius: var(--ds-radius-lg);
+        flex-shrink: 0;
+    }
+    .alert-card-icon {
+        color: var(--ds-text-tertiary);
+    }
+    .alert-card-content-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+    .alert-card-title {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 16px;
+        line-height: 24px;
+        color: var(--ds-text-primary);
+        margin: 0;
+    }
+    .alert-card-subtitle {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-text-tertiary);
+        margin: 0;
+    }
+    .alert-card-body {
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        gap: 16px;
+    }
+    .alert-card-notification .alert-card-body .alert-table-wrap:last-child {
+        border-bottom: 1px solid var(--ds-border-default);
+    }
+    .alert-table-wrap {
+        display: flex;
+        flex-direction: column;
+        background: var(--ds-bg-secondary);
+        border-radius: var(--ds-radius-lg);
+        overflow: hidden;
+    }
+    .alert-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        min-height: 52px;
+        border-bottom: 1px solid var(--ds-border-default);
+    }
+    .alert-row:last-child {
+        border-bottom: none;
+    }
+    .alert-cell {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        padding: 16px;
+        gap: 16px;
+    }
+    .alert-cell-left {
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+    }
+    .alert-cell-right {
+        flex-shrink: 0;
+    }
+    .alert-cell-full {
+        flex: 1;
+        min-width: 0;
+    }
+    .alert-label {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-text-primary);
+    }
+    .alert-desc {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-text-tertiary);
+        margin-top: 2px;
+    }
+    .alert-value {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-text-primary);
+    }
+    .alert-text {
+        font-family: var(--ds-font-family-primary);
+        font-weight: 400;
+        font-size: 14px;
+        line-height: 20px;
+        color: var(--ds-text-primary);
     }
 
     .config-column {
@@ -588,6 +1369,14 @@
         min-height: 200px;
         background: var(--ds-bg-tertiary);
         border-radius: var(--ds-radius-lg);
+    }
+
+    .visual-editor-actions {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-end;
+        gap: var(--ds-space-2);
+        padding-top: var(--ds-space-2);
     }
 
     .config-placeholder-text {

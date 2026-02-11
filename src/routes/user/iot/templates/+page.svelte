@@ -16,10 +16,12 @@
     import { toast } from '$lib/stores/alertToast';
     import { invalidate } from '$app/navigation';
     import AddTemplateModal from '$lib/components/ui_components_sveltekit/templates/AddTemplateModal.svelte';
+    import EditTemplateModal from '$lib/components/ui_components_sveltekit/templates/EditTemplateModal.svelte';
 
     export let data: PageData;
 
     $: templates = (data.templates || []) as TemplateRow[];
+    $: availableSensors = (data.availableSensors || []) as { id: string; name: string; mac?: string }[];
     $: meta = data.meta || {};
     $: serverPagination = meta.pagination || {};
     $: serverSort = meta.sort || { field: 'lastUpdatedOn', order: 'desc' };
@@ -45,6 +47,16 @@
     // Add Template modal (Alert / Configuration)
     let showAddTemplateModal = false;
     let addTemplateType: 'alert' | 'configuration' = 'alert';
+
+    // Edit Template modal
+    let showEditTemplateModal = false;
+    let editTarget: TemplateRow | null = null;
+    let editTemplateLoading = false;
+
+    // Edit Template confirm modal
+    let showEditConfirmModal = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let pendingEditData: any = null;
 
     $: pagination = {
         page: serverPagination.page ?? 1,
@@ -204,15 +216,131 @@
         }
     }
 
-    async function handleAddTemplate(event: CustomEvent<{ name: string; description: string; type: string }>) {
-        const payload = event.detail;
-        showAddTemplateModal = false;
+    function openEditModal(row: TemplateRow) {
+        editTarget = row;
+        showEditTemplateModal = true;
+    }
+
+    function closeEditModal() {
+        showEditTemplateModal = false;
+        editTarget = null;
+    }
+
+    // Prepare edit template data for modal
+    $: editTemplateData = editTarget ? {
+        id: editTarget.id,
+        name: editTarget.name,
+        type: editTarget.type as 'Alert' | 'Configuration',
+        description: editTarget.description ?? null,
+        config: editTarget.config ?? null,
+        assignedSensors: editTarget.assignedSensorsList ?? []
+    } : null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function handleEditTemplate(event: CustomEvent<any>) {
+        // Store pending data and show confirm modal
+        pendingEditData = event.detail;
+        showEditConfirmModal = true;
+    }
+
+    function closeEditConfirmModal() {
+        showEditConfirmModal = false;
+    }
+
+    async function confirmEditTemplate() {
+        if (!pendingEditData) return;
+        
+        editTemplateLoading = true;
         try {
-            // TODO: call API to create template with payload
-            toast.success('Template added successfully!');
+            const detail = pendingEditData;
+            const fd = new FormData();
+            fd.set('id', detail.id);
+            fd.set('name', detail.name);
+            fd.set('description', detail.description || '');
+            // Alert templates: send alertSettings; Configuration: send trackingArea, zones, deviceSettings
+            if (detail.type === 'alert' && detail.alertSettings) {
+                fd.set('alertSettings', JSON.stringify(detail.alertSettings));
+                fd.set('trackingArea', JSON.stringify(detail.trackingArea || {}));
+                fd.set('zones', JSON.stringify(detail.zones || []));
+                fd.set('deviceSettings', JSON.stringify(detail.deviceSettings || {}));
+            } else {
+                fd.set('trackingArea', JSON.stringify({
+                    xMin: parseFloat(detail.trackingArea?.xMin) || 0,
+                    xMax: parseFloat(detail.trackingArea?.xMax) || 0,
+                    yMin: parseFloat(detail.trackingArea?.yMin) || 0,
+                    yMax: parseFloat(detail.trackingArea?.yMax) || 0
+                }));
+                fd.set('zones', JSON.stringify(detail.zones || []));
+                fd.set('deviceSettings', JSON.stringify(detail.deviceSettings || {}));
+            }
+            fd.set('selectedSensors', JSON.stringify(detail.selectedSensors || []));
+
+            const res = await fetch('?/update', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result?.success === false) {
+                toast.error(result?.error || 'Unable to update template. Please try again!');
+                return;
+            }
+
+            toast.success('Template updated successfully!');
+            showEditConfirmModal = false;
+            closeEditModal();
+            pendingEditData = null;
             await invalidate('app:userTemplates');
         } catch {
-            toast.error('Unable to add template. Please try again!');
+            toast.error('Unable to update template. Please try again!');
+        } finally {
+            editTemplateLoading = false;
+        }
+    }
+
+    interface AddTemplatePayload {
+        name: string;
+        description: string;
+        type: string;
+        trackingArea: { xMin: string; xMax: string; yMin: string; yMax: string };
+        zones: { id: string; name: string; active: boolean }[];
+        deviceSettings: {
+            deviceMode: string;
+            timezone: string;
+            pathTracking: boolean;
+            dwellThreshold: number;
+        };
+        selectedSensors: { id: string; name: string; mac?: string }[];
+    }
+
+    let addTemplateLoading = false;
+
+    async function handleAddTemplate(event: CustomEvent<AddTemplatePayload>) {
+        const payload = event.detail;
+
+        addTemplateLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('name', payload.name);
+            fd.set('description', payload.description || '');
+            fd.set('type', payload.type);
+            fd.set('trackingArea', JSON.stringify(payload.trackingArea));
+            fd.set('zones', JSON.stringify(payload.zones));
+            fd.set('deviceSettings', JSON.stringify(payload.deviceSettings));
+            fd.set('selectedSensors', JSON.stringify(payload.selectedSensors));
+
+            const res = await fetch('?/create', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result?.success === false) {
+                toast.error(result?.error || 'Unable to create template. Please try again!');
+                return;
+            }
+
+            toast.success('Template created successfully!');
+            showAddTemplateModal = false;
+            await invalidate('app:userTemplates');
+        } catch {
+            toast.error('Unable to create template. Please try again!');
+        } finally {
+            addTemplateLoading = false;
         }
     }
 
@@ -283,7 +411,7 @@
                     {
                         id: 'edit',
                         label: 'Edit',
-                        onClick: () => goto(`${basePath}/${row.id}/edit`)
+                        onClick: () => openEditModal(row)
                     },
                     {
                         id: 'duplicate',
@@ -384,6 +512,29 @@
     templateType={addTemplateType}
     on:close={() => (showAddTemplateModal = false)}
     on:add={handleAddTemplate}
+/>
+
+<!-- Edit Template modal -->
+<EditTemplateModal
+    bind:open={showEditTemplateModal}
+    template={editTemplateData}
+    availableSensors={availableSensors}
+    on:close={closeEditModal}
+    on:save={handleEditTemplate}
+/>
+
+<!-- Edit Template Confirm - ConfirmModal (info) -->
+<ConfirmModal
+    open={showEditConfirmModal}
+    title="Template Changes"
+    description="Are you sure you want to update this template? By publish the changes will be auto updated to all assigned sensors"
+    cancelText="Skip later"
+    confirmText="Save & Publish"
+    type="info"
+    confirmLoading={editTemplateLoading}
+    confirmDisabled={editTemplateLoading}
+    on:close={closeEditConfirmModal}
+    on:confirm={confirmEditTemplate}
 />
 
 <!-- Duplicate Template - ConfirmModal (info) -->
