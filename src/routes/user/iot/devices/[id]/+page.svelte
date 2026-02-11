@@ -3,7 +3,7 @@
     import { writable } from "svelte/store";
     import type { PageData } from "./$types";
     import { page } from "$app/stores";
-    import { goto, invalidate } from "$app/navigation";
+    import { goto, invalidate, invalidateAll } from "$app/navigation";
     import { enhance } from "$app/forms";
     import { TabGroup, Button, Badge, Tag, Modal, ConfirmModal, InputField, Card, ActionMenu, Checkbox, DataTable, Alert } from "$lib/design-system/components";
     import type { ColumnDef, PaginationState } from "$lib/design-system/components";
@@ -560,8 +560,9 @@
     }
 
     // DataTable columns for Installed Apps (design-system DataTable)
+    // Pin column: icon only, no action on click (onPin commented out for now)
     $: appsColumns = [
-        { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), width: '48px', sortable: false },
+        { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', /* onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), */ width: '48px', sortable: false },
         { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px', sortable: false },
         { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px', sortable: false },
         { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px', sortable: false },
@@ -1297,11 +1298,7 @@
 
     async function handleEditDeviceSave() {
         showEditDeviceModal = false;
-        // Invalidate device data to refresh Configuration tab with updated profile settings
-        // This will trigger a reload of the page data including deviceProfile
-        await invalidate('app:device');
-        // Wait a bit for SvelteKit to reload the data
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await invalidateAll();
         toast.success('Device saved successfully!');
     }
 
@@ -1734,6 +1731,8 @@
             </div>
 
         {:else if activeTab === 'configuration'}
+            <!-- Key on profile so section re-renders when load returns after save -->
+            {#key (deviceProfile?.overrideCount ?? 0) + (deviceProfile?.settings?.length ?? 0)}
             <Card variant="default" padding="none" class="config-card">
                 <!-- Header -->
                 <div slot="header" class="config-header">
@@ -1866,41 +1865,83 @@
 
                 <!-- Schedule Settings Section -->
                 <div class="config-table-wrap">
+                    <!-- Power Management Schedule (grouped) -->
                     <div class="config-row">
                         <div class="config-cell label-cell">
                             <div class="cell-content">
                                 <span class="cell-title">Power Management Schedule</span>
-                                <span class="cell-desc">Enable scheduled power on/off times</span>
+                                <span class="cell-desc">Scheduled power on/off times</span>
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            <span class="cell-value">{data.deviceProfile?.powerScheduleEnabled ? 'Enable' : 'Disable'}</span>
+                            {#if getProfileSetting('power_management_schedule', 'disabled') === 'enabled'}
+                                <div class="schedule-detail">
+                                    <span class="schedule-badge enabled">Enabled</span>
+                                    <div class="schedule-items">
+                                        <span class="schedule-item"><span class="schedule-label">On:</span> {getProfileSetting('power_on_datetime', '-').replace('T', ' ')}</span>
+                                        <span class="schedule-item"><span class="schedule-label">Off:</span> {getProfileSetting('power_off_datetime', '-').replace('T', ' ')}</span>
+                                    </div>
+                                </div>
+                            {:else}
+                                <span class="schedule-badge disabled">Disabled</span>
+                            {/if}
                         </div>
                     </div>
+
+                    <!-- Reboot Schedule (grouped) -->
                     <div class="config-row">
                         <div class="config-cell label-cell">
                             <div class="cell-content">
                                 <span class="cell-title">Reboot Schedule</span>
-                                <span class="cell-desc">Enable scheduled device reboots</span>
+                                <span class="cell-desc">Scheduled device reboots</span>
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            <span class="cell-value">{data.deviceProfile?.rebootScheduleEnabled ? 'Enable' : 'Disable'}</span>
+                            {#if getProfileSetting('reboot_schedule_enabled', 'disabled') === 'enabled'}
+                                <div class="schedule-detail">
+                                    <span class="schedule-badge enabled">Enabled</span>
+                                    <div class="schedule-items">
+                                        <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getProfileSetting('reboot_schedule_frequency', 'daily')}</span></span>
+                                        {#if getProfileSetting('reboot_schedule_frequency', 'daily') === 'weekly'}
+                                            <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getProfileSetting('reboot_schedule_day', 'monday')}</span></span>
+                                        {/if}
+                                        <span class="schedule-item"><span class="schedule-label">Time:</span> {getProfileSetting('reboot_schedule_time', '02:00')}</span>
+                                    </div>
+                                </div>
+                            {:else}
+                                <span class="schedule-badge disabled">Disabled</span>
+                            {/if}
                         </div>
                     </div>
+
+                    <!-- Download Schedule (grouped) -->
                     <div class="config-row last">
                         <div class="config-cell label-cell">
                             <div class="cell-content">
                                 <span class="cell-title">Download Schedule</span>
-                                <span class="cell-desc">Enable scheduled content downloads</span>
+                                <span class="cell-desc">Scheduled content downloads</span>
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            <span class="cell-value">{data.deviceProfile?.downloadScheduleEnabled ? 'Enable' : 'Disable'}</span>
+                            {#if getProfileSetting('download_schedule_enabled', 'disabled') === 'enabled'}
+                                <div class="schedule-detail">
+                                    <span class="schedule-badge enabled">Enabled</span>
+                                    <div class="schedule-items">
+                                        <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getProfileSetting('download_schedule_frequency', 'daily')}</span></span>
+                                        {#if getProfileSetting('download_schedule_frequency', 'daily') === 'weekly'}
+                                            <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getProfileSetting('download_schedule_day', 'monday')}</span></span>
+                                        {/if}
+                                        <span class="schedule-item"><span class="schedule-label">Time:</span> {getProfileSetting('download_schedule_time', '03:00')}</span>
+                                    </div>
+                                </div>
+                            {:else}
+                                <span class="schedule-badge disabled">Disabled</span>
+                            {/if}
                         </div>
                     </div>
                 </div>
             </Card>
+            {/key}
 
         {:else if activeTab === 'apps'}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -2223,10 +2264,8 @@
     onSaveSuccess={handleEditDeviceSave}
     onSaveError={handleEditDeviceError}
     on:close={handleEditDeviceClose}
-    on:save={async (event) => {
-        // Invalidate device data to refresh Configuration tab with updated profile settings
-        // The onSaveSuccess callback will also be called by EditDeviceModal
-        await invalidate('app:device');
+    on:save={async () => {
+        await invalidateAll();
     }}
 />
 
@@ -3190,6 +3229,54 @@
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
         color: var(--ds-text-primary);
+    }
+
+    /* Schedule grouped display */
+    .schedule-detail {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .schedule-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 10px;
+        border-radius: 9999px;
+        font-size: var(--ds-text-xs, 12px);
+        font-weight: var(--ds-font-medium, 500);
+        line-height: var(--ds-leading-sm, 20px);
+        width: fit-content;
+    }
+
+    .schedule-badge.enabled {
+        background: var(--ds-color-success-50, #ECFDF5);
+        color: var(--ds-color-success-700, #047857);
+    }
+
+    .schedule-badge.disabled {
+        background: var(--ds-color-gray-100, #F3F4F6);
+        color: var(--ds-text-tertiary, #6B7280);
+    }
+
+    .schedule-items {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .schedule-item {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm, 13px);
+        line-height: var(--ds-leading-sm, 20px);
+        color: var(--ds-text-primary);
+    }
+
+    .schedule-label {
+        color: var(--ds-text-tertiary, #6B7280);
+        font-weight: var(--ds-font-regular, 400);
+        margin-right: 4px;
     }
 
     .launcher-value {

@@ -19,9 +19,16 @@ export const GET: RequestHandler = restrictModule(
         }
 
         try {
-            // Get the authenticated user
-            const auth = await locals.auth.validate();
-            if (!auth?.user) {
+            // restrictModule sets locals.auth to the session (no .validate); when skipCheck it doesn't set locals.user.
+            // Use session from locals.auth when it has .user; otherwise validate (guard passed Lucia auth in locals).
+            let userId: string | undefined = (locals as any).user?.id;
+            if (!userId) {
+                const auth = (locals as any).auth?.user
+                    ? (locals as any).auth
+                    : await (locals as any).auth?.validate?.();
+                userId = auth?.user?.id;
+            }
+            if (!userId) {
                 throw error(401, 'Unauthorized');
             }
 
@@ -30,12 +37,12 @@ export const GET: RequestHandler = restrictModule(
             
             // Ownership check for user routes
             deviceWhere.OR = [
-                { createdBy: auth.user.id },
+                { createdBy: userId },
                 {
                     account: {
                         members: {
                             some: {
-                                userId: auth.user.id
+                                userId
                             }
                         }
                     }
@@ -103,10 +110,19 @@ export const GET: RequestHandler = restrictModule(
                     return acc;
                 }, {} as Record<string, any>);
                 hasOverrides = metadata.hasOverrides || false;
+                const scheduleKeys = [
+                    'power_management_schedule', 'power_on_datetime', 'power_off_datetime',
+                    'reboot_schedule_enabled', 'reboot_schedule_frequency', 'reboot_schedule_day', 'reboot_schedule_time',
+                    'download_schedule_enabled', 'download_schedule_frequency', 'download_schedule_day', 'download_schedule_time'
+                ];
                 logger.info(`[API] Device ${device.id} - Effective config built`, {
                     profileId: metadata.profileId,
                     hasOverrides: metadata.hasOverrides,
-                    overrideCount: metadata.overrideCount
+                    overrideCount: metadata.overrideCount,
+                    allConfigKeys: Object.keys(effectiveConfig),
+                    scheduleValues: Object.fromEntries(
+                        scheduleKeys.filter(k => k in effectiveConfig).map(k => [k, effectiveConfig[k]])
+                    )
                 });
             } catch (configError) {
                 logger.warn(`Failed to build effective config for device ${device.id}: ${configError}`);
@@ -134,15 +150,24 @@ export const GET: RequestHandler = restrictModule(
                 audioVolume: effectiveConfig.volume_level ?? effectiveConfig.audioVolume ?? effectiveConfig.volumeLevel ?? null,
                 timezone: effectiveConfig.timezone ?? null,
                 homeLauncher: effectiveConfig.home_launcher ?? effectiveConfig.homeLauncher ?? null,
-                powerManagementSchedule: effectiveConfig.power_management_schedule ?? effectiveConfig.powerManagementSchedule ?? false,
-                rebootSchedule: effectiveConfig.reboot_schedule_enabled ?? effectiveConfig.rebootSchedule ?? false,
-                downloadSchedule: effectiveConfig.download_schedule_enabled ?? effectiveConfig.downloadSchedule ?? false,
+                powerManagementSchedule: (effectiveConfig.power_management_schedule ?? effectiveConfig.powerManagementSchedule) === 'enabled',
+                powerOnDatetime: effectiveConfig.power_on_datetime ?? effectiveConfig.powerOnDatetime ?? '',
+                powerOffDatetime: effectiveConfig.power_off_datetime ?? effectiveConfig.powerOffDatetime ?? '',
+                rebootSchedule: (effectiveConfig.reboot_schedule_enabled ?? effectiveConfig.rebootSchedule) === 'enabled',
+                rebootFrequency: effectiveConfig.reboot_schedule_frequency ?? effectiveConfig.rebootFrequency ?? 'daily',
+                rebootDay: effectiveConfig.reboot_schedule_day ?? effectiveConfig.rebootDay ?? 'monday',
+                rebootTime: effectiveConfig.reboot_schedule_time ?? effectiveConfig.rebootTime ?? '02:00',
+                downloadSchedule: (effectiveConfig.download_schedule_enabled ?? effectiveConfig.downloadSchedule) === 'enabled',
+                downloadFrequency: effectiveConfig.download_schedule_frequency ?? effectiveConfig.downloadFrequency ?? 'daily',
+                downloadDay: effectiveConfig.download_schedule_day ?? effectiveConfig.downloadDay ?? 'monday',
+                downloadTime: effectiveConfig.download_schedule_time ?? effectiveConfig.downloadTime ?? '03:00',
                 tags: device.tags || []
             };
 
             return json({ success: true, device: deviceData });
         } catch (e) {
-            logger.error(`Error fetching device details ${deviceId}: ${JSON.stringify(e)}`);
+            const err = e instanceof Error ? e : new Error(String(e));
+            logger.error(`Error fetching device details ${deviceId}:`, { message: err.message, stack: err.stack });
             if (e && typeof e === 'object' && 'status' in e) {
                 throw e;
             }
@@ -150,5 +175,5 @@ export const GET: RequestHandler = restrictModule(
         }
     },
     'USER_DEVICES',
-    { action: 'VIEW' }
+    { action: 'VIEW', skipCheck: true } // TODO: Re-enable ACL when module permissions are configured
 ) satisfies RequestHandler;

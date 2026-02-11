@@ -396,9 +396,10 @@ export function createDeviceActions(options: {
          * Used by both list pages (admin and user) for Edit Device modal
          */
         updateDevice: async ({ request, locals }: { request: Request; locals: any }) => {
+            let id: string | undefined;
             try {
                 const data = await request.formData();
-                const id = data.get('id')?.toString();
+                id = data.get('id')?.toString();
                 
                 if (!id) {
                     return fail(400, { error: 'Device ID is required' });
@@ -578,16 +579,43 @@ export function createDeviceActions(options: {
                     }
                     if (data.has('powerManagementSchedule')) {
                         customSettings.power_management_schedule = powerManagementSchedule ? 'enabled' : 'disabled';
+                        if (powerManagementSchedule) {
+                            const powerOnDatetime = data.get('powerOnDatetime')?.toString();
+                            const powerOffDatetime = data.get('powerOffDatetime')?.toString();
+                            if (powerOnDatetime !== undefined) customSettings.power_on_datetime = powerOnDatetime || '';
+                            if (powerOffDatetime !== undefined) customSettings.power_off_datetime = powerOffDatetime || '';
+                        }
                     }
                     if (data.has('rebootSchedule')) {
                         customSettings.reboot_schedule_enabled = rebootSchedule ? 'enabled' : 'disabled';
+                        if (rebootSchedule) {
+                            const rebootFrequency = data.get('rebootFrequency')?.toString();
+                            const rebootDay = data.get('rebootDay')?.toString();
+                            const rebootTime = data.get('rebootTime')?.toString();
+                            if (rebootFrequency !== undefined) customSettings.reboot_schedule_frequency = rebootFrequency || 'daily';
+                            if (rebootDay !== undefined) customSettings.reboot_schedule_day = rebootDay || 'monday';
+                            if (rebootTime !== undefined) customSettings.reboot_schedule_time = rebootTime || '02:00';
+                        }
                     }
                     if (data.has('downloadSchedule')) {
                         customSettings.download_schedule_enabled = downloadSchedule ? 'enabled' : 'disabled';
+                        if (downloadSchedule) {
+                            const downloadFrequency = data.get('downloadFrequency')?.toString();
+                            const downloadDay = data.get('downloadDay')?.toString();
+                            const downloadTime = data.get('downloadTime')?.toString();
+                            if (downloadFrequency !== undefined) customSettings.download_schedule_frequency = downloadFrequency || 'daily';
+                            if (downloadDay !== undefined) customSettings.download_schedule_day = downloadDay || 'monday';
+                            if (downloadTime !== undefined) customSettings.download_schedule_time = downloadTime || '03:00';
+                        }
                     }
                     
                     // Save custom overrides using DeviceProfileService
                     if (Object.keys(customSettings).length > 0) {
+                        logger.info(`[updateDevice] Saving custom overrides for device ${id}`, {
+                            keys: Object.keys(customSettings),
+                            keyCount: Object.keys(customSettings).length,
+                            sample: Object.fromEntries(Object.entries(customSettings).slice(0, 5))
+                        });
                         const profileService = new DeviceProfileService(locals.prisma);
                         const userId = auth.user.id;
                         await profileService.updateDeviceSettings(id, customSettings, userId);

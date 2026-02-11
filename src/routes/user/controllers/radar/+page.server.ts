@@ -207,9 +207,11 @@ export const load = restrict(
 /**
  * Resolve or create Device from PIN (Device Registration Code). Claim is independent from Devices module.
  * Returns deviceId to use for creating Controller + Sensor.
+ * Uses raw prisma (not ZenStack) so unclaimed FactoryDevices (accountId == null) are visible; ZenStack
+ * only allows read when account != null && user is member, which would block PIN lookup for new devices.
  */
 async function resolveDeviceIdByPin(
-    prisma: AuthenticatedEvent['locals']['prisma'],
+    _prisma: AuthenticatedEvent['locals']['prisma'],
     pin: string,
     currentAccountId: string,
     userId: string,

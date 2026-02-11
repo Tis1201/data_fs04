@@ -46,8 +46,32 @@
     let timezone = 'Asia/Ho_Chi_Minh';
     let homeLauncher = '';
     let powerManagementSchedule = false;
+    let powerOnDatetime = '';
+    let powerOffDatetime = '';
     let rebootSchedule = false;
+    let rebootFrequency = 'daily';
+    let rebootDay = 'monday';
+    let rebootTime = '02:00';
     let downloadSchedule = false;
+    let downloadFrequency = 'daily';
+    let downloadDay = 'monday';
+    let downloadTime = '03:00';
+
+    // Schedule options from availableSettings (same as Edit Device modal)
+    $: frequencyOptions = (() => {
+        const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_frequency');
+        if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
+        return [{ id: 'daily', label: 'Daily' }, { id: 'weekly', label: 'Weekly' }, { id: 'monthly', label: 'Monthly' }];
+    })();
+    $: dayOptions = (() => {
+        const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_day');
+        if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
+        return [
+            { id: 'monday', label: 'Monday' }, { id: 'tuesday', label: 'Tuesday' }, { id: 'wednesday', label: 'Wednesday' },
+            { id: 'thursday', label: 'Thursday' }, { id: 'friday', label: 'Friday' }, { id: 'saturday', label: 'Saturday' },
+            { id: 'sunday', label: 'Sunday' }
+        ];
+    })();
 
     // Dropdown options from availableSettings
     $: displayResolutionOptions = (() => {
@@ -139,18 +163,26 @@
                 label: 'Power Management Schedule',
                 category: 'Power'
             },
-            reboot_schedule: {
+            power_on_datetime: { value: powerOnDatetime || '', dataType: 'string', label: 'Power-On Date & Time', category: 'Power' },
+            power_off_datetime: { value: powerOffDatetime || '', dataType: 'string', label: 'Power-Off Date & Time', category: 'Power' },
+            reboot_schedule_enabled: {
                 value: rebootSchedule ? 'enabled' : 'disabled',
                 dataType: 'select',
                 label: 'Reboot Schedule',
                 category: 'Maintenance'
             },
-            download_schedule: {
+            reboot_schedule_frequency: { value: rebootFrequency || 'daily', dataType: 'string', label: 'Reboot Frequency', category: 'Maintenance' },
+            reboot_schedule_day: { value: rebootDay || 'monday', dataType: 'string', label: 'Reboot Day', category: 'Maintenance' },
+            reboot_schedule_time: { value: rebootTime || '02:00', dataType: 'string', label: 'Reboot Time', category: 'Maintenance' },
+            download_schedule_enabled: {
                 value: downloadSchedule ? 'enabled' : 'disabled',
                 dataType: 'select',
                 label: 'Download Schedule',
                 category: 'Maintenance'
-            }
+            },
+            download_schedule_frequency: { value: downloadFrequency || 'daily', dataType: 'string', label: 'Download Frequency', category: 'Maintenance' },
+            download_schedule_day: { value: downloadDay || 'monday', dataType: 'string', label: 'Download Day', category: 'Maintenance' },
+            download_schedule_time: { value: downloadTime || '03:00', dataType: 'string', label: 'Download Time', category: 'Maintenance' }
         };
         return Object.entries(map).map(([key], index) => ({
             key,
@@ -192,8 +224,16 @@
             timezone = getSettingValue('timezone', settings) || 'Asia/Ho_Chi_Minh';
             homeLauncher = getSettingValue('home_launcher', settings) || '';
             powerManagementSchedule = getSettingValue('power_management_schedule', settings) === 'enabled';
+            powerOnDatetime = getSettingValue('power_on_datetime', settings) || '';
+            powerOffDatetime = getSettingValue('power_off_datetime', settings) || '';
             rebootSchedule = getSettingValue('reboot_schedule', settings) === 'enabled' || getSettingValue('reboot_schedule_enabled', settings) === 'enabled';
+            rebootFrequency = getSettingValue('reboot_schedule_frequency', settings) || 'daily';
+            rebootDay = getSettingValue('reboot_schedule_day', settings) || 'monday';
+            rebootTime = getSettingValue('reboot_schedule_time', settings) || '02:00';
             downloadSchedule = getSettingValue('download_schedule', settings) === 'enabled' || getSettingValue('download_schedule_enabled', settings) === 'enabled';
+            downloadFrequency = getSettingValue('download_schedule_frequency', settings) || 'daily';
+            downloadDay = getSettingValue('download_schedule_day', settings) || 'monday';
+            downloadTime = getSettingValue('download_schedule_time', settings) || '03:00';
         } catch (e) {
             errorMessage = e instanceof Error ? e.message : 'Failed to load profile';
         }
@@ -215,8 +255,16 @@
         timezone = 'Asia/Ho_Chi_Minh';
         homeLauncher = '';
         powerManagementSchedule = false;
+        powerOnDatetime = '';
+        powerOffDatetime = '';
         rebootSchedule = false;
+        rebootFrequency = 'daily';
+        rebootDay = 'monday';
+        rebootTime = '02:00';
         downloadSchedule = false;
+        downloadFrequency = 'daily';
+        downloadDay = 'monday';
+        downloadTime = '03:00';
         errorMessage = null;
     }
 
@@ -521,8 +569,9 @@
                 </div>
             </div>
 
-            <!-- Block 5: Schedule Settings -->
+            <!-- Block 5: Schedule Settings (same as Edit Device: date/time, frequency, day, time) -->
             <div class="config-block">
+                <!-- Power Management Schedule -->
                 <div class="config-row">
                     <div>
                         <p class="config-label">Power Management Schedule</p>
@@ -530,7 +579,28 @@
                     </div>
                     <Toggle bind:checked={powerManagementSchedule} size="sm" />
                 </div>
+                {#if powerManagementSchedule}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Power-On Date & Time</p>
+                        <p class="config-description">Scheduled time to turn on the device</p>
+                    </div>
+                    <div class="config-input-wrap config-datetime-wrap">
+                        <input type="datetime-local" class="config-input" bind:value={powerOnDatetime} />
+                    </div>
+                </div>
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Power-Off Date & Time</p>
+                        <p class="config-description">Scheduled time to turn off the device</p>
+                    </div>
+                    <div class="config-input-wrap config-datetime-wrap">
+                        <input type="datetime-local" class="config-input" bind:value={powerOffDatetime} />
+                    </div>
+                </div>
+                {/if}
 
+                <!-- Reboot Schedule -->
                 <div class="config-row">
                     <div>
                         <p class="config-label">Reboot Schedule</p>
@@ -538,14 +608,77 @@
                     </div>
                     <Toggle bind:checked={rebootSchedule} size="sm" />
                 </div>
+                {#if rebootSchedule}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Reboot Frequency</p>
+                        <p class="config-description">How often to reboot the device</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <Dropdown placeholder="Select" options={frequencyOptions} bind:value={rebootFrequency} />
+                    </div>
+                </div>
+                {#if rebootFrequency === 'weekly'}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Reboot Day</p>
+                        <p class="config-description">Day of the week for scheduled reboot</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <Dropdown placeholder="Select" options={dayOptions} bind:value={rebootDay} />
+                    </div>
+                </div>
+                {/if}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Reboot Time</p>
+                        <p class="config-description">Time for scheduled reboot</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <input type="time" class="config-input" bind:value={rebootTime} />
+                    </div>
+                </div>
+                {/if}
 
-                <div class="config-row config-row-last">
+                <!-- Download Schedule -->
+                <div class="config-row{!downloadSchedule ? ' config-row-last' : ''}">
                     <div>
                         <p class="config-label">Download Schedule</p>
                         <p class="config-description">Enable scheduled content downloads</p>
                     </div>
                     <Toggle bind:checked={downloadSchedule} size="sm" />
                 </div>
+                {#if downloadSchedule}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Download Frequency</p>
+                        <p class="config-description">How often to download content</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <Dropdown placeholder="Select" options={frequencyOptions} bind:value={downloadFrequency} />
+                    </div>
+                </div>
+                {#if downloadFrequency === 'weekly'}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Download Day</p>
+                        <p class="config-description">Day of the week for scheduled downloads</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <Dropdown placeholder="Select" options={dayOptions} bind:value={downloadDay} />
+                    </div>
+                </div>
+                {/if}
+                <div class="config-row config-sub-row config-row-last">
+                    <div>
+                        <p class="config-label config-sub-label">Download Time</p>
+                        <p class="config-description">Time for scheduled downloads</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <input type="time" class="config-input" bind:value={downloadTime} />
+                    </div>
+                </div>
+                {/if}
             </div>
         </div>
 
@@ -647,6 +780,38 @@
 
     .config-input-wrap {
         width: 200px;
+    }
+
+    .config-datetime-wrap {
+        width: 220px;
+    }
+
+    .config-sub-row {
+        padding-left: calc(var(--ds-space-5) + 16px);
+        background: var(--ds-bg-primary);
+    }
+
+    .config-sub-label {
+        font-size: var(--ds-text-sm);
+    }
+
+    .config-input {
+        width: 100%;
+        height: 40px;
+        padding: 6px 12px;
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-sm);
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        background: #FFFFFF;
+        color: var(--ds-text-primary);
+        box-sizing: border-box;
+    }
+
+    .config-input:focus {
+        outline: none;
+        border-color: var(--ds-color-primary-500);
+        box-shadow: 0px 0px 0px 3px var(--ds-color-primary-100);
     }
 
     .config-input-wrap .relative {
