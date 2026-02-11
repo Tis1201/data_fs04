@@ -47,8 +47,7 @@
             label: 'Devices',
             icon: LayoutList,
             children: [
-                // New module not designed yet - leads to separate route (will 404)
-                { id: 'device-listing', label: 'Device Listing', href: '/user/devices/listing' },
+                { id: 'all-devices', label: 'All Devices', href: '/user/devices/listing' },
                 { id: 'tags', label: 'Tags', href: '/user/devices/tags' }
             ]
         },
@@ -310,6 +309,14 @@
                     : isDetail
                         ? 'Key information about this tag'
                         : 'Manage tags for organizing devices'
+            };
+        }
+        // All Devices (combined Remote Devices + Sensors)
+        if (pathname === '/user/devices/listing' || pathname === '/user/devices/listing/') {
+            return {
+                headerStyle: 'page',
+                title: 'All Devices',
+                subtitle: 'View, filter, and manage all devices'
             };
         }
         // Default
