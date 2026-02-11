@@ -63,6 +63,6 @@
     pageCrumbs={breadcrumbs}
     context="admin"
     basePath="/admin/iot/bundles"
-    enableDeviceTracking={false}
+    enableDeviceTracking={true}
     enableStopAllWaves={true}
 />

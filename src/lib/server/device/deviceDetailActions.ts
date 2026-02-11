@@ -11,6 +11,8 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
 import { updateDeviceProfile as updateDeviceProfileUtil } from '$lib/server/device/deviceProfileUpdater';
+import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
+import { queueNotification } from '$lib/server/mqtt/core/queue';
 import crypto from 'crypto';
 
 export interface DeviceDetailActionContext {
@@ -197,7 +199,24 @@ export function createGenerateApiKeyAction(
             );
 
             await publisher.publish(updateMessage);
-            logger.info(`Sent new API key to device ${deviceId}`);
+            logger.info(`Sent new API key to device ${deviceId} (messaging)`);
+
+            // Queue API key update for MQTT worker to send to device (worker has LINK signing key for tickets)
+            try {
+                const flowId = `req-${crypto.randomUUID()}`;
+                await queueNotification({
+                    sub: `user:${userId}`,
+                    recipient: `device:${deviceId}`,
+                    type: DeviceNotificationType.UpdateApiKey,
+                    flowId,
+                    params: { apiKey },
+                    expiresIn: '5m'
+                });
+                logger.info(`Queued new API key for device ${deviceId} (MQTT worker will send to device)`);
+            } catch (mqttErr) {
+                logger.warn(`Failed to queue API key for device via MQTT: ${mqttErr instanceof Error ? mqttErr.message : String(mqttErr)}`);
+                // Do not fail the action: DB is updated and SSE was sent; MQTT is best-effort for devices on that transport
+            }
 
             // Create form for superForm response
             // Use apiKeySchema if provided, otherwise use deviceEditSchema with minimal fields
