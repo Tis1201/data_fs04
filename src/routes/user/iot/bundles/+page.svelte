@@ -117,7 +117,7 @@
         goto(url.pathname + url.search, { noScroll: true });
     }
 
-    async function handleAddDeploymentCreated(event: CustomEvent<{ id: string; publish: boolean }>) {
+    async function handleAddDeploymentCreated(event: CustomEvent<{ id: string }>) {
         showAddModal = false;
         await invalidate('app:bundles');
         goto(`${basePath}/${event.detail.id}`);

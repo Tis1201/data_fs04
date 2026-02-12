@@ -18,7 +18,7 @@
 
     const dispatch = createEventDispatcher<{
         close: void;
-        created: { id: string; publish: boolean };
+        created: { id: string };
     }>();
 
     // Form state
@@ -40,11 +40,7 @@
     let startDateError = '';
     let endDateError = '';
 
-    // Publish confirmation modal
-    let showPublishConfirm = false;
-    let pendingBundleId = '';
-
-    // Check if form is valid for enabling Publish button
+    // Check if form is valid for enabling Save as Draft button
     $: isFormValid = name.trim().length > 0 && os && waveSize > 0 && 
         (!showScheduleFields || (startDate && endDate));
 
@@ -150,7 +146,7 @@
         dispatch('close');
     }
 
-    async function submit(publishAfterCreate: boolean) {
+    async function submit() {
         if (!validate()) return;
         submitting = true;
         const fd = buildFormData();
@@ -188,22 +184,9 @@
             const id = location?.match(/\/user\/iot\/bundles\/([^/?#]+)/)?.[1];
 
             if (isRedirect && id) {
-                if (publishAfterCreate) {
-                    const pubRes = await fetch(`/api/v2/bundles/${id}/publish`, {
-                        method: 'POST',
-                        credentials: 'same-origin'
-                    });
-                    const pubJson = await pubRes.json().catch(() => ({}));
-                    if (pubRes.ok && pubJson.success) {
-                        toast.success('Deployment published successfully!');
-                    } else {
-                        toast.error(pubJson.message || 'Unable to publish Deployment. Please try again!');
-                    }
-                } else {
-                    toast.success('Deployment created successfully.');
-                }
+                toast.success('Deployment created successfully.');
                 closeModal();
-                dispatch('created', { id, publish: publishAfterCreate });
+                dispatch('created', { id });
             } else {
                 if (!responseText) {
                     responseText = await res.text();
@@ -224,21 +207,7 @@
     }
 
     function handleSaveDraft() {
-        submit(false);
-    }
-
-    function handlePublishClick() {
-        if (!validate()) return;
-        showPublishConfirm = true;
-    }
-
-    function handlePublishConfirm() {
-        showPublishConfirm = false;
-        submit(true);
-    }
-
-    function handlePublishCancel() {
-        showPublishConfirm = false;
+        submit();
     }
 
     function handleCancel() {
@@ -290,11 +259,10 @@
     <svelte:fragment slot="footer">
         <div class="modal-footer-actions">
             <Button type="button" variant="outline" size="lg" color="primary" on:click={handleCancel}>Cancel</Button>
-            <Button type="button" variant="outline" size="lg" color="primary" on:click={handleSaveDraft} disabled={submitting || !isFormValid}>Save as Draft</Button>
-            <Button type="button" variant="filled" size="lg" color="primary" on:click={handlePublishClick} loading={submitting} disabled={submitting || !isFormValid}>Publish</Button>
+            <Button type="button" variant="outline" size="lg" color="primary" on:click={handleSaveDraft} loading={submitting} disabled={submitting || !isFormValid}>Save as Draft</Button>
         </div>
     </svelte:fragment>
-    <form class="add-deployment-form" on:submit|preventDefault={() => submit(false)}>
+    <form class="add-deployment-form" on:submit|preventDefault={() => submit()}>
         <div class="form-grid">
             <div class="col-left">
                 <div class="field-wrap">
@@ -442,23 +410,6 @@
             </div>
         </div>
     </form>
-</Modal>
-
-<!-- Publish Confirmation Modal (same as listing action menu) -->
-<Modal
-    open={showPublishConfirm}
-    title="Deployment Confirm"
-    type="warning"
-    size="md"
-    showFooter={true}
-    confirmText="Confirm"
-    cancelText="Cancel"
-    on:close={handlePublishCancel}
-    on:confirm={handlePublishConfirm}
-    on:cancel={handlePublishCancel}
->
-    <p class="publish-confirm-text">Are you sure you want to create this deployment?</p>
-    <p class="publish-confirm-desc">This action will trigger the deployment automatically based on the scheduled date & time. If no schedule is configured, the deployment will require manual execution.</p>
 </Modal>
 
 <style>
@@ -630,20 +581,6 @@
         justify-content: flex-end;
         gap: var(--ds-space-3);
         width: 100%;
-    }
-    .publish-confirm-text {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        line-height: var(--ds-leading-sm);
-        color: var(--ds-text-primary);
-        margin: 0 0 var(--ds-space-2) 0;
-    }
-    .publish-confirm-desc {
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        line-height: var(--ds-leading-sm);
-        color: var(--ds-text-secondary);
-        margin: 0;
     }
 
     /* Responsive: stack to 1 column on smaller screens */
