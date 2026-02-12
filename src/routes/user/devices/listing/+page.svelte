@@ -838,6 +838,7 @@
                 {pagination}
                 {sort}
                 {loading}
+                hiddenColumns={['deviceType', 'usage']}
                 selectable={true}
                 bind:selectedRows
                 on:sort={handleSort}

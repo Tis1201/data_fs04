@@ -100,6 +100,7 @@ export async function loadDeviceList(
         accountId?: string;
         includeStats?: boolean; // Admin only - include device statistics
         includeRealTimeStatus?: boolean; // Include real-time online status
+        includeDeviceInformation?: boolean; // Include ClickHouse device info (CPU/MEM/DSK, OS from heartbeats)
     }
 ) {
     try {
@@ -258,29 +259,34 @@ export async function loadDeviceList(
             }));
         }
 
-        // Load device information from ClickHouse: run both lookups in parallel to cut wall-clock time
-        const macAddresses = devicesWithRealTimeStatus
-            .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
-            .filter(Boolean);
-        const allDeviceIds = devicesWithRealTimeStatus.map((d: any) => d.id);
+        // Load device information from ClickHouse (optional): run both lookups in parallel to cut wall-clock time.
+        // This is primarily used for Usage (CPU/MEM/DSK) and heartbeat-derived OS info.
+        let deviceInfoMap = new Map<string, any>();
+        let deviceInfoByDeviceIdMap = new Map<string, any>();
+        if (options?.includeDeviceInformation !== false) {
+            const macAddresses = devicesWithRealTimeStatus
+                .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
+                .filter(Boolean);
+            const allDeviceIds = devicesWithRealTimeStatus.map((d: any) => d.id);
 
-        const [byMacResult, byDeviceIdResult] = await Promise.all([
-            macAddresses.length > 0
-                ? getMultipleDeviceInformation(macAddresses).catch((err) => {
-                    logger.warn(`Failed to load device information from ClickHouse (by MAC): ${err}`);
-                    return new Map<string, any>();
-                })
-                : Promise.resolve(new Map<string, any>()),
-            allDeviceIds.length > 0
-                ? getBulkDeviceInformationByDeviceIds(allDeviceIds).catch((err) => {
-                    logger.warn(`Failed to load device information by device_id: ${err}`);
-                    return new Map<string, any>();
-                })
-                : Promise.resolve(new Map<string, any>())
-        ]);
+            const [byMacResult, byDeviceIdResult] = await Promise.all([
+                macAddresses.length > 0
+                    ? getMultipleDeviceInformation(macAddresses).catch((err) => {
+                        logger.warn(`Failed to load device information from ClickHouse (by MAC): ${err}`);
+                        return new Map<string, any>();
+                    })
+                    : Promise.resolve(new Map<string, any>()),
+                allDeviceIds.length > 0
+                    ? getBulkDeviceInformationByDeviceIds(allDeviceIds).catch((err) => {
+                        logger.warn(`Failed to load device information by device_id: ${err}`);
+                        return new Map<string, any>();
+                    })
+                    : Promise.resolve(new Map<string, any>())
+            ]);
 
-        const deviceInfoMap = byMacResult;
-        const deviceInfoByDeviceIdMap = byDeviceIdResult;
+            deviceInfoMap = byMacResult;
+            deviceInfoByDeviceIdMap = byDeviceIdResult;
+        }
 
         // Calculate device statistics (admin only)
         // Wrap in try-catch to allow page to load even if stats calculation fails

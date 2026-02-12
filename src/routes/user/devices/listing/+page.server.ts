@@ -42,7 +42,10 @@ export const load = restrict(
                     checkOwnership: true,
                     userId,
                     accountId: currentAccountId,
-                    includeStats: true,
+                    // This page doesn't render Usage / OS columns, so we can skip ClickHouse device info.
+                    includeDeviceInformation: false,
+                    // Also skip expensive cross-device stats aggregation (not used on this page).
+                    includeStats: false,
                     includeRealTimeStatus: true
                 });
             }

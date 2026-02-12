@@ -81,6 +81,9 @@
     export let selectable = true;
     export let selectedRows: DeviceRow[] = [];
     export let loading = false;
+    // Allows routes to hide specific columns (by column id) without forking this table.
+    // Example: hiddenColumns={['deviceType','usage']}
+    export let hiddenColumns: string[] = [];
 
     // Column definitions - widths match Figma design
     // Per Figma: 
@@ -130,6 +133,9 @@
         { id: "disconnectedAt", label: "Last Seen", sortable: true, width: "150px" },
         { id: "actions", label: "Actions", sortable: false, width: "80px" }
     ];
+
+    $: hiddenSet = new Set(hiddenColumns);
+    $: visibleColumns = columns.filter((c) => !hiddenSet.has(c.id));
 
     // Calculate usage health status for client-side filtering
     function getUsageHealthStatus(row: DeviceRow): 'Healthy' | 'Warning' | 'Critical' {
@@ -428,7 +434,7 @@
                             />
                         </th>
                     {/if}
-                    {#each columns as column}
+                    {#each visibleColumns as column}
                         <th
                             class="h-[44px] text-left {column.sortable ? 'cursor-pointer hover:bg-gray-100 select-none' : ''}"
                             style="width: {column.width || 'auto'}; padding: 12px 16px; font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-600); transition: background-color 0.15s;"
@@ -498,7 +504,7 @@
                                     <div class="w-5 h-5 bg-gray-200 rounded animate-pulse"></div>
                                 </td>
                             {/if}
-                            {#each columns as _}
+                            {#each visibleColumns as _}
                                 <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
                                     <div class="h-4 bg-gray-200 rounded animate-pulse"></div>
                                 </td>
@@ -507,7 +513,7 @@
                     {/each}
                 {:else if filteredData.length === 0}
                     <tr>
-                        <td colspan={columns.length + (selectable ? 1 : 0)} class="px-4 py-12 text-center text-gray-500">
+                        <td colspan={visibleColumns.length + (selectable ? 1 : 0)} class="px-4 py-12 text-center text-gray-500">
                             {data.length === 0 ? 'No devices found' : 'No devices match the current filters'}
                         </td>
                     </tr>
@@ -526,78 +532,92 @@
                             {/if}
 
                             <!-- Device Name: padding 12px 16px, gap 6px -->
-                            <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
-                                <div class="flex flex-col gap-[6px]">
-                                    <button
-                                        type="button"
-                                        class="device-name-link text-left"
-                                        style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); cursor: pointer; background: none; border: none; padding: 0;"
-                                        on:click={() => handleAction("view", row)}
-                                    >
-                                        {row.name}
-                                    </button>
-                                    {#if row.tags && row.tags.length > 0}
-                                        <div class="flex items-center gap-1 flex-nowrap">
-                                            {#each row.tags.slice(0, 3) as deviceTag}
-                                                <Tag label={deviceTag.name} size="sm" />
-                                            {/each}
-                                            {#if row.tags.length > 3}
-                                                <Tag label="+{row.tags.length - 3}" size="sm" />
-                                            {/if}
-                                        </div>
-                                    {/if}
-                                </div>
-                            </td>
+                            {#if !hiddenSet.has('name')}
+                                <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
+                                    <div class="flex flex-col gap-[6px]">
+                                        <button
+                                            type="button"
+                                            class="device-name-link text-left"
+                                            style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); cursor: pointer; background: none; border: none; padding: 0;"
+                                            on:click={() => handleAction("view", row)}
+                                        >
+                                            {row.name}
+                                        </button>
+                                        {#if row.tags && row.tags.length > 0}
+                                            <div class="flex items-center gap-1 flex-nowrap">
+                                                {#each row.tags.slice(0, 3) as deviceTag}
+                                                    <Tag label={deviceTag.name} size="sm" />
+                                                {/each}
+                                                {#if row.tags.length > 3}
+                                                    <Tag label="+{row.tags.length - 3}" size="sm" />
+                                                {/if}
+                                            </div>
+                                        {/if}
+                                    </div>
+                                </td>
+                            {/if}
 
                             <!-- MAC Address: padding 16px -->
-                            <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
-                                <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.macAddress || "N/A"}</span>
-                            </td>
+                            {#if !hiddenSet.has('macAddress')}
+                                <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
+                                    <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.macAddress || "N/A"}</span>
+                                </td>
+                            {/if}
 
                             <!-- Operating System (deviceType): padding 16px -->
-                            <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
-                                <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.deviceType || "N/A"}</span>
-                            </td>
+                            {#if !hiddenSet.has('deviceType')}
+                                <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
+                                    <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.deviceType || "N/A"}</span>
+                                </td>
+                            {/if}
 
                             <!-- Usage: padding 12px 16px -->
-                            <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
-                                <UsageIndicators
-                                    cpuUsage={row.cpuUsage}
-                                    memUsage={row.memUsage}
-                                    diskUsage={row.diskUsage}
-                                />
-                            </td>
+                            {#if !hiddenSet.has('usage')}
+                                <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
+                                    <UsageIndicators
+                                        cpuUsage={row.cpuUsage}
+                                        memUsage={row.memUsage}
+                                        diskUsage={row.diskUsage}
+                                    />
+                                </td>
+                            {/if}
 
                             <!-- Status: padding 12px 16px, gap 4px -->
-                            <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
-                                <Badge
-                                    label={row.connected ? "Online" : "Offline"}
-                                    color={row.connected ? "success" : "gray"}
-                                    variant="filled"
-                                    size="sm"
-                                />
-                            </td>
+                            {#if !hiddenSet.has('connected')}
+                                <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
+                                    <Badge
+                                        label={row.connected ? "Online" : "Offline"}
+                                        color={row.connected ? "success" : "gray"}
+                                        variant="filled"
+                                        size="sm"
+                                    />
+                                </td>
+                            {/if}
 
                             <!-- Last Seen: padding 16px -->
-                            <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
-                                <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: {lastSeen.isRed ? 'var(--ds-color-error-600)' : 'var(--ds-color-gray-900)'};">
-                                    {lastSeen.text}
-                                </span>
-                            </td>
+                            {#if !hiddenSet.has('disconnectedAt')}
+                                <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
+                                    <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: {lastSeen.isRed ? 'var(--ds-color-error-600)' : 'var(--ds-color-gray-900)'};">
+                                        {lastSeen.text}
+                                    </span>
+                                </td>
+                            {/if}
 
                             <!-- Actions: padding 8px 16px -->
-                            <td class="h-[72px]" style="padding: 8px 16px; border-bottom: 1px solid #EAECF0;">
-                                <div class="relative">
-                                    <button
-                                        type="button"
-                                        class="flex items-center justify-center rounded-lg transition-colors hover:bg-[#F9FAFB]"
-                                        style="width: 40px; height: 40px;"
-                                        on:click|stopPropagation={(e) => toggleActionMenu(row.id, e)}
-                                    >
-                                        <MoreVertical size={20} style="color: #475467;" />
-                                    </button>
-                                </div>
-                            </td>
+                            {#if !hiddenSet.has('actions')}
+                                <td class="h-[72px]" style="padding: 8px 16px; border-bottom: 1px solid #EAECF0;">
+                                    <div class="relative">
+                                        <button
+                                            type="button"
+                                            class="flex items-center justify-center rounded-lg transition-colors hover:bg-[#F9FAFB]"
+                                            style="width: 40px; height: 40px;"
+                                            on:click|stopPropagation={(e) => toggleActionMenu(row.id, e)}
+                                        >
+                                            <MoreVertical size={20} style="color: #475467;" />
+                                        </button>
+                                    </div>
+                                </td>
+                            {/if}
                         </tr>
                     {/each}
                 {/if}
@@ -681,7 +701,7 @@
 
 <!-- Filter Dropdown Portal (rendered outside table to avoid overflow clipping) -->
 {#if openFilterColumn}
-    {@const currentColumn = columns.find(c => c.id === openFilterColumn)}
+    {@const currentColumn = visibleColumns.find(c => c.id === openFilterColumn)}
     {#if currentColumn?.filterOptions}
         <!-- Backdrop to close dropdown when clicking outside -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
