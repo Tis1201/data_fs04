@@ -6,7 +6,12 @@ import { getStatusBeforeToggled } from '$lib/utils';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { deviceSchema } from '$lib/schemas/device';
-import { DeviceProfileService } from '$lib/server/device/profile';
+import {
+    getCurrentProfileSettings,
+    saveCustomProfile,
+    assignGlobalProfile,
+    reapplyIfChanged
+} from './deviceProfileActions';
 
 /**
  * Create device actions factory
@@ -400,8 +405,22 @@ export function createDeviceActions(options: {
             try {
                 const data = await request.formData();
                 id = data.get('id')?.toString();
-                
+                const profileId = data.get('profileId')?.toString();
+                const isCustom = data.get('isCustom')?.toString() === 'true';
+                const formKeys = Array.from(data.keys());
+                logger.info('[updateDevice] Request received', {
+                    deviceId: id,
+                    profileId: profileId ?? '(empty)',
+                    isCustom,
+                    formKeyCount: formKeys.length,
+                    formKeys: formKeys.sort().join(', '),
+                    hasConfigKeys: formKeys.some((k) =>
+                        ['kioskLockMode', 'displayResolution', 'profileId', 'isCustom'].includes(k)
+                    )
+                });
+
                 if (!id) {
+                    logger.warn('[updateDevice] Missing device id in formData');
                     return fail(400, { error: 'Device ID is required' });
                 }
                 
@@ -444,22 +463,17 @@ export function createDeviceActions(options: {
                 }
 
                 // Extract form data - Details tab
-                // Always use form data if provided (form data takes precedence)
                 const nameValue = data.get('name')?.toString();
                 const statusValue = data.get('status')?.toString();
                 const descriptionValue = data.get('description')?.toString();
                 
-                // Use form values if provided, otherwise keep device values
-                // For name: form value takes precedence, fallback to device.name
                 const name = (nameValue !== null && nameValue !== undefined) ? nameValue : (device.name || '');
-                // For status: form value takes precedence, must be valid, fallback to device.status
                 const status = (statusValue && ['ACTIVE', 'INACTIVE'].includes(statusValue)) ? statusValue : device.status;
-                // For description: form value takes precedence (even if empty string), fallback to device.description or empty string
                 const description = (descriptionValue !== null && descriptionValue !== undefined) 
                     ? descriptionValue 
                     : (device.description !== null && device.description !== undefined ? device.description : '');
                 
-                // Parse tags - always parse if provided
+                // Parse tags
                 let tagIds: string[] = [];
                 const tagsRaw = data.get('tags')?.toString();
                 if (tagsRaw !== null && tagsRaw !== undefined) {
@@ -468,30 +482,11 @@ export function createDeviceActions(options: {
                         tagIds = Array.isArray(parsed) ? parsed : [];
                     } catch (e) {
                         logger.warn(`Failed to parse tags JSON: ${tagsRaw}`, e);
-                        // If parsing fails, use empty array (user wants to clear tags)
                         tagIds = [];
                     }
                 } else {
-                    // If tags not provided in form, keep existing tags
                     tagIds = device.tags.map((t: any) => t.id);
                 }
-
-                // Extract Configuration tab fields
-                const profileId = data.get('profileId')?.toString();
-                const isCustom = data.get('isCustom')?.toString() === 'true';
-                const kioskLockMode = data.get('kioskLockMode')?.toString() === 'true';
-                const exitLockdownPassword = data.get('exitLockdownPassword')?.toString();
-                const kioskApplication = data.get('kioskApplication')?.toString();
-                const displayResolution = data.get('displayResolution')?.toString();
-                const screenOrientation = data.get('screenOrientation')?.toString();
-                const brightnessLevel = data.get('brightnessLevel')?.toString();
-                const audioEnabled = data.get('audioEnabled')?.toString() === 'true';
-                const audioVolume = data.get('audioVolume')?.toString();
-                const timezone = data.get('timezone')?.toString();
-                const homeLauncher = data.get('homeLauncher')?.toString();
-                const powerManagementSchedule = data.get('powerManagementSchedule')?.toString() === 'true';
-                const rebootSchedule = data.get('rebootSchedule')?.toString() === 'true';
-                const downloadSchedule = data.get('downloadSchedule')?.toString() === 'true';
 
                 // Build update data - Details tab fields (always update these)
                 const updateData: any = {
@@ -501,161 +496,33 @@ export function createDeviceActions(options: {
                     updatedAt: new Date()
                 };
 
-                // Handle Configuration tab fields
+                // ── Profile Configuration ────────────────────────────────────
+                // Capture current settings before any profile changes
+                const settingsBefore = await getCurrentProfileSettings(locals.prisma, id);
+
                 if (isCustom) {
-                    // Custom mode: Save as device-specific overrides using DeviceProfileService
-                    // First, ensure device has a profile assigned (required for overrides)
-                    const currentAssignment = await locals.prisma.deviceProfileAssignment.findUnique({
-                        where: { deviceId: id }
-                    });
-                    
-                    if (!currentAssignment) {
-                        // Custom mode requires a base profile to override
-                        // If no assignment exists, we need to get the original profileId from device
-                        // or use the profileId from form if provided (user might have selected a profile before editing)
-                        let baseProfileId = profileId && profileId !== '__CUSTOM__' ? profileId : null;
-                        
-                        // If still no profileId, try to get from device's previous assignment or use first available profile
-                        if (!baseProfileId) {
-                            // Get device to check if it had a profile before
-                            const deviceWithAssignment = await locals.prisma.device.findUnique({
-                                where: { id },
-                                include: {
-                                    profileAssignment: true
-                                }
-                            });
-                            baseProfileId = deviceWithAssignment?.profileAssignment?.profileId || null;
-                        }
-                        
-                        if (!baseProfileId) {
-                            // Cannot save custom overrides without a base profile
-                            return fail(400, { 
-                                error: 'Cannot save custom settings without a base profile. Please select a profile first.' 
-                            });
-                        }
-                        
-                        // Create assignment with the base profile
-                        await locals.prisma.deviceProfileAssignment.create({
-                            data: {
-                                deviceId: id,
-                                profileId: baseProfileId,
-                                assignedBy: auth.user.id
-                            }
-                        });
-                        logger.info(`Created profile assignment ${baseProfileId} for device ${id} before saving custom overrides`);
-                    }
-                    
-                    // Build settings object in snake_case format (as expected by profile system)
-                    const customSettings: Record<string, any> = {};
-                    if (data.has('kioskLockMode')) {
-                        customSettings.kiosk_lock_mode = kioskLockMode ? 'enabled' : 'disabled';
-                    }
-                    if (exitLockdownPassword !== null && exitLockdownPassword !== undefined) {
-                        customSettings.exit_lockdown_password = exitLockdownPassword || '';
-                    }
-                    if (kioskApplication !== null && kioskApplication !== undefined) {
-                        customSettings.kiosk_application = kioskApplication || '';
-                    }
-                    if (displayResolution !== null && displayResolution !== undefined) {
-                        customSettings.display_resolution = displayResolution || '';
-                    }
-                    if (screenOrientation !== null && screenOrientation !== undefined) {
-                        customSettings.screen_orientation = screenOrientation || '';
-                    }
-                    if (brightnessLevel !== null && brightnessLevel !== undefined) {
-                        customSettings.brightness_level = brightnessLevel || '';
-                    }
-                    if (data.has('audioEnabled')) {
-                        customSettings.enable_audio = audioEnabled ? 'enabled' : 'disabled';
-                    }
-                    if (audioVolume !== null && audioVolume !== undefined) {
-                        customSettings.volume_level = audioVolume || '';
-                    }
-                    if (timezone !== null && timezone !== undefined) {
-                        customSettings.timezone = timezone || '';
-                    }
-                    if (homeLauncher !== null && homeLauncher !== undefined) {
-                        customSettings.home_launcher = homeLauncher || '';
-                    }
-                    if (data.has('powerManagementSchedule')) {
-                        customSettings.power_management_schedule = powerManagementSchedule ? 'enabled' : 'disabled';
-                        if (powerManagementSchedule) {
-                            const powerOnDatetime = data.get('powerOnDatetime')?.toString();
-                            const powerOffDatetime = data.get('powerOffDatetime')?.toString();
-                            if (powerOnDatetime !== undefined) customSettings.power_on_datetime = powerOnDatetime || '';
-                            if (powerOffDatetime !== undefined) customSettings.power_off_datetime = powerOffDatetime || '';
-                        }
-                    }
-                    if (data.has('rebootSchedule')) {
-                        customSettings.reboot_schedule_enabled = rebootSchedule ? 'enabled' : 'disabled';
-                        if (rebootSchedule) {
-                            const rebootFrequency = data.get('rebootFrequency')?.toString();
-                            const rebootDay = data.get('rebootDay')?.toString();
-                            const rebootTime = data.get('rebootTime')?.toString();
-                            if (rebootFrequency !== undefined) customSettings.reboot_schedule_frequency = rebootFrequency || 'daily';
-                            if (rebootDay !== undefined) customSettings.reboot_schedule_day = rebootDay || 'monday';
-                            if (rebootTime !== undefined) customSettings.reboot_schedule_time = rebootTime || '02:00';
-                        }
-                    }
-                    if (data.has('downloadSchedule')) {
-                        customSettings.download_schedule_enabled = downloadSchedule ? 'enabled' : 'disabled';
-                        if (downloadSchedule) {
-                            const downloadFrequency = data.get('downloadFrequency')?.toString();
-                            const downloadDay = data.get('downloadDay')?.toString();
-                            const downloadTime = data.get('downloadTime')?.toString();
-                            if (downloadFrequency !== undefined) customSettings.download_schedule_frequency = downloadFrequency || 'daily';
-                            if (downloadDay !== undefined) customSettings.download_schedule_day = downloadDay || 'monday';
-                            if (downloadTime !== undefined) customSettings.download_schedule_time = downloadTime || '03:00';
-                        }
-                    }
-                    
-                    // Save custom overrides using DeviceProfileService
-                    if (Object.keys(customSettings).length > 0) {
-                        logger.info(`[updateDevice] Saving custom overrides for device ${id}`, {
-                            keys: Object.keys(customSettings),
-                            keyCount: Object.keys(customSettings).length,
-                            sample: Object.fromEntries(Object.entries(customSettings).slice(0, 5))
-                        });
-                        const profileService = new DeviceProfileService(locals.prisma);
-                        const userId = auth.user.id;
-                        await profileService.updateDeviceSettings(id, customSettings, userId);
-                        logger.info(`Saved custom overrides for device ${id}`);
+                    // Save custom device-level profile
+                    const result = await saveCustomProfile(locals.prisma, id, data, auth.user.id);
+                    if (!result.success) {
+                        return fail(400, { error: result.error });
                     }
                 } else if (profileId && profileId !== '__CUSTOM__') {
-                    // Profile mode: Assign profile to device
-                    // Remove any existing assignment first
-                    await locals.prisma.deviceProfileAssignment.deleteMany({
-                        where: { deviceId: id }
+                    // Assign a global profile to the device
+                    await assignGlobalProfile(locals.prisma, id, profileId, auth.user.id);
+                } else {
+                    logger.info('[updateDevice] No configuration change: only name/status/description/tags will be updated.', {
+                        deviceId: id,
+                        profileId: profileId ?? '(empty)',
+                        isCustom
                     });
-                    
-                    // Create new assignment
-                    await locals.prisma.deviceProfileAssignment.create({
-                        data: {
-                            deviceId: id,
-                            profileId: profileId,
-                            assignedBy: auth.user.id
-                        }
-                    });
-                    
-                    // Remove any custom overrides (device now uses profile defaults)
-                    await locals.prisma.deviceProfileOverride.deleteMany({
-                        where: { deviceId: id }
-                    });
-                    
-                    logger.info(`Assigned profile ${profileId} to device ${id} by user ${auth.user.id}`);
                 }
 
-                // Handle tags - set (replace all) instead of connect (add)
-                if (tagIds.length > 0) {
-                    updateData.tags = {
-                        set: tagIds.map(tagId => ({ id: tagId }))
-                    };
-                } else {
-                    // Clear all tags if empty array
-                    updateData.tags = {
-                        set: []
-                    };
-                }
+                // Capture settings after changes and reapply if different
+                const settingsAfter = await getCurrentProfileSettings(locals.prisma, id);
+                // ─────────────────────────────────────────────────────────────
+
+                // Handle tags
+                updateData.tags = { set: tagIds.map(tagId => ({ id: tagId })) };
 
                 // Update device
                 const updatedDevice = await locals.prisma.device.update({
@@ -666,7 +533,7 @@ export function createDeviceActions(options: {
 
                 logger.info(`Device ${id} updated successfully`);
 
-                // Log audit - use auth.user.id
+                // Log audit
                 try {
                     await logAudit({
                         actionType: AuditActionType.UPDATE,
@@ -679,9 +546,11 @@ export function createDeviceActions(options: {
                         prisma: locals.prisma
                     });
                 } catch (auditErr) {
-                    // Don't fail the update if audit logging fails
                     logger.warn(`Failed to log audit for device update ${id}: ${auditErr}`);
                 }
+                
+                // Reapply profile to device if configuration changed
+                await reapplyIfChanged(locals.prisma, id, settingsBefore, settingsAfter, auth.user.id);
                 
                 return { success: true };
             } catch (err) {
@@ -767,4 +636,3 @@ export function createDeviceActions(options: {
         } : undefined
     };
 }
-
