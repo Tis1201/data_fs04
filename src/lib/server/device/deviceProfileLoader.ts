@@ -87,8 +87,20 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
         });
 
         if (!assignment?.profile) {
-            console.log('[DeviceProfileLoader] No profile found for device', { deviceId });
-            return null;
+            console.log('[DeviceProfileLoader] No profile found for device — returning empty shell for device-level config', { deviceId });
+            // Return an empty "shell" profile so the configuration form renders.
+            // The device can save its own config even without a global profile.
+            return {
+                id: '',
+                name: '',
+                description: '',
+                level: 'NONE',
+                isActive: true,
+                settings: [],
+                hasOverrides: false,
+                overrideCount: 0,
+                account: null
+            };
         }
 
         const globalProfile = assignment.profile;
@@ -176,8 +188,8 @@ export async function initializeDeviceProfileForm(deviceProfile: any) {
         return null;
     }
 
-    // Support both GLOBAL (with overrides) and DEVICE-level profiles
-    const isEditable = deviceProfile.level === 'DEVICE' || deviceProfile.level === 'GLOBAL';
+    // Support GLOBAL (with overrides), DEVICE-level profiles, and NONE (no profile yet — device-only config)
+    const isEditable = deviceProfile.level === 'DEVICE' || deviceProfile.level === 'GLOBAL' || deviceProfile.level === 'NONE';
     
     if (!isEditable) {
         console.log('[DeviceProfileLoader] Not creating form - profile level not supported');

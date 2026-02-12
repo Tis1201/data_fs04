@@ -115,28 +115,39 @@ export async function handleConnectionEvent(
             : now;
 
     // Update device presence in Redis for claimed devices (not factory devices)
-    // Uses both individual keys (for fast lookups) and a Set (for fast listing)
+    // When multiple apps share the same device ID (e.g. radar + RDM), we only mark offline when the *last* connection disconnects.
     if (deviceId && redis) {
         const presenceKey = `presence:device:${deviceId}`;
+        const presenceClientsKey = `presence:device:${deviceId}:clients`;
         const presenceSetKey = 'presence:devices:online';
         const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10); // 10 minutes default (increased for stability)
 
         try {
             if (isConnectEvent) {
-                // Set device online with TTL and add to Set
-                // Use pipeline for atomic operations
                 const pipeline = redis.pipeline();
+                pipeline.sadd(presenceClientsKey, clientId);
+                pipeline.expire(presenceClientsKey, presenceTTL);
                 pipeline.setex(presenceKey, presenceTTL, '1');
                 pipeline.sadd(presenceSetKey, deviceId);
                 await pipeline.exec();
-                logger.debug(`[MQTT Presence] Device ${deviceId} marked online (TTL: ${presenceTTL}s)`);
+                logger.debug(`[MQTT Presence] Device ${deviceId} marked online (clientId=${clientId}, TTL: ${presenceTTL}s)`);
             } else {
-                // Remove device presence on disconnect
                 const pipeline = redis.pipeline();
-                pipeline.del(presenceKey);
-                pipeline.srem(presenceSetKey, deviceId);
-                await pipeline.exec();
-                logger.debug(`[MQTT Presence] Device ${deviceId} marked offline`);
+                pipeline.srem(presenceClientsKey, clientId);
+                pipeline.scard(presenceClientsKey);
+                const results = await pipeline.exec();
+                const remainingCount = (results?.[1]?.[1] as number) ?? 0;
+                if (remainingCount === 0) {
+                    await redis
+                        .multi()
+                        .del(presenceKey)
+                        .srem(presenceSetKey, deviceId)
+                        .del(presenceClientsKey)
+                        .exec();
+                    logger.debug(`[MQTT Presence] Device ${deviceId} marked offline (last connection: ${clientId})`);
+                } else {
+                    logger.debug(`[MQTT Presence] Device ${deviceId} still has ${remainingCount} connection(s), staying online`);
+                }
             }
         } catch (redisError) {
             logger.error(`[MQTT Presence] Failed to update presence for device ${deviceId}:`, {

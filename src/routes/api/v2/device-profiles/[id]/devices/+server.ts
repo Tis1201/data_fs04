@@ -127,8 +127,7 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 			where.profileAssignment = { profileId };
 		}
 	} else {
-		// Available devices: no assignment
-		where.profileAssignment = null;
+		// Available devices: return all devices (no profile filter) so user can assign any device to this profile
 	}
 
 	const [devices, total] = await Promise.all([

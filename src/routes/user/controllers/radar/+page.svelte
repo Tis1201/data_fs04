@@ -1,9 +1,11 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
-    import { enhance } from '$app/forms';
+    import { enhance, deserialize } from '$app/forms';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
     import { toast } from '$lib/stores/alertToast';
+    import { callUserRpc } from '$lib/client/mqtt/userRpc';
+    import { waitForClaimConfirmation } from '$lib/client/mqtt/claimFlow';
     import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
     import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
     import type { BadgeColor, SortState } from '$lib/design-system/components';
@@ -316,20 +318,60 @@
             }
             addDeviceZoneErrors = {};
         }
+        const pin = addDeviceForm.pin?.trim().replace(/\s/g, '') ?? '';
+        if (!pin || pin.length < 6) {
+            addDevicePinError = 'Please enter the full 6-digit code from your device.';
+            input.cancel();
+            return () => {};
+        }
+        // Use device.claim RPC + confirmation so the physical device receives credentials and connects (same as IoT Add Device).
+        input.cancel();
         addDeviceLoading = true;
-        return async (opts: {
-            result: { type: string; location?: string; data?: { error?: string } };
-        }) => {
-            addDeviceLoading = false;
-            const { result } = opts;
-            if (result.type === 'redirect' && result.location) {
-                toast.success('Device registered successfully!');
-                closeAddDeviceModal();
-                await invalidate('app:userControllersRadar');
-                goto(result.location, { noScroll: true });
-            } else if (result.type === 'failure' && result.data?.error) {
-                const err = result.data.error;
-                const isPinRelated = /PIN|registration code|resolve device/i.test(err);
+        addDeviceError = '';
+        addDevicePinError = '';
+        (async () => {
+            try {
+                const response = await callUserRpc<{ flowId?: string; result: { factoryDeviceId: string } }>(
+                    'device.claim',
+                    { pin },
+                    { timeoutMs: 5000 }
+                );
+                const flowId = response?.flowId;
+                if (!flowId) throw new Error('Missing flowId in claim response');
+                const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
+                const deviceId = confirmation.deviceId;
+                if (!deviceId) throw new Error('Claim confirmation did not return device ID');
+                const name = addDeviceForm.name?.trim() ?? '';
+                let serialNumber = addDeviceForm.serialNumber?.trim() ?? '';
+                if (!serialNumber) {
+                    const slug = name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') || 'sensor';
+                    serialNumber = `RADAR-${slug}-${Date.now().toString(36)}`;
+                }
+                const fd = new FormData();
+                fd.set('deviceId', deviceId);
+                fd.set('name', name);
+                fd.set('serialNumber', serialNumber);
+                fd.set('description', addDeviceForm.description ?? '');
+                fd.set('location', addDeviceForm.location ?? '');
+                fd.set('firmware', addDeviceForm.firmware ?? '');
+                fd.set('status', addDeviceForm.status || 'ACTIVE');
+                const res = await fetch('?/createSensorForDevice', { method: 'POST', body: fd });
+                const raw = await res.text();
+                const result = typeof raw === 'string' && raw.trim() ? (deserialize(raw) as any) : {};
+                const actionData = result?.data as { type?: string; controllerId?: string; message?: string } | undefined;
+                if (result.type === 'success' && actionData?.type === 'success' && actionData?.controllerId) {
+                    toast.success('Device registered successfully!');
+                    showAddDeviceModal = false;
+                    await invalidate('app:userControllersRadar');
+                    goto(`/user/controllers/radar/${actionData.controllerId}`, { noScroll: true });
+                } else {
+                    const err = actionData?.message || 'Failed to create sensor. Please try again.';
+                    addDeviceError = err;
+                    toast.error(err);
+                }
+            } catch (e) {
+                const err = e instanceof Error ? e.message : String(e);
+                const isPinRelated = /PIN|invalid|expired|registration code/i.test(err);
                 if (isPinRelated) {
                     addDeviceStep = 1;
                     addDevicePinError = err;
@@ -338,8 +380,11 @@
                     addDeviceError = err;
                 }
                 toast.error(err || 'Unable to register device. Please try again!');
+            } finally {
+                addDeviceLoading = false;
             }
-        };
+        })();
+        return () => {};
     }
 
     // Debounced search: only goto when search param actually changed (avoids resetting page after pagination click)

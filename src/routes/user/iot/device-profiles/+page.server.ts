@@ -10,7 +10,6 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
-import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 
 const profileSchema = z.object({
     name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
@@ -266,24 +265,27 @@ export const actions: Actions = {
                         id: true,
                         name: true,
                         settings: { select: { id: true, key: true, value: true, dataType: true, category: true } },
-                        assignments: { select: { id: true } }
+                        assignments: { select: { id: true, deviceId: true } }
                     }
                 });
+                // Reapply profile to all assigned devices so they receive and apply the updated config
                 if (updatedProfile.isActive && deviceProfile?.assignments?.length && fetchFn) {
+                    const deviceIds = deviceProfile.assignments.map((a: { deviceId: string }) => a.deviceId);
                     try {
-                        const config = mapToConfigPayload(deviceProfile as any);
                         const origin = new URL(request.url).origin;
-                        const res = await fetchFn(`${origin}/api/v2/device-profiles/${profileId}/broadcast-config`, {
+                        const res = await fetchFn(`${origin}/api/v2/device-profiles/${profileId}/reapply`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ config })
+                            body: JSON.stringify({ deviceIds })
                         });
                         if (!res.ok) {
                             const data = await res.json().catch(() => ({}));
-                            logger.warn('Error broadcasting device profile settings:', data);
+                            logger.warn('Error reapplying profile to devices:', data);
+                        } else {
+                            logger.info(`Reapply triggered for profile ${profileId} to ${deviceIds.length} device(s)`);
                         }
                     } catch (err) {
-                        logger.warn('Error broadcasting device profile settings:', err);
+                        logger.warn('Error reapplying profile to devices:', err);
                     }
                 }
                 // Form actions must return plain serializable data, not json() Response

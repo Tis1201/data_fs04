@@ -379,6 +379,109 @@ async function createRadarController(
 }
 
 /**
+ * Create Controller + Sensor for an already-claimed device (used after device.claim RPC + confirmation).
+ * Device must exist, belong to current account, and have no radar controller yet.
+ */
+async function createSensorForDevice(
+    request: Request,
+    locals: AuthenticatedEvent['locals'],
+    cookies: AuthenticatedEvent['cookies']
+): Promise<{ type: 'success'; controllerId: string } | { type: 'error'; message: string }> {
+    const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+    if (!currentAccountId) {
+        return { type: 'error', message: 'User account not found' };
+    }
+    const userId = (locals as { user?: { id: string } }).user?.id ?? 'unknown';
+    const formData = await request.formData();
+    const deviceId = (formData.get('deviceId') as string | null)?.trim();
+    const name = (formData.get('name') as string | null)?.trim() ?? '';
+    const serialNumber = (formData.get('serialNumber') as string | null)?.trim() ?? '';
+    const description = (formData.get('description') as string | null)?.trim() ?? '';
+    const location = (formData.get('location') as string | null)?.trim() ?? '';
+    const firmware = (formData.get('firmware') as string | null)?.trim() ?? '';
+    const status = ((formData.get('status') as string | null)?.trim() || 'ACTIVE') as 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+
+    if (!deviceId) return { type: 'error', message: 'Device ID is required' };
+    if (!name) return { type: 'error', message: 'Sensor name is required' };
+    if (!serialNumber) return { type: 'error', message: 'Serial number is required' };
+
+    try {
+        const device = await locals.prisma.device.findFirst({
+            where: { id: deviceId, accountId: currentAccountId },
+            include: { controllers: { where: { type: 'radar', isDeleted: false } } }
+        });
+        if (!device) {
+            return { type: 'error', message: 'Device not found or access denied' };
+        }
+        if (device.controllers.length > 0) {
+            return { type: 'error', message: 'This device already has an active radar sensor. Only one sensor per device is allowed.' };
+        }
+
+        await locals.prisma.sensor.deleteMany({
+            where: { serialNumber, controller: { isDeleted: true } }
+        });
+        const existingSensor = await locals.prisma.sensor.findFirst({
+            where: { serialNumber },
+            include: { controller: true }
+        });
+        if (existingSensor) return { type: 'error', message: 'A sensor with this serial number already exists' };
+
+        const controllerSerial = `${serialNumber}-CTRL`;
+        const softDeletedControllers = await locals.prisma.controller.findMany({
+            where: { serialNumber: controllerSerial, isDeleted: true },
+            include: { sensors: true }
+        });
+        for (const ctrl of softDeletedControllers) {
+            for (const s of ctrl.sensors) await locals.prisma.sensor.delete({ where: { id: s.id } });
+            await locals.prisma.controller.delete({ where: { id: ctrl.id } });
+        }
+        const existingController = await locals.prisma.controller.findFirst({
+            where: { serialNumber: controllerSerial, isDeleted: false }
+        });
+        if (existingController) return { type: 'error', message: 'Controller generation failed (Duplicate Serial). Please contact support.' };
+
+        const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+            const controller = await tx.controller.create({
+                data: {
+                    name: `${name} Controller`,
+                    serialNumber: controllerSerial,
+                    status,
+                    accountId: currentAccountId,
+                    deviceId,
+                    createdBy: userId,
+                    type: 'radar'
+                }
+            });
+            await tx.sensor.create({
+                data: {
+                    name,
+                    serialNumber,
+                    type: 'radar',
+                    description: description || null,
+                    location: location || null,
+                    firmware: firmware || null,
+                    status,
+                    accountId: currentAccountId,
+                    controllerId: controller.id,
+                    createdBy: userId,
+                    config: {}
+                }
+            });
+            return { controller };
+        });
+
+        logger.info(`User created Radar Controller & Sensor for device ${deviceId}: ${result.controller.id}`);
+        return { type: 'success', controllerId: result.controller.id };
+    } catch (err: unknown) {
+        logger.error(`Error creating radar sensor for device:`, err);
+        if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2002') {
+            return { type: 'error', message: 'A controller or sensor with this serial number already exists. Please use a unique serial number.' };
+        }
+        return { type: 'error', message: 'Failed to create radar sensor. Please try again or contact support.' };
+    }
+}
+
+/**
  * Update sensor (name, location) from Edit Device modal - requires EDIT permission on USER_CONTROLLERS_RADAR.
  */
 async function updateSensorFromList(
@@ -424,6 +527,10 @@ async function updateSensorFromList(
 export const actions: Actions = {
     create: restrict(
         async ({ request, locals, cookies }: AuthenticatedEvent) => createRadarController(request, locals, cookies),
+        [SystemRole.USER, SystemRole.ADMIN]
+    ),
+    createSensorForDevice: restrict(
+        async ({ request, locals, cookies }: AuthenticatedEvent) => createSensorForDevice(request, locals, cookies),
         [SystemRole.USER, SystemRole.ADMIN]
     ),
     updateSensor: restrict(

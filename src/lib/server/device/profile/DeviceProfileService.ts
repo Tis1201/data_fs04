@@ -134,10 +134,10 @@ export class DeviceProfileService {
             });
 
             if (!assignment || !assignment.profile) {
+                logger.info(`[DeviceProfileService] No profile assignment for device ${deviceId} — skipping override save (device-level profile handled by updateDevice action)`);
                 return {
-                    success: false,
-                    overrideCount: 0,
-                    error: 'No profile assigned to device'
+                    success: true,
+                    overrideCount: 0
                 };
             }
 

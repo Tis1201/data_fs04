@@ -890,7 +890,7 @@
                                                     />
                                                 </td>
                                                 <td class="assigned-devices-td assigned-devices-td-applystatus">
-                                                    {#if row.applyStatus === 'SUCCESS'}
+                                                    {#if row.applyStatus === 'SUCCESS' || row.applyStatus === 'APPLIED'}
                                                         <Badge label="Applied" color="success" variant="filled" size="md" showDot={false} />
                                                     {:else if row.applyStatus === 'APPLYING'}
                                                         <Badge label="Applying" color="warning" variant="filled" size="md" showDot={false} />

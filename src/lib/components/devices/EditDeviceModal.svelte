@@ -726,15 +726,25 @@
             fd.set('description', editDeviceDescription || '');
             fd.set('tags', JSON.stringify(editDeviceTags || []));
             
-            // Configuration fields: send overrides whenever a profile is set (so config changes are persisted even if user didn't select "Custom")
-            const baseProfileId = editAssignedProfile === '__CUSTOM__' ? originalProfileId : (editAssignedProfile || null);
-            if (baseProfileId) {
-                if (editAssignedProfile === '__CUSTOM__' && !originalProfileId) {
-                    throw new Error('Cannot save custom settings without a base profile. Please select a profile first, then edit the settings.');
-                }
+            // Determine if user is assigning a global profile or editing device's own config.
+            // - editAssignedProfile is a profile ID = user selected a global profile from dropdown
+            // - editAssignedProfile is '' or '__CUSTOM__' = user is editing device's own config
+            const isAssigningGlobal = editAssignedProfile && editAssignedProfile !== '__CUSTOM__' && editAssignedProfile !== '';
+            
+            console.log('[EditDeviceModal] saveEditDevice: config payload', {
+                editAssignedProfile: editAssignedProfile ?? '(empty)',
+                originalProfileId: originalProfileId ?? '(empty)',
+                isAssigningGlobal,
+                deviceId: device.id
+            });
+            
+            if (isAssigningGlobal) {
+                // User selected a global profile — send profileId only (server assigns it, no device config saved)
+                fd.set('profileId', String(editAssignedProfile));
+            } else {
+                // User is editing device's own config (no profile, or __CUSTOM__ after editing fields)
                 fd.set('isCustom', 'true');
-                fd.set('profileId', String(baseProfileId));
-                
+                // Always include all config fields so device can have its own settings
                 fd.set('kioskLockMode', String(editKioskLockMode));
                 if (editExitLockdownPassword) {
                     fd.set('exitLockdownPassword', editExitLockdownPassword);
@@ -765,7 +775,9 @@
                     fd.set('downloadTime', editDownloadTime);
                 }
             }
-            
+
+            const formKeys = Array.from(fd.keys());
+            console.log('[EditDeviceModal] saveEditDevice: posting to', saveActionUrl, 'with form keys:', formKeys.join(', '));
             const res = await fetch(saveActionUrl, { method: 'POST', body: fd });
 
             if (res.status >= 200 && res.status < 300) {
