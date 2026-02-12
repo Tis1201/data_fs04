@@ -941,9 +941,10 @@
             return defaultValue;
         }
 
-        // Handle boolean values
+        // Handle boolean values - support both 'true'/'false' and 'enabled'/'disabled' formats
         if (setting.dataType === 'boolean') {
-            return setting.value === 'true' || setting.value === true ? 'Enable' : 'Disable';
+            const val = String(setting.value).toLowerCase();
+            return (val === 'true' || val === 'enabled' || setting.value === true) ? 'Enable' : 'Disable';
         }
 
         // Return the setting value (already merged with overrides by loadDeviceProfile)
@@ -1874,7 +1875,7 @@
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            {#if getProfileSetting('power_management_schedule', 'disabled') === 'enabled'}
+                            {#if getProfileSetting('power_management_schedule', 'Disable') === 'Enable'}
                                 <div class="schedule-detail">
                                     <span class="schedule-badge enabled">Enabled</span>
                                     <div class="schedule-items">
@@ -1897,7 +1898,7 @@
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            {#if getProfileSetting('reboot_schedule_enabled', 'disabled') === 'enabled'}
+                            {#if getProfileSetting('reboot_schedule_enabled', 'Disable') === 'Enable'}
                                 <div class="schedule-detail">
                                     <span class="schedule-badge enabled">Enabled</span>
                                     <div class="schedule-items">
@@ -1923,7 +1924,7 @@
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            {#if getProfileSetting('download_schedule_enabled', 'disabled') === 'enabled'}
+                            {#if getProfileSetting('download_schedule_enabled', 'Disable') === 'Enable'}
                                 <div class="schedule-detail">
                                     <span class="schedule-badge enabled">Enabled</span>
                                     <div class="schedule-items">

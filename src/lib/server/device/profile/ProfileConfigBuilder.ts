@@ -55,7 +55,16 @@ export class ProfileConfigBuilder {
             });
 
             if (!assignment || !assignment.profile) {
-                throw new Error(`No profile assigned to device ${deviceId}`);
+                logger.info(`[ProfileConfigBuilder] No profile assigned to device ${deviceId} — returning empty config`);
+                return {
+                    config: {} as EffectiveConfig,
+                    metadata: {
+                        profileId: '',
+                        profileName: '',
+                        hasOverrides: false,
+                        overrideCount: 0
+                    }
+                };
             }
 
             const globalProfile = assignment.profile;
