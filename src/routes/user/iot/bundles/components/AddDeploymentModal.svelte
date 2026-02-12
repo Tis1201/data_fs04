@@ -26,11 +26,9 @@
     let os = 'ANDROID';
     let version = '1.0.0';
     let waveSize = 500;
-    let schedule: 'none' | 'immediately' | 'future' = 'none';
+    let schedule: 'none' | 'future' = 'none';
     let startDate = '';
     let startTime = '09:00';
-    let endDate = '';
-    let endTime = '21:00';
     let description = '';
     let reboot = false;
     let forceUpdate = false;
@@ -38,11 +36,26 @@
     // Validation
     let nameError = '';
     let startDateError = '';
-    let endDateError = '';
+
+    function pad2(n: number): string {
+        return String(n).padStart(2, '0');
+    }
+
+    function todayDateInputValue(now = new Date()): string {
+        return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    }
+
+    function nowTimeInputValue(now = new Date()): string {
+        // Use current local time (minute precision) to prevent choosing past time today.
+        return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+    }
+
+    $: minStartDate = todayDateInputValue();
+    $: minStartTime = startDate === minStartDate ? nowTimeInputValue() : undefined;
 
     // Check if form is valid for enabling Save as Draft button
-    $: isFormValid = name.trim().length > 0 && os && waveSize > 0 && 
-        (!showScheduleFields || (startDate && endDate));
+    $: isFormValid = name.trim().length > 0 && os && waveSize > 0 &&
+        (schedule !== 'future' || !!startDate);
 
     const OS_OPTIONS_DS: DropdownOption[] = OS_OPTIONS.map((o) => ({ id: o.value, label: o.label }));
     const BATCH_PRESETS = [100, 200, 300, 400, 500];
@@ -53,68 +66,38 @@
     let batchSizeSelect: string = '500';
     const SCHEDULE_OPTIONS: DropdownOption[] = [
         { id: 'none', label: 'None' },
-        { id: 'immediately', label: 'Immediately' },
+        // { id: 'immediately', label: 'Immediately' },
         { id: 'future', label: 'Future' }
     ];
 
-    $: showScheduleFields = schedule === 'immediately' || schedule === 'future';
-
-    function fillImmediatelyDefaults() {
-        const today = new Date();
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        startDate = formatDateForInput(today);
-        startTime = '09:00';
-        endDate = formatDateForInput(tomorrow);
-        endTime = '21:00';
-        startDateError = '';
-        endDateError = '';
-    }
-
-    function formatDateForInput(d: Date): string {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-    }
-
-    $: if (open && schedule === 'immediately' && !startDate) {
-        fillImmediatelyDefaults();
-    }
+    $: showScheduleFields = schedule === 'future';
 
     $: if (schedule === 'none') {
         startDate = '';
         startTime = '09:00';
-        endDate = '';
-        endTime = '21:00';
         startDateError = '';
-        endDateError = '';
     }
 
     function validate(): boolean {
         nameError = '';
         startDateError = '';
-        endDateError = '';
         if (!name.trim()) {
             nameError = 'Name is required';
         }
-        if (showScheduleFields) {
-            if (!startDate.trim()) {
-                startDateError = 'Start date is required';
-            }
-            if (!endDate.trim()) {
-                endDateError = 'End date is required';
-            }
-            if (startDate && endDate && startTime && endTime) {
-                const start = new Date(startDate + 'T' + startTime);
-                const end = new Date(endDate + 'T' + endTime);
-                if (start >= end) {
-                    startDateError = 'Start Date must before End Date';
-                    endDateError = 'End Date must after Start Date';
+        if (schedule === 'future') {
+            if (!startDate.trim()) startDateError = 'Start date is required';
+            // Disallow scheduling in the past (local time)
+            if (!startDateError && startDate) {
+                const start = new Date(`${startDate}T${startTime || '00:00'}`);
+                const now = new Date();
+                if (isNaN(start.getTime())) {
+                    startDateError = 'Invalid start date/time';
+                } else if (start.getTime() < now.getTime()) {
+                    startDateError = 'Start date/time cannot be in the past';
                 }
             }
         }
-        return !nameError && !startDateError && !endDateError;
+        return !nameError && !startDateError;
     }
 
     function buildFormData(): FormData {
@@ -128,17 +111,14 @@
         fd.set('forceUpdate', forceUpdate ? 'on' : '');
         fd.set('autoOpen', '');
         fd.set('scheduledAtStartIfMissed', '');
-        if (showScheduleFields && startDate) {
+        if (schedule === 'future' && startDate) {
             fd.set('scheduledAt', startDate);
             fd.set('scheduledTime', startTime || '09:00');
-            fd.set('scheduledAtTimezone', 'UTC');
-            const end = new Date(endDate + 'T' + (endTime || '00:00'));
-            const start = new Date(startDate + 'T' + (startTime || '00:00'));
-            const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-            fd.set('activePeriodDays', String(Math.min(days, 30)));
-        } else {
-            fd.set('activePeriodDays', '1');
+            // Match admin create behavior: use viewer timezone, server stores scheduledAt in UTC.
+            fd.set('scheduledAtTimezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
         }
+        // Keep backend behavior stable (schema+DB default is 1). Not user-configurable.
+        fd.set('activePeriodDays', '1');
         return fd;
     }
 
@@ -216,10 +196,7 @@
 
     function handleScheduleChange(e: CustomEvent<string | string[]>) {
         const v = (Array.isArray(e.detail) ? e.detail[0] : e.detail) || 'none';
-        schedule = v as 'none' | 'immediately' | 'future';
-        if (schedule === 'immediately') {
-            fillImmediatelyDefaults();
-        }
+        schedule = v as 'none' | 'future';
     }
 
     function handleOsChange(e: CustomEvent<string | string[]>) {
@@ -340,6 +317,7 @@
                             <InputField
                                 type="date"
                                 bind:value={startDate}
+                                min={minStartDate}
                                 state={startDateError ? 'error' : 'default'}
                                 placeholder="MM DD, YYYY"
                                 label=""
@@ -347,33 +325,13 @@
                             <InputField
                                 type="time"
                                 bind:value={startTime}
+                                min={minStartTime}
                                 state={startDateError ? 'error' : 'default'}
                                 label=""
                             />
                         </div>
                         {#if startDateError}
                             <p class="field-error">{startDateError}</p>
-                        {/if}
-                    </div>
-                    <div class="field-schedule-group">
-                        <span class="field-label required" id="end-datetime-label">End on Date & Time</span>
-                        <div class="date-time-row" role="group" aria-labelledby="end-datetime-label">
-                            <InputField
-                                type="date"
-                                bind:value={endDate}
-                                state={endDateError ? 'error' : 'default'}
-                                placeholder="MM DD, YYYY"
-                                label=""
-                            />
-                            <InputField
-                                type="time"
-                                bind:value={endTime}
-                                state={endDateError ? 'error' : 'default'}
-                                label=""
-                            />
-                        </div>
-                        {#if endDateError}
-                            <p class="field-error">{endDateError}</p>
                         {/if}
                     </div>
                 </div>
@@ -492,7 +450,7 @@
     .field-schedule-row {
         grid-column: 1 / -1;
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
         gap: var(--form-col-gap);
         width: 100%;
         min-width: 0;

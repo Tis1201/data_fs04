@@ -1187,6 +1187,10 @@ model BundleApp {
   
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
 
+  // Allow reading apps if the user created the parent bundle or is a member of the bundle's account
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
+
   @@index([bundleId])
   @@index([resourceId])
 }
@@ -1212,6 +1216,10 @@ model BundleDevice {
   @@allow('create', auth() != null && createdBy == auth().id)
   
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading devices if the user created the parent bundle or is a member of the bundle's account
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
   
   @@unique([bundleId, deviceId])  // A device can only be in a bundle once
   @@index([bundleId])
@@ -1247,6 +1255,11 @@ model BundleDeviceProgress {
   @@allow('create', auth() != null && createdBy == auth().id)
   
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading progress if the user created the parent bundle or is a member of the bundle's account
+  // (Progress rows are created by the system publisher with createdBy='system' during auto-publish)
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
   
   @@index([bundleId])
   @@index([waveId])
@@ -1279,6 +1292,11 @@ model BundleWave {
   @@allow('create', auth() != null && createdBy == auth().id)
   
   @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading waves if the user created the parent bundle or is a member of the bundle's account
+  // (Waves are created by the system publisher with createdBy='system' during auto-publish)
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
 
   @@index([bundleId])
   @@index([status])

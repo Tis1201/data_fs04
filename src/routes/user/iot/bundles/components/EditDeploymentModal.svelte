@@ -19,6 +19,12 @@
 
     let submitting = false;
 
+    // Guard: bundle prop can change (realtime/invalidate) while modal is open.
+    // We only want to initialize form state once per open (or when editing a different bundle id),
+    // otherwise user interactions (Schedule=Future, Batch Size=Custom, etc.) get overwritten.
+    let didInitFromBundle = false;
+    let initBundleId: string | null = null;
+
     const dispatch = createEventDispatcher<{
         close: void;
         saved: { id: string };
@@ -29,21 +35,35 @@
     let os = 'ANDROID';
     let version = '1.0.0';
     let waveSize = 500;
-    let schedule: 'none' | 'immediately' | 'future' = 'none';
+    let schedule: 'none' | 'future' = 'none';
     let startDate = '';
     let startTime = '09:00';
-    let endDate = '';
-    let endTime = '21:00';
+    // Preserve existing active period (not user-configurable in this modal)
+    let activePeriodDays = 1;
     let description = '';
     let reboot = false;
     let forceUpdate = false;
 
     let nameError = '';
     let startDateError = '';
-    let endDateError = '';
+
+    function pad2(n: number): string {
+        return String(n).padStart(2, '0');
+    }
+
+    function todayDateInputValue(now = new Date()): string {
+        return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    }
+
+    function nowTimeInputValue(now = new Date()): string {
+        return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+    }
+
+    $: minStartDate = todayDateInputValue();
+    $: minStartTime = startDate === minStartDate ? nowTimeInputValue() : undefined;
 
     $: isFormValid = name.trim().length > 0 && os && waveSize > 0 &&
-        (!showScheduleFields || (startDate && endDate));
+        (schedule !== 'future' || !!startDate);
 
     const OS_OPTIONS_DS: DropdownOption[] = OS_OPTIONS.map((o) => ({ id: o.value, label: o.label }));
     const BATCH_PRESETS = [100, 200, 300, 400, 500];
@@ -54,11 +74,11 @@
     let batchSizeSelect: string = '500';
     const SCHEDULE_OPTIONS: DropdownOption[] = [
         { id: 'none', label: 'None' },
-        { id: 'immediately', label: 'Immediately' },
+        // { id: 'immediately', label: 'Immediately' },
         { id: 'future', label: 'Future' }
     ];
 
-    $: showScheduleFields = schedule === 'immediately' || schedule === 'future';
+    $: showScheduleFields = schedule === 'future';
 
     function formatDateForInput(d: Date): string {
         const y = d.getFullYear();
@@ -73,8 +93,14 @@
         return `${hh}:${mm}`;
     }
 
-    /** Reset form from bundle when modal opens with a bundle */
-    $: if (open && bundle) {
+    // Reset init guard when modal closes
+    $: if (!open) {
+        didInitFromBundle = false;
+        initBundleId = null;
+    }
+
+    /** Initialize form from bundle on open (one-shot) */
+    $: if (open && bundle && (!didInitFromBundle || initBundleId !== bundle.id)) {
         name = bundle.name || '';
         description = bundle.description || '';
         os = bundle.os || 'ANDROID';
@@ -85,55 +111,47 @@
         forceUpdate = !!(bundle as any).forceUpdate;
 
         const scheduledAt = bundle.scheduledAt ? new Date(bundle.scheduledAt) : null;
-        const activePeriodDays = Math.min(Math.max((bundle as any).activePeriodDays ?? 1, 1), 30);
+        activePeriodDays = Math.min(Math.max((bundle as any).activePeriodDays ?? 1, 1), 30);
 
         if (scheduledAt && !isNaN(scheduledAt.getTime())) {
             schedule = 'future';
             startDate = formatDateForInput(scheduledAt);
             startTime = formatTimeForInput(scheduledAt);
-            const end = new Date(scheduledAt);
-            end.setDate(end.getDate() + activePeriodDays);
-            endDate = formatDateForInput(end);
-            endTime = formatTimeForInput(end);
         } else {
             schedule = 'none';
             startDate = '';
             startTime = '09:00';
-            endDate = '';
-            endTime = '21:00';
         }
         nameError = '';
         startDateError = '';
-        endDateError = '';
+
+        didInitFromBundle = true;
+        initBundleId = bundle.id;
     }
 
     $: if (schedule === 'none') {
         startDate = '';
         startTime = '09:00';
-        endDate = '';
-        endTime = '21:00';
         startDateError = '';
-        endDateError = '';
     }
 
     function validate(): boolean {
         nameError = '';
         startDateError = '';
-        endDateError = '';
         if (!name.trim()) nameError = 'Name is required';
-        if (showScheduleFields) {
-            if (!startDate.trim()) startDateError = 'Start date is required';
-            if (!endDate.trim()) endDateError = 'End date is required';
-            if (startDate && endDate && startTime && endTime) {
-                const start = new Date(startDate + 'T' + startTime);
-                const end = new Date(endDate + 'T' + endTime);
-                if (start >= end) {
-                    startDateError = 'Start Date must before End Date';
-                    endDateError = 'End Date must after Start Date';
-                }
+        if (schedule === 'future' && !startDate.trim()) {
+            startDateError = 'Start date is required';
+        }
+        if (!startDateError && schedule === 'future' && startDate) {
+            const start = new Date(`${startDate}T${startTime || '00:00'}`);
+            const now = new Date();
+            if (isNaN(start.getTime())) {
+                startDateError = 'Invalid start date/time';
+            } else if (start.getTime() < now.getTime()) {
+                startDateError = 'Start date/time cannot be in the past';
             }
         }
-        return !nameError && !startDateError && !endDateError;
+        return !nameError && !startDateError;
     }
 
     function buildFormData(): FormData {
@@ -147,17 +165,13 @@
         fd.set('forceUpdate', forceUpdate ? 'on' : '');
         fd.set('autoOpen', '');
         fd.set('scheduledAtStartIfMissed', '');
-        if (showScheduleFields && startDate) {
+        if (schedule === 'future' && startDate) {
             fd.set('scheduledAt', startDate);
             fd.set('scheduledTime', startTime || '09:00');
-            fd.set('scheduledAtTimezone', 'UTC');
-            const end = new Date(endDate + 'T' + (endTime || '00:00'));
-            const start = new Date(startDate + 'T' + (startTime || '00:00'));
-            const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-            fd.set('activePeriodDays', String(Math.min(days, 30)));
-        } else {
-            fd.set('activePeriodDays', '1');
+            fd.set('scheduledAtTimezone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
         }
+        // Preserve existing active period (backend uses this for timeouts/late events)
+        fd.set('activePeriodDays', String(activePeriodDays));
         return fd;
     }
 
@@ -219,7 +233,7 @@
 
     function handleScheduleChange(e: CustomEvent<string | string[]>) {
         const v = (Array.isArray(e.detail) ? e.detail[0] : e.detail) || 'none';
-        schedule = v as 'none' | 'immediately' | 'future';
+        schedule = v as 'none' | 'future';
     }
 
     function handleOsChange(e: CustomEvent<string | string[]>) {
@@ -337,18 +351,10 @@
                     <div class="field-schedule-group">
                         <span class="field-label required" id="edit-start-datetime-label">Start on Date & Time</span>
                         <div class="date-time-row" role="group" aria-labelledby="edit-start-datetime-label">
-                            <InputField type="date" bind:value={startDate} state={startDateError ? 'error' : 'default'} placeholder="MM DD, YYYY" label="" />
-                            <InputField type="time" bind:value={startTime} state={startDateError ? 'error' : 'default'} label="" />
+                            <InputField type="date" bind:value={startDate} min={minStartDate} state={startDateError ? 'error' : 'default'} placeholder="MM DD, YYYY" label="" />
+                            <InputField type="time" bind:value={startTime} min={minStartTime} state={startDateError ? 'error' : 'default'} label="" />
                         </div>
                         {#if startDateError}<p class="field-error">{startDateError}</p>{/if}
-                    </div>
-                    <div class="field-schedule-group">
-                        <span class="field-label required" id="edit-end-datetime-label">End on Date & Time</span>
-                        <div class="date-time-row" role="group" aria-labelledby="edit-end-datetime-label">
-                            <InputField type="date" bind:value={endDate} state={endDateError ? 'error' : 'default'} placeholder="MM DD, YYYY" label="" />
-                            <InputField type="time" bind:value={endTime} state={endDateError ? 'error' : 'default'} label="" />
-                        </div>
-                        {#if endDateError}<p class="field-error">{endDateError}</p>{/if}
                     </div>
                 </div>
             {/if}
@@ -436,7 +442,7 @@
     .field-schedule-row {
         grid-column: 1 / -1;
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr;
         gap: var(--form-col-gap);
         width: 100%;
         min-width: 0;
