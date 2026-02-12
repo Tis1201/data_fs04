@@ -53,9 +53,9 @@
         },
         {
             id: 'organization',
-            label: 'Organization',
+            label: 'Organizations',
             icon: Globe,
-            href: '/user/settings/account',
+            href: '/user/settings/organizations',
             dividerAfter: true
         },
         // RDM Management Section
@@ -238,7 +238,7 @@
             return {
                 headerStyle: 'page',
                 title: 'Dashboard',
-                subtitle: 'Overview of your account'
+                subtitle: 'Key metrics for your management'
             };
         }
         // Bulk Deployments (bundles)
@@ -317,6 +317,23 @@
                 headerStyle: 'page',
                 title: 'All Devices',
                 subtitle: 'View, filter, and manage all devices'
+            };
+        }
+        // Organizations (listing)
+        if (pathname === '/user/settings/organizations' || pathname === '/user/settings/organizations/') {
+            return {
+                headerStyle: 'page',
+                title: 'Organizations',
+                subtitle: 'Manage organizations within your account'
+            };
+        }
+        // Organization detail
+        if (/^\/user\/settings\/organizations\/[^/]+\/?$/.test(pathname.replace(/\/$/, ''))) {
+            return {
+                headerStyle: 'page',
+                title: 'Organization Details',
+                subtitle: 'View and manage organization profile',
+                showBackButton: true
             };
         }
         // Default

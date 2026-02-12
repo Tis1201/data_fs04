@@ -800,7 +800,7 @@
             <Button
                 variant="outline"
                 color="gray"
-                size="md"
+                size="lg"
                 icon={Filter}
                 iconPosition="only"
                 on:click={() => activeTab === 'remote-devices' ? openFilter() : openSensorFilterModal()}
@@ -808,7 +808,7 @@
             <Button
                 variant="filled"
                 color="primary"
-                size="md"
+                size="lg"
                 icon={Plus}
                 iconPosition="left"
                 on:click={() => activeTab === 'remote-devices' ? openAddDeviceModal() : openAddSensorModal()}

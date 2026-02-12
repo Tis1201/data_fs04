@@ -340,7 +340,7 @@
             <Button
                 variant="outline"
                 color="gray"
-                size="md"
+                size="lg"
                 icon={Filter}
                 iconPosition="only"
                 on:click={() => (filterModalOpen = true)}
@@ -348,7 +348,7 @@
             <Button
                 variant="filled"
                 color="primary"
-                size="md"
+                size="lg"
                 icon={Download}
                 iconPosition="left"
                 on:click={exportData}

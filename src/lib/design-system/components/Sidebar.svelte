@@ -46,38 +46,55 @@
 		itemClick: NavItem;
 	}>();
 	
-	// Check if path is active
-	function isPathActive(href: string | undefined): boolean {
+	// Check if path is active (uses currentPath for reactivity)
+	function checkPathActive(href: string | undefined, path: string): boolean {
 		if (!href) return false;
-		const currentPath = $page.url.pathname;
+		
+		// Strip query string from href for comparison
+		const hrefPath = href.split('?')[0];
 		
 		// Exact match
-		if (currentPath === href) return true;
+		if (path === hrefPath) return true;
 		
 		// Check if current path starts with href (for nested routes)
-		if (href !== '/' && currentPath.startsWith(href + '/')) return true;
+		if (hrefPath !== '/' && path.startsWith(hrefPath + '/')) return true;
 		
 		// Also check if href starts with currentPath for parent routes
-		if (href !== '/' && currentPath.startsWith(href)) return true;
+		if (hrefPath !== '/' && path.startsWith(hrefPath)) return true;
 		
 		return false;
 	}
 	
-	// Check if any child is active
-	function hasActiveChild(item: NavItem): boolean {
-		if (!item.children) return false;
-		return item.children.some(child => isPathActive(child.href));
+	// Wrapper that uses reactive currentPath
+	function isPathActive(href: string | undefined): boolean {
+		return checkPathActive(href, currentPath);
 	}
 	
-	// Check if item should show as active (reactive to expanded state)
-	function isItemActive(item: NavItem, isExpanded: boolean): boolean {
+	// Check if any child is active (uses currentPath for reactivity)
+	function checkHasActiveChild(item: NavItem, path: string): boolean {
+		if (!item.children) return false;
+		return item.children.some(child => checkPathActive(child.href, path));
+	}
+	
+	// Wrapper that uses reactive currentPath
+	function hasActiveChild(item: NavItem): boolean {
+		return checkHasActiveChild(item, currentPath);
+	}
+	
+	// Check if item should show as active (reactive to expanded state and currentPath)
+	function checkItemActive(item: NavItem, isExpanded: boolean, path: string): boolean {
 		// Direct link active
-		if (item.href && isPathActive(item.href)) return true;
+		if (item.href && checkPathActive(item.href, path)) return true;
 		
 		// In collapsed mode, parent is active if any child is active
-		if (!isExpanded && hasActiveChild(item)) return true;
+		if (!isExpanded && checkHasActiveChild(item, path)) return true;
 		
 		return false;
+	}
+	
+	// Wrapper that uses reactive currentPath
+	function isItemActive(item: NavItem, isExpanded: boolean): boolean {
+		return checkItemActive(item, isExpanded, currentPath);
 	}
 	
 	// Toggle sidebar expand/collapse
@@ -232,12 +249,12 @@
 				<li class="nav-item-wrapper">
 					{#if item.children && item.children.length > 0}
 						<!-- Parent with children -->
-						{@const itemActive = isItemActive(item, expanded)}
+						{@const itemActive = checkItemActive(item, expanded, currentPath)}
 						<button
 							type="button"
 							class="nav-item"
 							class:active={itemActive}
-							class:has-active-child={hasActiveChild(item) && expanded}
+							class:has-active-child={checkHasActiveChild(item, currentPath) && expanded}
 							on:click={(e) => handleItemClick(item, e)}
 							on:mouseenter={(e) => handleMouseEnter(item, e)}
 							on:mouseleave={() => handleMouseLeave(item)}
@@ -276,7 +293,7 @@
 										<a
 											href={child.href}
 											class="sub-nav-item"
-											class:active={isPathActive(child.href)}
+											class:active={checkPathActive(child.href, currentPath)}
 											on:click={(e) => handleItemClick(child, e)}
 										>
 											<span class="sub-nav-label">{child.label}</span>
@@ -287,7 +304,7 @@
 						{/if}
 					{:else}
 						<!-- Direct link -->
-						{@const itemActive = isItemActive(item, expanded)}
+						{@const itemActive = checkItemActive(item, expanded, currentPath)}
 						<a
 							href={item.href}
 							class="nav-item"
@@ -326,7 +343,7 @@
 		<div class="footer-divider" class:collapsed={!expanded}></div>
 		<ul class="nav-list footer-nav">
 			{#each footerNavItems as item (item.id + '-' + currentPath + '-' + expanded)}
-				{@const itemActive = isItemActive(item, expanded)}
+				{@const itemActive = checkItemActive(item, expanded, currentPath)}
 				<li class="nav-item-wrapper">
 					<a
 						href={item.href}
@@ -369,7 +386,7 @@
 					<a
 						href={child.href}
 						class="flyout-item"
-						class:active={isPathActive(child.href)}
+						class:active={checkPathActive(child.href, currentPath)}
 						on:click={(e) => { handleItemClick(child, e); if (!e.metaKey && !e.ctrlKey && e.button === 0) flyoutItem = null; }}
 						role="menuitem"
 					>

@@ -34,6 +34,7 @@ export { default as ActionMenu } from './ActionMenu.svelte';
 export { default as ColumnFilter } from './ColumnFilter.svelte';
 export { default as BulkActionsBar } from './BulkActionsBar.svelte';
 export { default as UsageIndicators } from './UsageIndicators.svelte';
+export { default as PhoneInput } from './PhoneInput.svelte';
 /** @deprecated Use DataTable with column configuration instead */
 export { default as DeviceTable } from './DeviceTable.svelte';
 
