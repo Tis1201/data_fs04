@@ -279,7 +279,9 @@ export async function loadBundleDetail(
             name: true,
             model: true,
             status: true,
-            connected: true
+            connected: true,
+            deviceType: true,
+            osVersion: true
           }
         });
         

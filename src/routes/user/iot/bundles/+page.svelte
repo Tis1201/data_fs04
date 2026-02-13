@@ -242,7 +242,7 @@
         if (!pauseTarget) return;
         pauseLoading = true;
         try {
-            const res = await fetch(`/api/v2/bundles/${pauseTarget.id}/pause`, { method: 'POST' });
+            const res = await fetch(`/api/v2/bundles/${pauseTarget.id}/stop`, { method: 'POST' });
             const result = await res.json().catch(() => ({}));
             if (res.ok && result.success) {
                 toast.success('Deployment paused successfully!');

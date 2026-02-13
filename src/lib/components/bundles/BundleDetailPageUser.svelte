@@ -152,6 +152,7 @@
     let appsComponentRef: any = null;
     let importCsvFile: File | null = null;
     let importCsvProgress = 0;
+    let importCsvLoading = false;
     let fileInput: HTMLInputElement | null = null;
 
     // Assign by tag modal (same pattern as device-profiles)
@@ -570,8 +571,8 @@
     }
 
     function downloadImportCsvTemplate() {
-        const headers = ['macId', 'name'];
-        const sample = ['AA:BB:CC:DD:EE:FF', 'My Device'];
+        const headers = ['macId'];
+        const sample = ['AA:BB:CC:DD:EE:FF'];
         const csv = [headers.join(','), sample.join(',')].join('\n');
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -585,16 +586,46 @@
     }
 
     async function handleImportCsv() {
-        if (!importCsvFile) return;
+        if (!importCsvFile || !bundle?.id) return;
+        importCsvLoading = true;
         try {
-            // TODO: call API to import devices from CSV
-            toast.success('Device imported successfully!');
+            const formData = new FormData();
+            formData.set('file', importCsvFile);
+            const res = await fetch(`/api/v2/bundles/${bundle.id}/devices/import-csv`, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json().catch(() => ({}));
+            const payload = data?.data ?? data;
+            const imported = typeof payload?.imported === 'number' ? payload.imported : 0;
+            const skipped = Array.isArray(payload?.skipped) ? payload.skipped : [];
+
+            if (!res.ok) {
+                const msg = data?.error?.message || data?.message || 'Import failed.';
+                toast.error(msg);
+                return;
+            }
+
             showImportCsvModal = false;
             importCsvFile = null;
             importCsvProgress = 0;
             await invalidate('app:bundle');
+
+            if (imported > 0) {
+                toast.success(imported === 1 ? '1 device imported.' : `${imported} devices imported.`);
+            }
+            if (skipped.length > 0) {
+                const sample = skipped.slice(0, 2).map((s: { value: string; reason: string }) => `${s.value}: ${s.reason}`);
+                const tail = skipped.length > 2 ? ` (+${skipped.length - 2} more)` : '';
+                toast.warning(`${skipped.length} row(s) skipped: ${sample.join('; ')}${tail}`);
+            }
+            if (imported === 0 && skipped.length > 0) {
+                toast.info('No devices were added. All rows were skipped. Check that MAC/deviceId exists and matches this bundle\'s OS.');
+            }
         } catch {
-            toast.error('Unable to import Device. Please try again!');
+            toast.error('Unable to import. Please try again.');
+        } finally {
+            importCsvLoading = false;
         }
     }
 
@@ -1383,7 +1414,8 @@
     size="xl"
     cancelText="Cancel"
     confirmText="Import"
-    confirmDisabled={!importCsvFile}
+    confirmLoading={importCsvLoading}
+    confirmDisabled={!importCsvFile || importCsvLoading}
     on:close={() => { showImportCsvModal = false; importCsvFile = null; importCsvProgress = 0; }}
     on:confirm={handleImportCsv}
 >

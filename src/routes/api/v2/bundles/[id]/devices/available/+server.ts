@@ -22,7 +22,7 @@ export const GET = unifiedEndpoint(
 
     const bundle = await prisma.bundle.findUnique({
       where: { id: bundleId },
-      select: { id: true, status: true }
+      select: { id: true, status: true, os: true }
     });
 
     if (!bundle) {
@@ -31,6 +31,12 @@ export const GET = unifiedEndpoint(
     console.log('[devices/available] bundleId:', bundleId, 'bundle found:', !!bundle);
 
     const where: any = { status: 'ACTIVE' };
+
+    // Filter by bundle target OS: only show devices whose deviceType matches (case-insensitive)
+    const bundleOs = (bundle as { os?: string | null }).os;
+    if (bundleOs && typeof bundleOs === 'string' && bundleOs.trim() !== '') {
+      where.deviceType = { equals: bundleOs.trim(), mode: 'insensitive' };
+    }
 
     const isAdmin = context.session?.user?.systemRole === 'ADMIN';
     if (!isAdmin && context.account?.id) {

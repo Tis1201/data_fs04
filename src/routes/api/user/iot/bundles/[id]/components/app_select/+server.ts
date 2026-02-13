@@ -26,22 +26,37 @@ const tableOptions = {
   }
 };
 
+/** Allowed app formats per bundle target OS */
+function getFormatsByTargetOs(os: string | null | undefined): string[] {
+  const osLower = (os ?? '').toLowerCase();
+  if (osLower === 'macos' || osLower === 'darwin') return ['cpk'];
+  if (osLower === 'linux') return ['deb', 'cpk'];
+  if (osLower === 'android') return ['apk'];
+  // fallback: all app formats
+  return ['apk', 'cpk', 'deb'];
+}
+
 // Handle GET requests to fetch resources for app selection
 export const GET = restrict(
   async ({ url, locals, params }: any) => {
     try {
       // Exclude already-added resources for this bundle
       const bundleId = params.id as string;
+      const bundle = await (locals.prisma as any).bundle.findUnique({
+        where: { id: bundleId },
+        select: { os: true }
+      });
       const existing = await (locals.prisma as any).bundleApp.findMany({
         where: { bundleId },
         select: { resourceId: true }
       });
       const excludeIds = new Set(existing.map((e: { resourceId: string }) => e.resourceId));
 
-      // Add base filtering for APK and CPK files only
+      // Filter formats by bundle target OS: macOS → cpk; Linux → deb, cpk; Android → apk
+      const allowedFormats = getFormatsByTargetOs(bundle?.os);
       const baseWhere = {
         format: {
-          in: ['apk', 'cpk']
+          in: allowedFormats
         }
       };
 

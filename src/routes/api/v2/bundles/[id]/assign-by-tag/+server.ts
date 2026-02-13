@@ -25,7 +25,7 @@ export const POST = unifiedEndpoint(
 
     const bundle = await prisma.bundle.findUnique({
       where: { id: bundleId },
-      select: { id: true, status: true }
+      select: { id: true, status: true, os: true }
     });
 
     if (!bundle) {
@@ -49,15 +49,22 @@ export const POST = unifiedEndpoint(
       })
       .then((rows) => rows.map((r) => r.deviceId));
 
-    const devices = await prisma.device.findMany({
-      where: {
-        tags: {
-          some: {
-            id: { in: tagIds }
-          }
-        },
-        ...(existingDeviceIds.length > 0 ? { id: { notIn: existingDeviceIds } } : {})
+    const bundleOs = (bundle as { os?: string | null }).os;
+    const deviceWhere: Record<string, unknown> = {
+      tags: {
+        some: {
+          id: { in: tagIds }
+        }
       },
+      ...(existingDeviceIds.length > 0 ? { id: { notIn: existingDeviceIds } } : {})
+    };
+    // Filter by bundle OS: only assign devices whose deviceType matches (case-insensitive)
+    if (bundleOs && typeof bundleOs === 'string' && bundleOs.trim() !== '') {
+      deviceWhere.deviceType = { equals: bundleOs.trim(), mode: 'insensitive' };
+    }
+
+    const devices = await prisma.device.findMany({
+      where: deviceWhere,
       select: { id: true }
     });
 
