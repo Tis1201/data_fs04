@@ -54,6 +54,14 @@ export class SensorDataService {
         }
 
         const client = getClickHouseClient();
+        const timeField = mvConfig.timeField ?? 'log_creation_time';
+
+        // Date range is required from the UI for both session and path-tracking
+        if (!params.startTime || !params.endTime) {
+            throw new Error('startTime and endTime are required. Please select a date range (Current week, Current month, or Custom).');
+        }
+        const startTime = params.startTime;
+        const endTime = params.endTime;
 
         // Build WHERE conditions
         const conditions: string[] = ['account_id = {accountId:String}'];
@@ -76,14 +84,14 @@ export class SensorDataService {
             queryParams.targetId = params.targetId;
         }
 
-        if (params.startTime) {
-            conditions.push('log_creation_time >= {startTime:DateTime}');
-            queryParams.startTime = toClickHouseDateTime(params.startTime);
+        if (startTime) {
+            conditions.push(`${timeField} >= {startTime:DateTime}`);
+            queryParams.startTime = toClickHouseDateTime(startTime);
         }
 
-        if (params.endTime) {
-            conditions.push('log_creation_time <= {endTime:DateTime}');
-            queryParams.endTime = toClickHouseDateTime(params.endTime);
+        if (endTime) {
+            conditions.push(`${timeField} <= {endTime:DateTime}`);
+            queryParams.endTime = toClickHouseDateTime(endTime);
         }
 
         // Search across configured fields
@@ -103,8 +111,16 @@ export class SensorDataService {
         const offset = (page - 1) * perPage;
 
         // Sorting
-        const sortBy = params.sortBy ?? mvConfig.defaultSort;
-        const sortOrder = params.sortOrder ?? mvConfig.defaultOrder;
+        const sortByCandidate = params.sortBy ?? mvConfig.defaultSort;
+        const sortBy =
+            mvConfig.allowedSortFields && mvConfig.allowedSortFields.length > 0
+                ? (mvConfig.allowedSortFields.includes(sortByCandidate) ? sortByCandidate : mvConfig.defaultSort)
+                : sortByCandidate;
+
+        const sortOrder =
+            params.sortOrder === 'asc' || params.sortOrder === 'desc'
+                ? params.sortOrder
+                : mvConfig.defaultOrder;
 
         // Execute data query
         const dataQuery = `

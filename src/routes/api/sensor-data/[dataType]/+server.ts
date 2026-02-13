@@ -66,9 +66,10 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
         const message = err instanceof Error ? err.message : String(err);
         const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '';
         console.error('[API sensor-data]', message, code ? `(code: ${code})` : '', err instanceof Error ? err.stack : '');
+        const isRequiredRange = message.includes('startTime and endTime are required');
         return json(
-            { error: 'Failed to query sensor data', detail: process.env.NODE_ENV === 'development' ? message : undefined },
-            { status: 500 }
+            { error: isRequiredRange ? message : 'Failed to query sensor data', detail: process.env.NODE_ENV === 'development' && !isRequiredRange ? message : undefined },
+            { status: isRequiredRange ? 400 : 500 }
         );
     }
 }, ['ADMIN', 'USER']);

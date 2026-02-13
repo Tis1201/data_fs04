@@ -26,7 +26,8 @@ export const load = restrict(
                   await prisma.sensor.findMany({
                       where: { accountId },
                       select: { id: true, name: true },
-                      orderBy: { name: 'asc' }
+                      orderBy: { name: 'asc' },
+                      take: 10
                   })
               ).map((s) => ({ id: s.id, name: s.name }))
             : [];

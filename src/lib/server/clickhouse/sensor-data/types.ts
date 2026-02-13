@@ -15,6 +15,8 @@ export interface MVConfig {
     defaultSort: string;           // Default sort column
     defaultOrder: 'asc' | 'desc';  // Default sort order
     searchFields: string[];        // Fields to search
+    allowedSortFields?: string[];  // Allowlist for ORDER BY column (prevents injection)
+    timeField?: string;            // Column used for startTime/endTime filters
 }
 
 export const MV_REGISTRY: Record<SensorDataType, MVConfig> = {
@@ -23,12 +25,39 @@ export const MV_REGISTRY: Record<SensorDataType, MVConfig> = {
         defaultSort: 'log_creation_time',
         defaultOrder: 'desc',
         searchFields: ['target_id', 'sensor_id', 'sensor_name'],
+        allowedSortFields: [
+            'processed_at',
+            'log_creation_time',
+            'target_id',
+            'sensor_id',
+            'sensor_name',
+            'device_id',
+            'mac_address',
+            'timezone_label',
+            'dwell_tracking_area_sec',
+            'proximity_m',
+        ],
+        timeField: 'log_creation_time',
     },
     radar_path: {
         mv: 'mv_radar_path',
-        defaultSort: 'log_creation_time',
+        // "Date" on Path Tracking UI should reflect when the MV processed the row (processed_at).
+        defaultSort: 'processed_at',
         defaultOrder: 'desc',
-        searchFields: ['target_id', 'sensor_id'],
+        searchFields: ['target_id', 'sensor_id', 'sensor_name', 'timezone_label'],
+        allowedSortFields: [
+            'processed_at',
+            'log_creation_time',
+            'target_id',
+            'sensor_id',
+            'sensor_name',
+            'device_id',
+            'mac_address',
+            'x_m',
+            'y_m',
+            'timezone_label',
+        ],
+        timeField: 'processed_at',
     },
 };
 
