@@ -120,7 +120,7 @@ export async function mintIoTCoreCredentials(
 
         const token = jwt.sign(payload, linkKey.privateKey, {
             algorithm,
-            expiresIn: '1h',
+            expiresIn: '24h',
             keyid: linkKey.id  // Must match JWKS endpoint which uses `id` (cuid) not `keyId`
         });
 
