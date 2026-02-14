@@ -30,6 +30,9 @@ interface PendingRequest {
 
 type NotificationHandler = (payload: any) => void;
 
+/** Refresh JWT 5 minutes before it expires (matches mqtt-store.ts) */
+const TOKEN_REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
+
 class UserMqttClient {
   private readonly mintEndpoint: string;
   private readonly maxReconnectAttempts: number;
@@ -49,6 +52,8 @@ class UserMqttClient {
 
   private mintResult: MintResult | null = null;
   private subject: string | null = null;
+  private jwtExpiryMs = 0;
+  private tokenRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly pendingRequests = new Map<string, PendingRequest>();
   private readonly notificationHandlers = new Map<string, Set<NotificationHandler>>();
@@ -179,6 +184,7 @@ class UserMqttClient {
 
   disconnect(permanent = true): void {
     this.manualDisconnect = permanent;
+    this.clearTokenRefresh();
 
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -302,6 +308,23 @@ class UserMqttClient {
       throw new Error('Mint response missing required fields');
     }
 
+    // Parse JWT expiry from the token payload
+    try {
+      const [, payloadSegment] = data.jwt.split('.');
+      if (payloadSegment) {
+        const normalized = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+        const decoded = JSON.parse(atob(padded));
+        if (decoded?.exp) {
+          this.jwtExpiryMs = decoded.exp * 1000;
+          console.log('[MQTT Client] JWT expires at', new Date(this.jwtExpiryMs).toISOString());
+        }
+      }
+    } catch (err) {
+      console.warn('[MQTT Client] Failed to decode JWT expiry, using fallback 50min', err);
+      this.jwtExpiryMs = Date.now() + 50 * 60 * 1000;
+    }
+
     return {
       brokerUrl: data.brokerUrl,
       clientId: data.clientId,
@@ -380,6 +403,7 @@ class UserMqttClient {
       this.reconnectAttempts = 0;
       this.setStatus('connected', null);
       this.subscribeTopics();
+      // this.scheduleTokenRefresh();
     });
 
     client.on('message', (topic, payload) => {
@@ -392,6 +416,7 @@ class UserMqttClient {
         allowConnections: this.allowConnections,
         authState: this.authState
       });
+      this.clearTokenRefresh();
       this.client = null;
       this.failAllPending(new Error('MQTT connection closed'));
 
@@ -413,6 +438,7 @@ class UserMqttClient {
         stack: err.stack,
         name: err.name
       });
+      this.clearTokenRefresh();
       this.setStatus('error', err);
       try {
         client.end(true);
@@ -536,6 +562,60 @@ class UserMqttClient {
         }
       }
     }
+  }
+
+  /** Schedule a proactive JWT refresh before the token expires */
+  private scheduleTokenRefresh(): void {
+    this.clearTokenRefresh();
+
+    if (!this.jwtExpiryMs) return;
+
+    const now = Date.now();
+    const refreshAt = this.jwtExpiryMs - TOKEN_REFRESH_BEFORE_EXPIRY_MS;
+    const delayMs = Math.max(refreshAt - now, 0);
+
+    console.log('[MQTT Client] Scheduling token refresh in', Math.round(delayMs / 1000), 'seconds',
+      '(JWT expires at', new Date(this.jwtExpiryMs).toISOString() + ')');
+
+    this.tokenRefreshTimer = setTimeout(() => {
+      this.tokenRefreshTimer = null;
+      this.performTokenRefresh();
+    }, delayMs);
+  }
+
+  private clearTokenRefresh(): void {
+    if (this.tokenRefreshTimer) {
+      clearTimeout(this.tokenRefreshTimer);
+      this.tokenRefreshTimer = null;
+    }
+  }
+
+  /** Tear down current connection, clear cached JWT, and reconnect with fresh credentials */
+  private performTokenRefresh(): void {
+    console.log('[MQTT Client] Token refresh triggered — reconnecting with fresh JWT');
+
+    // Tear down existing connection without marking as manual/permanent disconnect
+    if (this.client) {
+      try {
+        this.client.removeAllListeners();
+        this.client.end(true);
+      } catch {
+        // ignore
+      }
+      this.client = null;
+    }
+
+    this.failAllPending(new Error('MQTT token refresh'));
+
+    // Clear cached credentials so a fresh JWT is minted
+    this.mintResult = null;
+    this.jwtExpiryMs = 0;
+    this.reconnectAttempts = 0;
+
+    // Reconnect immediately with fresh credentials
+    this.connect().catch((err) => {
+      console.error('[MQTT Client] Token refresh reconnect failed:', err);
+    });
   }
 
   private scheduleReconnect(): void {

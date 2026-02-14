@@ -6,6 +6,7 @@ import { createModalHandler } from '$lib/client/mqtt/handlers/ui/modalHandler';
 import { createProgressBarHandler } from '$lib/client/mqtt/handlers/ui/progressBarHandler';
 import { DeviceActionsService } from '$lib/services/deviceActionsService';
 import { mqttClient } from '$lib/client/mqtt/mqttClient';
+import { isRefreshAction } from '$lib/constants/device';
 import {
     updateFirmware as mqttUpdateFirmware,
     installApp as mqttInstallApp,
@@ -59,6 +60,8 @@ export interface UseDeviceDetailOptions {
     firmwarePage: { get: () => number; set: (value: number) => void };
     firmwareTotalPages: { get: () => number; set: (value: number) => void };
     firmwareSearch: { get: () => string; set: (value: string) => void };
+    /** Called when a device:statusUpdate indicates success for an action that should reload device/apps (per AUTO_REFRESH_PLAN) */
+    onRefreshActionsSuccess?: (payload: any) => void;
 }
 
 /**
@@ -106,7 +109,8 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
         loadingFirmware,
         firmwarePage,
         firmwareTotalPages,
-        firmwareSearch
+        firmwareSearch,
+        onRefreshActionsSuccess
     } = options;
 
     const MAX_ACTION_LOGS = 15;
@@ -652,7 +656,15 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             pushFileStatusMessage
         });
 
-        const statusUnsub = mqttClient.onNotification('device:statusUpdate', modalHandler);
+        const statusHandler = (payload: any) => {
+            modalHandler(payload);
+            const isSuccess = payload?.status === 'success' || payload?.status === 'complete';
+            if (isSuccess && onRefreshActionsSuccess && isRefreshAction(payload?.action)) {
+                onRefreshActionsSuccess(payload);
+            }
+        };
+
+        const statusUnsub = mqttClient.onNotification('device:statusUpdate', statusHandler);
         const progressUnsub = mqttClient.onNotification('device:progressUpdate', progressBarHandler);
 
         mqttUnsubscribes.push(statusUnsub, progressUnsub);

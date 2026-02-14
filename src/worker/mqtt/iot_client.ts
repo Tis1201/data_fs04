@@ -76,6 +76,64 @@ async function mintWorkerCredentials(): Promise<
 let reconnectAttempts = 0;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
+let credentialRefreshTimer: NodeJS.Timeout | null = null;
+
+/**
+ * How long before JWT expiry to schedule a proactive reconnect (in ms).
+ * JWT is minted with expiresIn: '1h' (3600s). Reconnect at 50 minutes to
+ * leave a 10-minute safety margin.
+ */
+const JWT_REFRESH_BEFORE_EXPIRY_MS = Number(
+    process.env.MQTT_WORKER_JWT_REFRESH_BEFORE_EXPIRY_MS ?? String(10 * 60 * 1000)
+);
+const JWT_EXPIRY_MS = Number(
+    process.env.MQTT_WORKER_JWT_EXPIRY_MS ?? String(60 * 60 * 1000)
+);
+
+/*****************************************************************
+ * Schedules a proactive reconnect before the JWT expires.
+ * Called after a successful connect with minted credentials.
+ *****************************************************************/
+function scheduleCredentialRefresh(usedMintedCredentials: boolean) {
+    clearCredentialRefreshTimer();
+
+    if (!usedMintedCredentials) {
+        // Static credentials don't expire; no refresh needed
+        return;
+    }
+
+    const refreshIn = Math.max(JWT_EXPIRY_MS - JWT_REFRESH_BEFORE_EXPIRY_MS, 30_000);
+    logger.info(
+        `[MQTT Transport] Scheduling credential refresh in ${Math.round(refreshIn / 1000)}s ` +
+        `(JWT expiry=${JWT_EXPIRY_MS / 1000}s, refreshBefore=${JWT_REFRESH_BEFORE_EXPIRY_MS / 1000}s)`
+    );
+
+    credentialRefreshTimer = setTimeout(() => {
+        credentialRefreshTimer = null;
+        logger.info('[MQTT Transport] JWT credential refresh triggered — reconnecting with fresh credentials');
+        triggerReconnect();
+    }, refreshIn);
+}
+
+function clearCredentialRefreshTimer() {
+    if (credentialRefreshTimer) {
+        clearTimeout(credentialRefreshTimer);
+        credentialRefreshTimer = null;
+    }
+}
+
+/*****************************************************************
+ * Triggers a clean reconnect: ends the current client and
+ * calls connectWorkerClient() which will mint fresh credentials.
+ * Exported so index.ts can also trigger reconnect on auth errors.
+ *****************************************************************/
+export function triggerReconnect() {
+    // Reset reconnect attempts so we reconnect immediately (not with backoff)
+    reconnectAttempts = 0;
+    stopHeartbeat();
+    clearCredentialRefreshTimer();
+    scheduleReconnect();
+}
 
 /*****************************************************
  * Sends a heartbeat message to the 'heartbeat' topic.
@@ -120,7 +178,11 @@ function stopHeartbeat() {
  * Mints credentials, sets up event listeners, and handles subscriptions.
  *************************************************************************/
 export async function connectWorkerClient(): Promise<void> {
+    // Clear any pending credential refresh from previous connection
+    clearCredentialRefreshTimer();
+
     const minted = await mintWorkerCredentials();
+    const usedMintedCredentials = minted !== null;
 
     const finalOptions: IClientOptions = {
         ...connectionOptions,
@@ -133,7 +195,7 @@ export async function connectWorkerClient(): Promise<void> {
 
     logger.info(
         `[MQTT Transport] Connecting to ${brokerUrl} with clientId ${clientId} (username=${finalOptions.username ?? 'n/a'
-        })`
+        }, mintedCredentials=${usedMintedCredentials})`
     );
 
     client = mqtt.connect(brokerUrl!, finalOptions);
@@ -159,6 +221,9 @@ export async function connectWorkerClient(): Promise<void> {
             reconnectTimer = null;
         }
 
+        // Schedule credential refresh before JWT expires
+        scheduleCredentialRefresh(usedMintedCredentials);
+
         if (topics.length === 0) {
             logger.warn('[MQTT Transport] Connected but no topics configured via MQTT_WORKER_TOPICS');
             return;
@@ -166,7 +231,7 @@ export async function connectWorkerClient(): Promise<void> {
 
         activeClient.subscribe(
             topics,
-            { qos: Number(process.env.MQTT_WORKER_QOS ?? '0') as QoS },
+            { qos: Number(process.env.MQTT_WORKER_QOS ?? '1') as QoS },
             (err, granted) => {
                 if (err) {
                     logger.error(`[MQTT Transport] Failed to subscribe: ${err.message}`);
@@ -197,6 +262,7 @@ export async function connectWorkerClient(): Promise<void> {
             stack: err?.stack
         });
         stopHeartbeat();
+        clearCredentialRefreshTimer();
         scheduleReconnect();
     });
 
@@ -206,6 +272,7 @@ export async function connectWorkerClient(): Promise<void> {
             }, reasonString=${packet?.properties?.reasonString ?? 'n/a'})`
         );
         stopHeartbeat();
+        clearCredentialRefreshTimer();
         scheduleReconnect();
     });
 
@@ -219,12 +286,14 @@ export async function connectWorkerClient(): Promise<void> {
             : 'client=null';
         logger.warn(`[MQTT Transport] Connection closed (${status})`);
         stopHeartbeat();
+        clearCredentialRefreshTimer();
         scheduleReconnect();
     });
 
     activeClient.on('offline', () => {
         logger.warn('[MQTT Transport] Client offline');
         stopHeartbeat();
+        clearCredentialRefreshTimer();
         scheduleReconnect();
     });
 }
@@ -334,6 +403,13 @@ export async function publishMqttMessage(
                 client.publish(topic, payload, options, (err) => {
                     if (err) {
                         logger.error(`[MQTT Transport] Failed to publish on ${topic}: ${err.message}`);
+
+                        // Detect expired JWT / auth failure and trigger reconnect with fresh credentials
+                        if (err.message?.toLowerCase().includes('not authorized')) {
+                            logger.warn('[MQTT Transport] Publish rejected as "Not authorized" — JWT likely expired, triggering reconnect');
+                            triggerReconnect();
+                        }
+
                         reject(err);
                     } else {
                         logger.info(`[MQTT Transport] Published message on ${topic} (qos=${options.qos ?? 0}, payloadLength=${payloadStr.length}) - callback called`);

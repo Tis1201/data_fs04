@@ -16,7 +16,8 @@ import {
   setStarted,
   setClient,
   adminPrisma,
-  publishMqttMessage as clientPublishMqttMessage
+  publishMqttMessage as clientPublishMqttMessage,
+  triggerReconnect
 } from './iot_client';
 
 // Re-export for compatibility if needed, though usually index.ts is the entry point
@@ -60,6 +61,13 @@ export function startMqttListener(): void {
         client!.publish(topic, payload, options, (err) => {
           if (err) {
             logger.error(`[MQTT Transport] Failed to publish on ${topic}: ${err.message}`);
+
+            // Detect expired JWT / auth failure and trigger reconnect with fresh credentials
+            if (err.message?.toLowerCase().includes('not authorized')) {
+              logger.warn('[MQTT Transport] Publish rejected as "Not authorized" — JWT likely expired, triggering reconnect');
+              triggerReconnect();
+            }
+
             reject(err);
             return;
           }
