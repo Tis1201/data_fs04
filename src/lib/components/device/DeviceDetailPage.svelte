@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { goto } from "$app/navigation";
+    import { goto, invalidate } from "$app/navigation";
     import { superForm } from "sveltekit-superforms/client";
     import { toast } from "svelte-sonner";
     import { writable } from "svelte/store";
@@ -166,7 +166,8 @@
         loadingFirmware: { get: () => loadingFirmware, set: (v) => { loadingFirmware = v; } },
         firmwarePage: { get: () => firmwarePage, set: (v) => { firmwarePage = v; } },
         firmwareTotalPages: { get: () => firmwareTotalPages, set: (v) => { firmwareTotalPages = v; } },
-        firmwareSearch: { get: () => firmwareSearch, set: (v) => { firmwareSearch = v; } }
+        firmwareSearch: { get: () => firmwareSearch, set: (v) => { firmwareSearch = v; } },
+        onRefreshActionsSuccess: () => { invalidate('app:device'); }
     });
 
     // Use composable functions

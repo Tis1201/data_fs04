@@ -23,6 +23,7 @@
     import { browser } from "$app/environment";
     import { createProgressBarHandler } from "$lib/client/mqtt/handlers/ui/progressBarHandler";
     import { toast } from "$lib/stores/alertToast";
+    import { isRefreshAction } from "$lib/constants/device";
     import {
         formatDeploymentDate,
         formatActivityLogDate,
@@ -737,10 +738,11 @@
 
     onMount(() => {
         if (browser) initializeDeviceRealtime();
-        // Refresh device info periodically to get latest metrics from ClickHouse
+        // Refresh device detail and (when on Apps tab) installed apps every 30s
         healthRefreshInterval = setInterval(() => {
-            invalidate('app:device-detail');
-        }, 30000); // Refresh every 30 seconds
+            invalidate('app:device');
+            if (activeTab === 'apps') loadApps();
+        }, 30000);
 
         // Set up real-time action log sync
         if (device?.id) {
@@ -867,10 +869,15 @@
                     }
                 });
 
-                // Wrap handlers with logging
+                // Wrap handlers with logging and refresh apps list on install/uninstall success
                 const loggingModalHandler = (payload: any) => {
                     console.log('[UserDevicePage] Received device:statusUpdate:', payload);
                     modalHandler(payload);
+                    const isSuccess = payload?.status === 'success' || payload?.status === 'complete';
+                    if (isSuccess && isRefreshAction(payload?.action)) {
+                        loadApps();
+                        invalidate('app:device');
+                    }
                 };
 
                 const loggingProgressHandler = (payload: any) => {
@@ -1028,8 +1035,9 @@
 
             addAlert('success', result.message || 'Device refresh command sent successfully!');
 
-            // Also invalidate local data to refresh UI
+            // Reload device data and apps list (per AUTO_REFRESH_PLAN: refresh triggers reload)
             await invalidate('app:device');
+            loadApps();
         } catch (error) {
             console.error('Refresh failed:', error);
             addAlert('error', error instanceof Error ? error.message : 'Unable to refresh device. Please try again!');

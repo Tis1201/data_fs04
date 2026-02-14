@@ -17,12 +17,12 @@ function parseCsvList(param: string | null): string[] | undefined {
 }
 
 /**
- * Unified Files API Endpoint
- * 
+ * Unified Resources API Endpoint (all resource types: files, apps, firmware)
+ *
  * Supports both ADMIN and USER roles.
- * - ADMIN: Sees all file resources across all accounts
- * - USER: Sees only file resources from their account memberships (via ZenStack access policies)
- * 
+ * - ADMIN: Sees all resources across all accounts
+ * - USER: Sees only resources from their account memberships (via ZenStack access policies)
+ *
  * ZenStack's enhanced Prisma client automatically enforces access policies based on:
  * - User's system role (ADMIN vs USER)
  * - User's account memberships
@@ -44,14 +44,9 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid sort field' }, { status: 400 });
       }
 
-      // Build where clause
+      // Build where clause (no format exclusion — returns all resources)
       // ZenStack will automatically filter based on access policies (account membership)
-      const where: any = {
-        // Only include file resources (not apps or firmware)
-        format: {
-          notIn: ['apk', 'ipa', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'app', 'firmware']
-        }
-      };
+      const where: any = {};
 
       // Add search filter
       if (search) {
@@ -107,8 +102,8 @@ export const GET: RequestHandler = restrict(
         }
       });
     } catch (err) {
-      logger.error(`[ResourcesFilesAPI] Error fetching file resources: ${String(err)}`);
-      return json({ success: false, error: 'Failed to fetch file resources' }, { status: 500 });
+      logger.error(`[ResourcesFilesAPI] Error fetching resources: ${String(err)}`);
+      return json({ success: false, error: 'Failed to fetch resources' }, { status: 500 });
     }
   },
   [SystemRole.ADMIN, SystemRole.USER] // Allow both ADMIN and USER roles

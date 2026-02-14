@@ -5,6 +5,7 @@
   import { writable } from 'svelte/store';
   import { useDeviceAppMqtt } from '$lib/composables/useDeviceAppMqtt';
   import { restartApp, uninstallApp, configApp } from '$lib/client/mqtt/deviceActions';
+  import { isRefreshAction } from '$lib/constants/device';
 
   // ===== Props =====
   export let deviceId: string;
@@ -282,6 +283,12 @@
     if (status === 'success' || status === 'complete' || status === 'failed' || status === 'fail') {
       isLoading.set(false);
       console.log(`[DeviceAppList:MQTT] cleared global loading state for ${action} with status ${status}`);
+    }
+
+    // Reload apps list when an action that affects apps/device info succeeds (per AUTO_REFRESH_PLAN)
+    const isSuccess = status === 'success' || status === 'complete';
+    if (isSuccess && isRefreshAction(action)) {
+      loadData();
     }
   }
 
