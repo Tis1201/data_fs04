@@ -40,20 +40,9 @@ export class MessageEntityMapper {
    */
   static mapToEntity(rawMessage: any): DeviceMessageEntity | null {
     try {
-      console.log('[MessageEntityMapper] RAW INPUT MESSAGE:', rawMessage);
-      
-      // Handle different message formats
       const message = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
-      
-      if (!message || !message.type) {
-        console.log('[MessageEntityMapper] Invalid message structure:', message);
-        return null;
-      }
+      if (!message || !message.type) return null;
 
-      console.log('[MessageEntityMapper] PROCESSING MESSAGE:', message);
-      console.log('[MessageEntityMapper] MESSAGE PAYLOAD:', message.payload);
-
-      // Create base entity
       const entity: DeviceMessageEntity = {
         id: message.id || '',
         type: message.type,
@@ -65,14 +54,7 @@ export class MessageEntityMapper {
         metadata: message.metadata || {}
       };
 
-      // Extract action-specific data based on message type
       this.extractActionData(entity, message);
-
-      console.log('[MessageEntityMapper] CREATED ENTITY:', entity);
-      console.log('[MessageEntityMapper] ENTITY PAYLOAD:', entity.payload);
-      console.log('[MessageEntityMapper] PAYLOAD TYPE:', entity.payload?.type);
-      console.log('[MessageEntityMapper] PAYLOAD DATA:', entity.payload?.data ? 'EXISTS' : 'MISSING');
-
       return entity;
     } catch (error) {
       console.error('[MessageEntityMapper] Failed to map message to entity:', error);
@@ -105,25 +87,13 @@ export class MessageEntityMapper {
     // Duration (server-calculated)
     entity.durationMs = payload.durationMs || message.durationMs;
     
-    // Object path (for file operations like getLogs, pullFile)
     const objectPath = payload.objectPath || message.objectPath;
-    console.log('[MessageEntityMapper] Extracting objectPath:', { 
-      fromPayload: payload.objectPath, 
-      fromMessage: message.objectPath, 
-      final: objectPath 
-    });
-    
-    // Additional payload data - merge everything into entity.payload
-    entity.payload = { 
-      ...entity.payload, 
+    entity.payload = {
+      ...entity.payload,
       ...payload,
-      // Ensure objectPath is included if it exists (check both payload and message)
       ...(objectPath ? { objectPath } : {}),
-      // Also include any other top-level properties from message that might be useful
       ...(message.deviceId ? { deviceId: message.deviceId } : {})
     };
-    
-    console.log('[MessageEntityMapper] Final entity.payload after extraction:', entity.payload);
   }
 
   /**
@@ -159,13 +129,7 @@ export class MessageEntityMapper {
    */
   static getActionType(entity: DeviceMessageEntity): string | null {
     if (!entity.action) return null;
-    
-    // Use centralized action type mapping for handler routing
-    // Note: This uses mapActionToHandlerKey which may differ from database format
-    // (e.g., 'installApp' -> 'install' for handler, but 'install_app' for DB)
-    const handlerKey = mapActionToHandlerKey(entity.action);
-    console.log(`[MessageEntityMapper] Mapping action: ${entity.action} -> ${handlerKey}`);
-    return handlerKey;
+    return mapActionToHandlerKey(entity.action);
   }
 
   /**

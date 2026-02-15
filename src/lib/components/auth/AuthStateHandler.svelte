@@ -20,14 +20,23 @@
             return;
         }
         
-        console.log('[AuthStateHandler] Auth state changed:', { 
-            previousAuthState, 
+        const isAuthChange = previousAuthState !== isAuthenticated;
+        const isRouteChange = previousPath !== null && previousPath !== currentPath;
+        
+        // Skip if nothing actually changed (e.g. data invalidation on same page)
+        // Initial MQTT connection is already handled in onMount
+        if (!isAuthChange && !isRouteChange) {
+            previousAuthState = isAuthenticated;
+            previousPath = currentPath;
+            return;
+        }
+        
+        console.log('[AuthStateHandler] Auth state changed:', {
+            previousAuthState,
             isAuthenticated,
             previousPath,
             currentPath
         });
-        
-        const isRouteChange = previousPath !== null && previousPath !== currentPath;
         
         // CRITICAL: Force disconnect if navigating to auth pages (logout/login)
         if (currentPath.startsWith('/auth/login') || currentPath.startsWith('/auth/logout')) {

@@ -41,44 +41,16 @@ export class ActionHandlerManager {
    * Handle incoming message by routing to appropriate handler
    */
   handle(evtType: string, data: MessageData): void {
-    console.log('[ActionHandlerManager] RAW INPUT:', { evtType, data });
-    
-    // Map raw message to entity
     const entity = MessageEntityMapper.mapToEntity(data);
-    
-    if (!entity) {
-      console.log('[ActionHandlerManager] Failed to map message to entity:', { evtType, data });
-      return;
-    }
+    if (!entity) return;
+    if (MessageEntityMapper.shouldIgnore(entity)) return;
 
-    console.log('[ActionHandlerManager] MAPPED ENTITY:', entity);
-
-    // Check if message should be ignored
-    if (MessageEntityMapper.shouldIgnore(entity)) {
-      console.log('[ActionHandlerManager] Ignoring message:', { type: entity.type, reason: 'system message' });
-      return;
-    }
-
-    // Extract action type from entity
     const actionType = MessageEntityMapper.getActionType(entity);
-    
-    console.log('[ActionHandlerManager] ACTION TYPE:', actionType);
-    console.log('[ActionHandlerManager] AVAILABLE HANDLERS:', Array.from(this.handlers.keys()));
-    
-    if (!actionType) {
-      console.log('[ActionHandlerManager] Unknown action type for entity:', { 
-        type: entity.type, 
-        action: entity.action 
-      });
-      return;
-    }
+    if (!actionType) return;
 
     const handler = this.handlers.get(actionType);
     if (handler) {
-      console.log('[ActionHandlerManager] Routing to handler:', actionType, 'for entity:', entity);
       handler.handle(evtType, entity);
-    } else {
-      console.log('[ActionHandlerManager] No handler found for action type:', actionType);
     }
   }
 

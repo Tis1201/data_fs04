@@ -476,8 +476,6 @@ class UserMqttClient {
       return;
     }
 
-    console.log('[MQTT Client] Received message:', { topic, data });
-
     const isResponse = topic.endsWith('/response');
     const isNotification = topic.endsWith('/notifications');
 
@@ -512,7 +510,6 @@ class UserMqttClient {
             if (decodedType) {
               type = decodedType;
               payloadData = payload.params || {};
-              console.log('[MQTT Client] Decoded notification ticket:', { type, payloadData });
             } else if (!type) {
               // If JWT decoding succeeded but no type found, and no type in data, use wildcard
               type = '*';
@@ -534,15 +531,10 @@ class UserMqttClient {
         type = '*';
       }
 
-      console.log('[MQTT Client] Processing notification:', { type, payloadData });
-      console.log('[MQTT Client] Notification payload keys:', payloadData ? Object.keys(payloadData) : 'null');
-      console.log('[MQTT Client] Full notification data:', JSON.stringify({ type, payloadData }, null, 2));
-
       const handlers = this.notificationHandlers.get(type);
       const wildcard = this.notificationHandlers.get('*');
 
       if (handlers) {
-        console.log('[MQTT Client] Handlers found:', { typeHandlers: handlers.size, wildcardHandlers: wildcard?.size || 0 });
         for (const handler of handlers) {
           try {
             handler(payloadData);

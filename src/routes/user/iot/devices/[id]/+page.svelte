@@ -534,6 +534,7 @@
         uninstallAppTarget = null;
         showUninstallAppConfirm = false;
         try {
+            pendingUninstallPackageName = app.package_name;
             addAlert('info', `Uninstalling app... ${app.app_name}`);
             const result = await callUserRpc<{
                 success: boolean;
@@ -544,9 +545,10 @@
                 packageName: app.package_name
             }, { timeoutMs: 300000 }); // 5 minutes
             addAlert('success', result.message || `App uninstall initiated! ${app.app_name}`);
-            setTimeout(() => loadApps(), 2000);
+            // Don't reload here - MQTT success handler will optimistically remove the app + debounced reload
         } catch (error) {
             console.error('Uninstall app failed:', error);
+            pendingUninstallPackageName = null;
             addAlert('error', error instanceof Error ? error.message : 'Unable to uninstall app. Please try again!');
         }
     }
@@ -593,8 +595,7 @@
 
     function openInstallAppModal() {
         showInstallAppModal = true;
-        // Refresh device app list so we can show "Already on device" for installed apps
-        if (device?.id) loadApps();
+        // Use existing apps list for "Already on device" — reload only after install/uninstall response (MQTT handler)
     }
 
     async function handleInstallAppConfirm(e: CustomEvent<{ selected: string[]; apps: AppPickerItem[] }>) {
@@ -615,7 +616,7 @@
             showInstallAppModal = false;
             if (failCount === 0) {
                 addAlert('success', 'App installation initiated successfully!');
-                loadApps();
+                // App list will reload when we receive device:statusUpdate success (MQTT handler, debounced)
             } else {
                 addAlert('error', 'Some app installations failed. Please try again.');
             }
@@ -646,6 +647,8 @@
     // Uninstall App confirmation dialog
     let showUninstallAppConfirm = false;
     let uninstallAppTarget: DeviceApp | null = null;
+    let pendingUninstallPackageName: string | null = null;
+    let reloadDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Available tags from server
     $: availableTags = data.availableTags || [];
@@ -738,11 +741,11 @@
 
     onMount(() => {
         if (browser) initializeDeviceRealtime();
-        // Refresh device detail and (when on Apps tab) installed apps every 30s
+        // Refresh device detail and (when on Apps tab) installed apps every 2 minutes
         healthRefreshInterval = setInterval(() => {
             invalidate('app:device');
             if (activeTab === 'apps') loadApps();
-        }, 30000);
+        }, 120000);
 
         // Set up real-time action log sync
         if (device?.id) {
@@ -768,9 +771,6 @@
                     (logs) => {
                         // Update activity logs from synced action logs
                         console.log('[UserDevicePage] ActionLogSyncManager updating logs:', logs.length);
-                        if (logs.length > 0) {
-                            console.log('[UserDevicePage] Sample log:', logs[0]);
-                        }
                         activityLogs = logs.map(log => ({
                             id: log.id,
                             eventName: formatActivityLogDate(log.initiatedAt),
@@ -782,7 +782,6 @@
                         }));
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
-                        console.log('[UserDevicePage] Activity logs updated, count:', activityLogs.length);
                     }
                 );
                 console.log('[UserDevicePage] ActionLogSyncManager initialized for device:', device.id);
@@ -814,7 +813,6 @@
                     },
                     (logs) => {
                         // Update activity logs from action logs
-                        console.log('[UserDevicePage] subscribeActionLogUpdates updating logs:', logs.length);
                         activityLogs = logs.map(log => ({
                             id: log.id,
                             eventName: formatActivityLogDate(log.initiatedAt),
@@ -871,17 +869,48 @@
 
                 // Wrap handlers with logging and refresh apps list on install/uninstall success
                 const loggingModalHandler = (payload: any) => {
-                    console.log('[UserDevicePage] Received device:statusUpdate:', payload);
                     modalHandler(payload);
                     const isSuccess = payload?.status === 'success' || payload?.status === 'complete';
-                    if (isSuccess && isRefreshAction(payload?.action)) {
-                        loadApps();
-                        invalidate('app:device');
+
+                    // Optimistically remove uninstalled app from local list (instant UI update)
+                    const isUninstall = payload?.action === 'uninstall_app' || payload?.action === 'uninstall';
+                    if (isSuccess && isUninstall && pendingUninstallPackageName) {
+                        apps = apps.filter(a => a.package_name !== pendingUninstallPackageName);
+                        appsTotalCount = apps.length;
+                        pendingUninstallPackageName = null;
+                    }
+
+                    // Uninstall: we already updated the list optimistically above — skip debounced reload to avoid second re-render
+                    const isUninstallSuccess = isSuccess && isUninstall;
+                    const shouldReload =
+                        isSuccess &&
+                        !isUninstallSuccess &&
+                        (isRefreshAction(payload?.action) ||
+                            (typeof payload?.message === 'string' &&
+                                payload.message.includes('Installation') &&
+                                payload.message.includes('succeeded')));
+                    if (shouldReload) {
+                        const action = payload?.action ?? 'unknown';
+                        const hadTimer = !!reloadDebounceTimer;
+                        if (reloadDebounceTimer) clearTimeout(reloadDebounceTimer);
+                        console.log('[Reload] schedule', { action, at: new Date().toISOString(), hadTimer });
+                        reloadDebounceTimer = setTimeout(() => {
+                            reloadDebounceTimer = null;
+                            console.log('[Reload] before loadApps', {
+                                action,
+                                at: new Date().toISOString(),
+                                reason: 'device:statusUpdate success (debounced 3s)'
+                            });
+                            loadApps();
+                            const appOnlyActions = ['install_app', 'installApp', 'restart_app', 'restartApp'];
+                            if (!appOnlyActions.includes(action)) {
+                                invalidate('app:device');
+                            }
+                        }, 3000);
                     }
                 };
 
                 const loggingProgressHandler = (payload: any) => {
-                    console.log('[UserDevicePage] Received device:progressUpdate:', payload);
                     progressHandler(payload);
                 };
 
@@ -889,8 +918,6 @@
                 const progressUnsub = mqttClient.onNotification('device:progressUpdate', loggingProgressHandler);
 
                 mqttUnsubscribes.push(statusUnsub, progressUnsub);
-
-                console.log('[UserDevicePage] MQTT handlers for modals and progress set up');
             } catch (error) {
                 console.error('[UserDevicePage] Failed to set up MQTT handlers:', error);
             }
@@ -898,6 +925,10 @@
     });
 
     onDestroy(() => {
+        if (reloadDebounceTimer) {
+            clearTimeout(reloadDebounceTimer);
+            reloadDebounceTimer = null;
+        }
         if (healthRefreshInterval) {
             clearInterval(healthRefreshInterval);
         }
@@ -1034,10 +1065,7 @@
             }, { timeoutMs: 30000 });
 
             addAlert('success', result.message || 'Device refresh command sent successfully!');
-
-            // Reload device data and apps list (per AUTO_REFRESH_PLAN: refresh triggers reload)
-            await invalidate('app:device');
-            loadApps();
+            // Reload only after device reports success (MQTT device:statusUpdate handler, debounced)
         } catch (error) {
             console.error('Refresh failed:', error);
             addAlert('error', error instanceof Error ? error.message : 'Unable to refresh device. Please try again!');
