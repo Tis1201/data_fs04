@@ -192,6 +192,9 @@
 	// Force re-render when path changes
 	$: pathKey = currentPath;
 	
+	// Track previous path so we only auto-expand on navigation, not when user collapses a group
+	let prevPath: string = '';
+	
 	// Initialize expanded groups based on active path
 	onMount(() => {
 		mainNavItems.forEach(item => {
@@ -200,16 +203,19 @@
 			}
 		});
 		expandedGroups = expandedGroups;
+		prevPath = currentPath;
 	});
 	
-	// Update expanded groups when path changes
-	$: if (currentPath) {
+	// Update expanded groups only when the route changes (user navigated), not when toggling.
+	// This allows RDM Management (and any section) to stay collapsed when user clicks to close it.
+	$: if (currentPath && currentPath !== prevPath) {
+		prevPath = currentPath;
 		mainNavItems.forEach(item => {
 			if (item.children && hasActiveChild(item) && !expandedGroups.has(item.id)) {
 				expandedGroups.add(item.id);
-				expandedGroups = expandedGroups;
 			}
 		});
+		expandedGroups = expandedGroups;
 	}
 </script>
 
