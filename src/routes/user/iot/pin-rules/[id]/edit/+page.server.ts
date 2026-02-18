@@ -9,7 +9,7 @@ import type { AuthenticatedLoadEvent } from '$lib/server/security/guards';
  * Load pin rule for edit page (form)
  */
 export const load = restrict(
-    async ({ params, locals, auth }: AuthenticatedLoadEvent) => {
+    async ({ params, locals, auth, cookies }: AuthenticatedLoadEvent) => {
         const { id } = params;
         if (!id) {
             throw redirect(302, '/user/iot/pin-rules');
@@ -18,17 +18,16 @@ export const load = restrict(
             throw redirect(302, '/user/iot/pin-rules');
         }
         try {
-            const membership = await locals.prisma.accountMembership.findFirst({
-                where: { userId: auth.user.id },
-                select: { accountId: true, role: true }
-            });
-            if (!membership) {
+            const currentAccountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
+            if (!currentAccountId) {
                 throw redirect(302, '/user/iot/pin-rules');
             }
             const result = await loadPinRuleDetail(locals, id, {
                 checkOwnership: true,
                 userId: auth.user.id,
-                accountId: membership.accountId,
+                accountId: currentAccountId,
                 includeUserInfo: true
             });
             if (result.pinRule.createdBy !== auth.user.id && result.pinRule.ruleType !== 'admin_default') {

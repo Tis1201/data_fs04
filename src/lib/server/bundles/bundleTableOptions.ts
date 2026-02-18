@@ -48,30 +48,12 @@ export function createBundleTableOptions(options?: {
 
   // Add baseWhere for ownership filtering if needed
   if (options?.checkOwnership) {
-    const whereConditions: any[] = [];
-
-    // Filter by user ownership (createdBy)
-    if (options.userId) {
-      whereConditions.push({
-        createdBy: options.userId
-      });
-    }
-
-    // Filter by account membership
-    // Note: This assumes bundles can be accessed if user is a member of the bundle's account
-    // The actual access control is handled by Zenstack policies, but we can add a baseWhere
-    // to optimize queries for user routes
+    // When current account is set, scope to that account only (switch-account aware)
     if (options.accountId) {
-      whereConditions.push({
-        accountId: options.accountId
-      });
-    }
-
-    // If we have any conditions, add baseWhere
-    if (whereConditions.length > 0) {
-      tableOptions.baseWhere = {
-        OR: whereConditions
-      };
+      tableOptions.baseWhere = { accountId: options.accountId };
+    } else if (options.userId) {
+      // Fallback: filter by user-created bundles when no account context
+      tableOptions.baseWhere = { createdBy: options.userId };
     }
   }
 

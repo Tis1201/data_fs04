@@ -9,12 +9,14 @@ import { createDeviceActions } from '$lib/server/devices/deviceActions';
  *  Load Block (no ACL - any authenticated user with account can access)
  * 
  *******************************************************************************************/
-export const load: PageServerLoad = async ({ url, locals, depends }) => {
+export const load: PageServerLoad = async ({ url, locals, depends, cookies }) => {
     depends('app:userDevices');
 
     try {
         const userId = (locals as any).user?.id || (locals as any).auth?.user?.id;
-        const accountId = (locals as any).currentAccount?.account?.id;
+        const accountId =
+            (locals as any).currentAccount?.account?.id ??
+            cookies.get('current_account_id');
 
         const result = await loadDeviceList(locals, url, {
             checkOwnership: true,

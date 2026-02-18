@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { logService } from '$lib/server/clickhouse/logService';
 import { error } from '@sveltejs/kit';
 
-export const load: PageServerLoad = async ({ url, locals, depends }) => {
+export const load: PageServerLoad = async ({ url, locals, depends, cookies }) => {
     // Basic auth check assumed via hooks, but good to ensure session exists
     const session = await locals.auth.validate();
     if (!session) {
@@ -20,6 +20,11 @@ export const load: PageServerLoad = async ({ url, locals, depends }) => {
     const sortOrder = (url.searchParams.get('order') as 'asc' | 'desc') || 'desc';
 
     try {
+        // Current account is on locals (set by auth middleware), not on session
+        const currentAccountId =
+            (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+            cookies.get('current_account_id');
+
         const { logs, total } = await logService.getLogs({
             page,
             limit: per_page,
@@ -27,8 +32,7 @@ export const load: PageServerLoad = async ({ url, locals, depends }) => {
             level,
             sortBy,
             sortOrder,
-            // Scope to user's account if needed, using the current context account
-            accountId: session.currentAccount?.accountId
+            accountId: currentAccountId
         });
 
         return {

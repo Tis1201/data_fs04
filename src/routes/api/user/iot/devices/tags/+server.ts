@@ -8,7 +8,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     if (!auth?.user) {
       return json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const accountId = auth.currentAccount?.accountId;
+    const accountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
     if (!accountId) {
       return json({ error: 'No account selected' }, { status: 400 });
     }

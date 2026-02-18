@@ -308,13 +308,17 @@ export const POST: RequestHandler = restrict(
     const { params, locals, getClientAddress } = event as { params: { id: string }; locals: any; getClientAddress?: () => string };
     const { id: bundleId } = params;
     try {
-      // Get existing bundle for audit log
       const existingBundle = await locals.prisma.bundle.findUnique({
         where: { id: bundleId }
       });
 
       if (!existingBundle) {
         return json({ success: false, error: 'Bundle not found' }, { status: 404 });
+      }
+
+      const currentAccountId = (locals as any).currentAccount?.account?.id;
+      if (currentAccountId && existingBundle.accountId !== currentAccountId) {
+        return json({ success: false, error: 'Access denied' }, { status: 403 });
       }
 
       const auth = await locals.auth?.validate?.();

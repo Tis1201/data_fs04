@@ -11,7 +11,9 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
       return json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
     const availableTags = await locals.prisma.deviceTag.findMany({
+        where: currentAccountId ? { accountId: currentAccountId } : {},
         select: {
             id: true,
             name: true

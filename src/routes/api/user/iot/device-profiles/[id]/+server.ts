@@ -49,16 +49,19 @@ export const GET: RequestHandler = async ({ params, locals }) => {
       return json({ error: 'Device profile not found' }, { status: 404 });
     }
 
-    // Check if user has access to this profile (user context - no admin override)
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-      where: {
-        accountId: profile.accountId,
-        userId: auth.user.id
-      }
-    });
-
-    if (!hasAccess) {
+    // Verify profile belongs to current account
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && profile.accountId !== currentAccountId) {
       return json({ error: 'Access denied' }, { status: 403 });
+    }
+
+    if (!currentAccountId) {
+      const hasAccess = await locals.prisma.accountMembership.findFirst({
+        where: { accountId: profile.accountId, userId: auth.user.id }
+      });
+      if (!hasAccess) {
+        return json({ error: 'Access denied' }, { status: 403 });
+      }
     }
 
     return json({
@@ -101,17 +104,22 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
       return json({ error: 'Device profile not found' }, { status: 404 });
     }
 
-    // Check permissions (user context - must be OWNER or ADMIN of the account)
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-      where: {
-        accountId: existingProfile.accountId,
-        userId: auth.user.id,
-        role: { in: ['OWNER', 'ADMIN', 'MEMBER'] }
-      }
-    });
-
-    if (!hasAccess) {
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && existingProfile.accountId !== currentAccountId) {
       return json({ error: 'Access denied' }, { status: 403 });
+    }
+
+    if (!currentAccountId) {
+      const hasAccess = await locals.prisma.accountMembership.findFirst({
+        where: {
+          accountId: existingProfile.accountId,
+          userId: auth.user.id,
+          role: { in: ['OWNER', 'ADMIN', 'MEMBER'] }
+        }
+      });
+      if (!hasAccess) {
+        return json({ error: 'Access denied' }, { status: 403 });
+      }
     }
 
     // Update profile and settings in a transaction
@@ -357,17 +365,22 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
       return json({ error: 'Device profile not found' }, { status: 404 });
     }
 
-    // Check permissions (user context - must be OWNER or ADMIN of the account)
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-      where: {
-        accountId: existingProfile.accountId,
-        userId: auth.user.id,
-        role: { in: ['OWNER', 'ADMIN', 'MEMBER'] }
-      }
-    });
-
-    if (!hasAccess) {
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && existingProfile.accountId !== currentAccountId) {
       return json({ error: 'Access denied' }, { status: 403 });
+    }
+
+    if (!currentAccountId) {
+      const hasAccess = await locals.prisma.accountMembership.findFirst({
+        where: {
+          accountId: existingProfile.accountId,
+          userId: auth.user.id,
+          role: { in: ['OWNER', 'ADMIN', 'MEMBER'] }
+        }
+      });
+      if (!hasAccess) {
+        return json({ error: 'Access denied' }, { status: 403 });
+      }
     }
 
     // Check if profile has active assignments

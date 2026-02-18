@@ -241,6 +241,19 @@ export async function loadBundleDetail(
     
     // Update bundle status based on all waves
     await updateBundleStatus(prisma, bundleId);
+
+    // Load creator/updater for UI (Created by / Last updated by)
+    const userIds = [bundle.createdBy, bundle.updatedBy].filter(Boolean) as string[];
+    const uniqueIds = [...new Set(userIds)];
+    const users = uniqueIds.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: uniqueIds } },
+          select: { id: true, name: true, email: true }
+        })
+      : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const createdByUser = bundle.createdBy ? (userById.get(bundle.createdBy) ?? null) : null;
+    const updatedByUser = bundle.updatedBy ? (userById.get(bundle.updatedBy) ?? null) : null;
     
     // Fetch bundle devices with device information
     const bundleDevices = await prisma.bundleDevice.findMany({
@@ -359,10 +372,12 @@ export async function loadBundleDetail(
     const { bundleSchema } = await import('../../../routes/admin/iot/bundles/new/bundle');
     const form = await superValidate(bundle, zod(bundleSchema));
     
-    // Add account to bundle for the UI
+    // Add account and creator/updater to bundle for the UI
     const bundleWithAccount = {
       ...bundle,
-      account: account || (options?.includeAccount ? null : currentAccount?.account)
+      account: account || (options?.includeAccount ? null : currentAccount?.account),
+      createdByUser: createdByUser ?? undefined,
+      updatedByUser: updatedByUser ?? undefined
     };
     
     return {

@@ -55,9 +55,26 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid date filter' }, { status: 400 });
       }
 
+      // Scope to current account (switch-account aware)
+      const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+      if (!currentAccountId) {
+        return json({
+          items: [],
+          meta: {
+            page: 1,
+            pageSize,
+            totalItems: 0,
+            totalPages: 1,
+            hasNext: false,
+            sort: sortParam,
+            order: orderParam
+          }
+        });
+      }
+
       // Build where clause
-      // ZenStack will automatically filter based on access policies (account membership)
       const where: any = {
+        accountId: currentAccountId,
         format: { in: Array.from(ALLOWED_FORMATS) }
       };
 

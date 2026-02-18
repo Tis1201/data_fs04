@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { errorHandler } from '$lib/server/errors/errorHandler';
 
-export const GET: RequestHandler = async ({ url, locals }) => {
+export const GET: RequestHandler = async ({ url, locals, cookies }) => {
   try {
     const auth = await locals.auth.validate();
     if (!auth?.user) {
@@ -13,8 +13,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     const limit = parseInt(url.searchParams.get('limit') || '100');
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
+    // Scope to current account (switch-account aware)
+    const currentAccountId =
+      (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+      cookies.get('current_account_id');
+    if (!currentAccountId) {
+      return json({ success: true, bundles: [], total: 0, pagination: { limit, offset, hasMore: false } });
+    }
+
     // Build where clause
-    const where: any = {};
+    const where: any = { accountId: currentAccountId };
     if (status && status !== 'all') {
       where.status = status;
     }

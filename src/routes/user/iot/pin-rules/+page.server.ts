@@ -9,7 +9,7 @@ import { createPinRuleActions } from '$lib/server/pin-rules/pinRuleActions';
  * Per structural standard: thin wrapper using shared loader
  */
 export const load = restrict(
-    async ({ url, locals, depends, auth }: AuthenticatedLoadEvent) => {
+    async ({ url, locals, depends, auth, cookies }: AuthenticatedLoadEvent) => {
         // Add depends call for cache invalidation
         depends('app:pin-rules');
         
@@ -18,13 +18,13 @@ export const load = restrict(
                 throw new Error('Unauthorized');
             }
             const user = auth.user;
-            // Get user's account for scoping
-            const membership = await locals.prisma.accountMembership.findFirst({
-                where: { userId: user.id },
-                select: { accountId: true, role: true }
-            });
+            // Use current account (switch-account aware), not an arbitrary membership
+            const accountId =
+                (locals as { currentAccount?: { account?: { id: string }; role?: string } }).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
+            const accountRole = (locals as { currentAccount?: { role?: string } }).currentAccount?.role ?? null;
 
-            if (!membership) {
+            if (!accountId) {
                 return {
                     user,
                     accountRole: null,
@@ -48,12 +48,12 @@ export const load = restrict(
             const result = await loadPinRuleList(locals, url, {
                 checkOwnership: true,
                 userId: auth.user.id,
-                accountId: membership.accountId
+                accountId
             });
             
             return {
                 user,
-                accountRole: membership.role,
+                accountRole,
                 ...result
             };
         } catch (error) {

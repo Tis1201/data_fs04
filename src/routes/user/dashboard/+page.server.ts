@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, url }) => {
+export const load: PageServerLoad = async ({ locals, url, cookies }) => {
     const session = await locals.auth.validate();
     if (!session?.user) {
         throw redirect(302, '/auth/login');
@@ -23,9 +23,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
         throw redirect(302, '/auth/login');
     }
 
-    // Get the account ID for queries
-    const accountId = user.primaryAccountId;
-    
+    // Use current account (switch-account aware), fallback to cookie then primary
+    const currentAccountId =
+        (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+        cookies.get('current_account_id') ??
+        user.primaryAccountId;
+    const accountId = currentAccountId;
+
     // Build device filter based on account or user
     const deviceFilter = accountId ? { accountId } : { createdBy: user.id };
 

@@ -13,11 +13,13 @@ import type { AuthenticatedEvent } from '$lib/server/security/guards';
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals }: AuthenticatedEvent) => {
+    async ({ url, locals, cookies }: AuthenticatedEvent) => {
         try {
-            // User routes need ownership checking - only show bundles they own or have access to
+            // User routes: scope to current account only (switch-account aware)
             const userId = (locals as any).user?.id;
-            const accountId = (locals as any).currentAccount?.account?.id;
+            const accountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
             
             return await loadBundleList(locals, url, {
                 checkOwnership: true,

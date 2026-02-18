@@ -13,13 +13,15 @@ import { createPreclaimActions } from '$lib/server/preclaims/preclaimActions';
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals, depends }: AuthenticatedLoadEvent) => {
+    async ({ url, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         depends('app:userPreclaimSets');
 
         try {
             const auth = await locals.auth.validate();
             const userId = auth?.user?.id;
-            const accountId = (locals as any).currentAccount?.account?.id;
+            const accountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
 
             const listResult = await loadPreclaimList(locals, url, {
                 checkOwnership: true,
@@ -47,12 +49,23 @@ export const load = restrict(
                 label: p.name
             }));
 
-            const accounts = await locals.prisma.account.findMany({
-                where: { isSystem: false },
-                select: { id: true, name: true },
-                orderBy: { name: 'asc' }
-            });
-            const accountOptions = accounts.map((a: { id: string; name: string }) => ({
+            // Account options: only accounts the user is a member of (not all non-system accounts)
+            const memberships = userId
+                ? await locals.prisma.accountMembership.findMany({
+                      where: { userId },
+                      select: { accountId: true }
+                  })
+                : [];
+            const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
+            const userAccounts =
+                accountIds.length > 0
+                    ? await locals.prisma.account.findMany({
+                          where: { id: { in: accountIds }, isSystem: false },
+                          select: { id: true, name: true },
+                          orderBy: { name: 'asc' }
+                      })
+                    : [];
+            const accountOptions = userAccounts.map((a: { id: string; name: string }) => ({
                 id: a.id,
                 label: a.name
             }));

@@ -63,7 +63,7 @@ export const load = restrict(
  *******************************************************************************************/
 export const actions: Actions = {
     delete: restrict(
-        async ({ request, locals }: { request: Request; locals: App.Locals }) => {
+        async ({ request, locals, cookies }: { request: Request; locals: App.Locals; cookies: { get: (name: string) => string | undefined } }) => {
             const auth = await locals.auth.validate();
             if (!auth?.user?.id) {
                 return fail(401, { message: 'Unauthorized' });
@@ -73,14 +73,15 @@ export const actions: Actions = {
             if (!id) {
                 return fail(400, { message: 'Profile ID is required' });
             }
+            const currentAccountId =
+                (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
+            if (!currentAccountId) {
+                return fail(403, { message: 'No current account selected' });
+            }
             const prisma = locals.prisma;
-            const memberships = await prisma.accountMembership.findMany({
-                where: { userId: auth.user.id },
-                select: { accountId: true }
-            });
-            const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
             const profile = await prisma.deviceProfile.findFirst({
-                where: { id, accountId: { in: accountIds }, level: 'GLOBAL' }
+                where: { id, accountId: currentAccountId, level: 'GLOBAL' }
             });
             if (!profile) {
                 return fail(404, { message: 'Profile not found or access denied' });
@@ -95,11 +96,13 @@ export const actions: Actions = {
         async ({
             request,
             locals,
-            getClientAddress
+            getClientAddress,
+            cookies
         }: {
             request: Request;
             locals: App.Locals;
             getClientAddress: () => string;
+            cookies: { get: (name: string) => string | undefined };
         }) => {
             try {
                 const auth = await locals.auth.validate();
@@ -110,25 +113,34 @@ export const actions: Actions = {
                 if (!form.valid) {
                     return fail(400, { form });
                 }
-                let userAccountMembership: { accountId: string; role: string };
-                if (auth.user.systemRole === 'ADMIN') {
+                // Use current account (switch-account aware) so profile is created in the selected account
+                const currentAccountId =
+                    (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+                    cookies.get('current_account_id');
+                let accountId: string | null = currentAccountId ?? null;
+                if (!accountId) {
                     const m = await locals.prisma.accountMembership.findFirst({
-                        where: { userId: auth.user.id },
-                        select: { accountId: true, role: true }
-                    }) as { accountId: string; role: string } | null;
-                    if (!m) {
-                        return fail(403, { form, message: 'No account access found.' });
+                        where: {
+                            userId: auth.user.id,
+                            ...(auth.user.systemRole !== 'ADMIN' && { role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } })
+                        },
+                        select: { accountId: true }
+                    }) as { accountId: string } | null;
+                    accountId = m?.accountId ?? null;
+                }
+                if (!accountId) {
+                    return fail(403, { form, message: 'No account access found. Switch to an account or ensure you have a role in an account.' });
+                }
+                // Ensure user is allowed to create in this account
+                const membership = await locals.prisma.accountMembership.findFirst({
+                    where: {
+                        userId: auth.user.id,
+                        accountId,
+                        ...(auth.user.systemRole !== 'ADMIN' && { role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } })
                     }
-                    userAccountMembership = m;
-                } else {
-                    const m = await locals.prisma.accountMembership.findFirst({
-                        where: { userId: auth.user.id, role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } },
-                        select: { accountId: true, role: true }
-                    }) as { accountId: string; role: string } | null;
-                    if (!m) {
-                        return fail(403, { form, message: 'Access denied. You need OWNER, ADMIN, or MEMBER role.' });
-                    }
-                    userAccountMembership = m;
+                });
+                if (!membership) {
+                    return fail(403, { form, message: 'You do not have permission to create device profiles in this account.' });
                 }
                 let settings: any[] = [];
                 try {
@@ -141,7 +153,7 @@ export const actions: Actions = {
                         name: form.data.name,
                         description: form.data.description,
                         isActive: form.data.isActive === 'true',
-                        accountId: userAccountMembership.accountId,
+                        accountId,
                         createdBy: auth.user.id,
                         settings: {
                             create: settings.map((s: any, i: number) => ({

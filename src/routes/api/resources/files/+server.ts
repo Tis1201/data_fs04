@@ -44,9 +44,21 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid sort field' }, { status: 400 });
       }
 
-      // Build where clause (no format exclusion — returns all resources)
-      // ZenStack will automatically filter based on access policies (account membership)
+      // Build where clause
       const where: any = {};
+      const isAdmin = (locals as { user?: { systemRole?: string } }).user?.systemRole === 'ADMIN';
+      const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+
+      // User: scope to current account only (switch-account aware); Admin: no account filter
+      if (!isAdmin && currentAccountId) {
+        where.accountId = currentAccountId;
+      } else if (!isAdmin && !currentAccountId) {
+        return json({
+          success: true,
+          items: [],
+          meta: { page: 1, pageSize, totalCount: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false }
+        });
+      }
 
       // Add search filter
       if (search) {

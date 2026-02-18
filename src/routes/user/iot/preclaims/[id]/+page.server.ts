@@ -43,7 +43,7 @@ function parsePreclaimCsv(content: string): Array<{ macId: string; name?: string
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+    async ({ params, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         depends('app:preclaim');
         
         const { id } = params;
@@ -54,7 +54,9 @@ export const load = restrict(
         try {
             const auth = await locals.auth.validate();
             const userId = auth?.user?.id;
-            const accountId = (locals as any).currentAccount?.account?.id;
+            const accountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
 
             const detailResult = await loadPreclaimDetail(
                 locals,

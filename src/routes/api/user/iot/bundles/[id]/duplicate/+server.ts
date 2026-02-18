@@ -35,8 +35,9 @@ export const POST: RequestHandler = restrict(
         return json({ success: false, error: 'Bundle not found' }, { status: 404 });
       }
 
-      // Check if user has access to this bundle
-      if (originalBundle.createdBy !== actorId) {
+      // Check the bundle belongs to current account
+      const currentAccountId = (locals as any).currentAccount?.account?.id;
+      if (currentAccountId && originalBundle.accountId !== currentAccountId) {
         return json({ success: false, error: 'Access denied' }, { status: 403 });
       }
 

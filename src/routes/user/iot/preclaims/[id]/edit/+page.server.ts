@@ -12,9 +12,12 @@ import { createSuccessResponse } from '$lib/types/api';
 import { upsertEntityExpirationCronjob, deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 export const load = restrict(
-  async ({ params, locals }: any) => {
+  async ({ params, locals, cookies }: any) => {
     const id = params.id;
     try {
+      const currentAccountId =
+        (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+
       const preclaimSet = await locals.prisma.preclaimSet.findUnique({
         where: { id },
         select: {
@@ -42,7 +45,10 @@ export const load = restrict(
         throw error(404, 'Pre-claim set not found');
       }
 
-      // Load available device profiles (GLOBAL level only, for user's account)
+      if (currentAccountId && preclaimSet.accountId !== currentAccountId) {
+        throw error(403, 'Access denied');
+      }
+
       const profiles = await locals.prisma.deviceProfile.findMany({
         where: {
           isActive: true,

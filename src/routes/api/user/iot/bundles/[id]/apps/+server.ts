@@ -56,7 +56,6 @@ export const POST: RequestHandler = restrict(
                 );
             }
             
-            // Check if bundle exists
             const bundle = await locals.prisma.bundle.findUnique({
                 where: { id: bundleId }
             });
@@ -67,8 +66,15 @@ export const POST: RequestHandler = restrict(
                     { status: 404 }
                 );
             }
+
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (currentAccountId && bundle.accountId !== currentAccountId) {
+                return json(
+                    createErrorResponse('Access denied', ErrorCodes.FORBIDDEN),
+                    { status: 403 }
+                );
+            }
             
-            // Enforce DRAFT-only modifications
             if (bundle.status !== 'DRAFT') {
                 return json(
                     createErrorResponse(

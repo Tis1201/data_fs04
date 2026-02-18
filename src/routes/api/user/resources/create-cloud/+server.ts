@@ -45,8 +45,11 @@ export const POST = restrict(
                 );
             }
 
-            // Get the current account from auth
-            if (!auth.currentAccount || !auth.currentAccount.account) {
+            // Get the current account (switch-account aware): locals first, then auth
+            const currentAccount =
+                (locals as { currentAccount?: { account?: { id: string; name?: string } } }).currentAccount?.account ??
+                auth.currentAccount?.account;
+            if (!currentAccount) {
                 return json(
                     createErrorResponse(
                         'Account not found',
@@ -56,8 +59,6 @@ export const POST = restrict(
                     { status: 400 }
                 );
             }
-            
-            const currentAccount = auth.currentAccount.account;
 
             // Infer type/format from path if missing
             let finalType = type;
@@ -107,7 +108,7 @@ export const POST = restrict(
                 oldData: null,
                 newData: resource,
                 userId: auth.user.id,
-                ipAddress: locals.ipAddress,
+                ipAddress: (locals as { ipAddress?: string }).ipAddress,
                 prisma: locals.prisma
             });
 

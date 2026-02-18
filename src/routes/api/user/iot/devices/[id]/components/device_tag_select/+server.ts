@@ -21,8 +21,12 @@ export const GET: RequestHandler = async ({ url, locals, params }) => {
     // Bundle ID from route params
     const { id: deviceId } = params as { id: string };
 
-    // Build where clause
+    // Scope to current account (switch-account aware)
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
     const where: any = {};
+    if (currentAccountId) {
+      where.accountId = currentAccountId;
+    }
     
     if (search) {
       where.OR = [

@@ -120,7 +120,7 @@ function getIpAddress(locals: App.Locals, getClientAddress: () => string): strin
 }
 
 export const actions: Actions = {
-    create: async ({ request, locals, getClientAddress }) => {
+    create: async ({ request, locals, getClientAddress, cookies }) => {
         try {
             const auth = await locals.auth.validate();
             if (!auth?.user) {
@@ -132,33 +132,41 @@ export const actions: Actions = {
                 return fail(400, { form });
             }
 
-            let userAccountMembership: { accountId: string; role: string };
-            if (auth.user.systemRole === 'ADMIN') {
+            // Use current account (switch-account aware)
+            const currentAccountId =
+                (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
+            let accountId: string | null = currentAccountId;
+            if (!accountId) {
                 const m = await locals.prisma.accountMembership.findFirst({
-                    where: { userId: auth.user.id },
-                    select: { accountId: true, role: true }
-                });
-                if (!m) {
-                    return fail(403, { form, message: 'No account access found. Please contact your administrator.' });
-                }
-                userAccountMembership = m;
-            } else {
+                    where: {
+                        userId: auth.user.id,
+                        ...(auth.user.systemRole !== 'ADMIN' && { role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } })
+                    },
+                    select: { accountId: true }
+                }) as { accountId: string } | null;
+                accountId = m?.accountId ?? null;
+            }
+            if (!accountId) {
                 const allUserMemberships = await locals.prisma.accountMembership.findMany({
                     where: { userId: auth.user.id },
-                    select: { accountId: true, role: true }
+                    select: { role: true }
                 });
-                const m = await locals.prisma.accountMembership.findFirst({
-                    where: { userId: auth.user.id, role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } },
-                    select: { accountId: true, role: true }
+                return fail(403, {
+                    form,
+                    message: 'No account selected. Switch to an account or ensure you have OWNER, ADMIN, or MEMBER role. Your current role(s): ' +
+                        (allUserMemberships.map((x) => x.role).join(', ') || 'None')
                 });
-                if (!m) {
-                    return fail(403, {
-                        form,
-                        message: 'Access denied. You need OWNER, ADMIN, or MEMBER role in an account to create device profiles. Your current role(s): ' +
-                            (allUserMemberships.map((x) => x.role).join(', ') || 'None')
-                    });
+            }
+            const membership = await locals.prisma.accountMembership.findFirst({
+                where: {
+                    userId: auth.user.id,
+                    accountId,
+                    ...(auth.user.systemRole !== 'ADMIN' && { role: { in: ['OWNER', 'ADMIN', 'MEMBER'] } })
                 }
-                userAccountMembership = m;
+            });
+            if (!membership) {
+                return fail(403, { form, message: 'You do not have permission to create device profiles in this account.' });
             }
 
             let settings: Array<{ key: string; value: string; dataType: string; label: string; category?: string; order?: number }>;
@@ -173,7 +181,7 @@ export const actions: Actions = {
                     name: form.data.name,
                     description: form.data.description,
                     isActive: form.data.isActive === 'true',
-                    accountId: userAccountMembership.accountId,
+                    accountId,
                     createdBy: auth.user.id,
                     settings: {
                         create: settings.map((s: any, index: number) => ({

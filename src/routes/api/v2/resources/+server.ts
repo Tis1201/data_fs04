@@ -36,12 +36,16 @@ export const GET: RequestHandler = unifiedEndpoint(
 		);
 		const isAdmin = context.session.user.systemRole === 'ADMIN';
 
-		// Build where clause - admins see all, users see only their own
+		// Build where clause - admins see all, users see only current account's resources
 		const whereClause: any = typeFilter ? { type: typeFilter } : {};
 
-		// Non-admins can only see resources they created
 		if (!isAdmin) {
-			whereClause.createdBy = context.session.user.id;
+			// Scope to current account (switch-account aware); fallback to createdBy if no account context
+			if (context.account?.id) {
+				whereClause.accountId = context.account.id;
+			} else {
+				whereClause.createdBy = context.session.user.id;
+			}
 		}
 
 		const skip = (page - 1) * pageSize;

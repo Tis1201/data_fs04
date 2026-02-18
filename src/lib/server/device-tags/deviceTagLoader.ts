@@ -20,16 +20,6 @@ export async function loadDeviceTagList(
     }
 ) {
     try {
-        // Get user's account memberships for filtering
-        let accountIds: string[] = [];
-        if (options?.checkOwnership && options?.userId) {
-            const userAccountMemberships = await locals.prisma.accountMembership.findMany({
-                where: { userId: options.userId },
-                select: { accountId: true }
-            });
-            accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
-        }
-
         // Create table options with optional ownership filtering
         const tableOptions = options?.checkOwnership
             ? createDeviceTagTableOptions({
@@ -39,12 +29,28 @@ export async function loadDeviceTagList(
             })
             : createDeviceTagTableOptions(); // Admin can see all tags
 
-        // Add account filtering to baseWhere if ownership check is enabled
-        if (options?.checkOwnership && accountIds.length > 0) {
-            tableOptions.baseWhere = {
-                ...tableOptions.baseWhere,
-                accountId: { in: accountIds }
-            };
+        // Add account filtering when ownership check is enabled
+        if (options?.checkOwnership) {
+            // When current account is set (user route), scope to that account only
+            if (options.accountId) {
+                tableOptions.baseWhere = {
+                    ...tableOptions.baseWhere,
+                    accountId: options.accountId
+                };
+            } else {
+                // Fallback: scope to all accounts the user is a member of (e.g. admin or legacy)
+                const userAccountMemberships = await locals.prisma.accountMembership.findMany({
+                    where: { userId: options.userId ?? '' },
+                    select: { accountId: true }
+                });
+                const accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+                if (accountIds.length > 0) {
+                    tableOptions.baseWhere = {
+                        ...tableOptions.baseWhere,
+                        accountId: { in: accountIds }
+                    };
+                }
+            }
         }
 
         // Fetch table data with the appropriate options
@@ -79,21 +85,21 @@ export async function loadDeviceTagDetail(
         const where: any = { id: tagId };
         
         if (options?.checkOwnership) {
-            // Get user's account memberships
-            let accountIds: string[] = [];
-            if (options.userId) {
+            // When current account is set, scope to that account only
+            if (options.accountId) {
+                where.accountId = options.accountId;
+            } else if (options.userId) {
                 const userAccountMemberships = await locals.prisma.accountMembership.findMany({
                     where: { userId: options.userId },
                     select: { accountId: true }
                 });
-                accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
-            }
-            
-            // Filter by account membership
-            if (accountIds.length > 0) {
-                where.accountId = { in: accountIds };
+                const accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+                if (accountIds.length > 0) {
+                    where.accountId = { in: accountIds };
+                } else {
+                    throw error(404, 'Device tag not found');
+                }
             } else {
-                // User has no account memberships, can't access any tags
                 throw error(404, 'Device tag not found');
             }
         }

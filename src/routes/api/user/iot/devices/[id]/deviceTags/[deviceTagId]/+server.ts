@@ -12,6 +12,12 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
       return json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
+    const device = await locals.prisma.device.findUnique({ where: { id: deviceId }, select: { accountId: true } });
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && device?.accountId !== currentAccountId) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
+    }
+
     await locals.prisma.device.update({
       where: { id: deviceId },
       data: {

@@ -17,8 +17,14 @@ function parseCsvList(param: string | null): string[] | undefined {
 }
 
 export const GET: RequestHandler = restrict(
-  async ({ url, locals }: { url: URL; locals: any }) => {
+  async ({ url, locals, cookies }: { url: URL; locals: any; cookies: any }) => {
     try {
+      const currentAccountId =
+        (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+      if (!currentAccountId) {
+        return json({ success: true, items: [], meta: { page: 1, pageSize: 20, totalCount: 0, totalPages: 0, hasNextPage: false, hasPreviousPage: false } });
+      }
+
       // Parse query parameters
       const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
       const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('pageSize') || '20')));
@@ -32,10 +38,8 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid sort field' }, { status: 400 });
       }
 
-      // Build where clause
-      // ZenStack will automatically filter based on access policies (account membership)
       const where: any = {
-        // Only include file resources (not apps or firmware)
+        accountId: currentAccountId,
         format: {
           notIn: ['apk', 'ipa', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'app', 'firmware']
         }

@@ -12,20 +12,22 @@ import { logAudit } from '$lib/server/audit-logger';
 import { createSuccessResponse } from '$lib/types/api';
 
 export const load = restrict(
-    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
-        // Mark for client-side invalidation
+    async ({ params, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         depends('app:device');
         
         try {
-            // Load existing device
+            const currentAccountId =
+                (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+
             const device = await locals.prisma.device.findUnique({
                 where: { 
                     id: params.id,
-                    // Only allow users to edit their own devices or devices in their account
-                    OR: [
-                        { createdBy: locals.user?.id },
-                        { accountId: locals.currentAccount?.account.id }
-                    ]
+                    ...(currentAccountId ? { accountId: currentAccountId } : {
+                        OR: [
+                            { createdBy: (locals as any).user?.id },
+                            { accountId: (locals as any).currentAccount?.account?.id }
+                        ]
+                    })
                 },
                 select: {
                     id: true,

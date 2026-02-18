@@ -10,7 +10,13 @@ export const DELETE: RequestHandler = restrict(
         const { id: bundleId, appId } = params;
 
         try {
-            // Check if bundle app exists
+            // Verify bundle belongs to current account
+            const bundle = await locals.prisma.bundle.findUnique({ where: { id: bundleId }, select: { accountId: true } });
+            const currentAccountId = (locals as any).currentAccount?.account?.id;
+            if (currentAccountId && bundle?.accountId !== currentAccountId) {
+                return json(createErrorResponse('Access denied'), { status: 403 });
+            }
+
             const bundleApp = await locals.prisma.bundleApp.findUnique({
                 where: { id: appId }
             });

@@ -4,7 +4,7 @@ import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 
 export const DELETE: RequestHandler = restrict(
-  async ({ params, locals }: any) => {
+  async ({ params, locals, cookies }: any) => {
     const { id: bundleId } = params as { id: string };
     const prisma = locals.prisma as any;
 
@@ -12,6 +12,14 @@ export const DELETE: RequestHandler = restrict(
     const bundle = await prisma.bundle.findUnique({ where: { id: bundleId } });
     if (!bundle) {
       return json({ success: false, error: 'Bundle not found' }, { status: 404 });
+    }
+
+    // Ensure bundle belongs to current account (switch-account aware)
+    const currentAccountId =
+      (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+      cookies.get('current_account_id');
+    if (!currentAccountId || bundle.accountId !== currentAccountId) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
     }
 
     // If bundle is PUBLISHED or IN_PROGRESS, recompute status from waves

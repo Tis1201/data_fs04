@@ -79,33 +79,39 @@ export function createDeviceTableOptions(options?: {
 
     // Add baseWhere for ownership filtering if needed
     if (options?.checkOwnership) {
-        const whereConditions: any[] = [];
+        // When current account is set (e.g. user route after switch account), scope to that account only
+        if (options.accountId) {
+            tableOptions.baseWhere = {
+                accountId: options.accountId
+            };
+        } else {
+            const whereConditions: any[] = [];
 
-        // Filter by user ownership (createdBy)
-        if (options.userId) {
-            whereConditions.push({
-                createdBy: options.userId
-            });
-        }
+            // Filter by user ownership (createdBy)
+            if (options.userId) {
+                whereConditions.push({
+                    createdBy: options.userId
+                });
+            }
 
-        // Filter by account membership
-        if (options.userId) {
-            whereConditions.push({
-                account: {
-                    members: {
-                        some: {
-                            userId: options.userId
+            // Filter by account membership
+            if (options.userId) {
+                whereConditions.push({
+                    account: {
+                        members: {
+                            some: {
+                                userId: options.userId
+                            }
                         }
                     }
-                }
-            });
-        }
+                });
+            }
 
-        // If we have any conditions, add baseWhere
-        if (whereConditions.length > 0) {
-            tableOptions.baseWhere = {
-                OR: whereConditions
-            };
+            if (whereConditions.length > 0) {
+                tableOptions.baseWhere = {
+                    OR: whereConditions
+                };
+            }
         }
     }
 

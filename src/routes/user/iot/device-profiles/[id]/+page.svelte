@@ -176,8 +176,17 @@
         };
     }
 
-    $: kioskSettingsRows = KIOSK_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
-    $: displaySettingsRows = DISPLAY_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
+    // profileSettings is an explicit dependency so Svelte re-runs this block
+    // when data reloads (e.g. after invalidateAll() on save). Without this,
+    // Svelte's static analyser cannot see the data dependency hidden inside
+    // settingRow() → getSettingValue() and the rows would stay stale.
+    let kioskSettingsRows: { key: string; label: string; description: string; value: string }[] = [];
+    let displaySettingsRows: { key: string; label: string; description: string; value: string }[] = [];
+    $: {
+        profileSettings; // explicit reactive dependency
+        kioskSettingsRows = KIOSK_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
+        displaySettingsRows = DISPLAY_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
+    }
 
     $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null }; status?: string; appliedAt?: Date | string | null }) => {
         const d = a.device;

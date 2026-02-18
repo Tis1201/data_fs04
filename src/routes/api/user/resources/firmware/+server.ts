@@ -20,8 +20,14 @@ function parseCsvList(param: string | null): string[] | undefined {
 }
 
 export const GET: RequestHandler = restrict(
-  async ({ url, locals }: { url: URL; locals: any }) => {
+  async ({ url, locals, cookies }: { url: URL; locals: any; cookies: any }) => {
     try {
+      const currentAccountId =
+        (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+      if (!currentAccountId) {
+        return json({ items: [], meta: { page: 1, pageSize: 20, totalItems: 0, totalPages: 0, hasNext: false } });
+      }
+
       const search = url.searchParams.get('search');
       const formatFilter = parseCsvList(url.searchParams.get('format'));
       const versionFilter = url.searchParams.get('version');
@@ -53,8 +59,7 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid date filter' }, { status: 400 });
       }
 
-      // Build where clause (no strict type/target enforcement)
-      const where: any = {};
+      const where: any = { accountId: currentAccountId };
 
       if (formatFilter && formatFilter.length) {
         where.format = { in: formatFilter };

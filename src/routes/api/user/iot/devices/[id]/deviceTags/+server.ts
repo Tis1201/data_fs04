@@ -19,7 +19,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       return json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if device exists
     const device = await locals.prisma.device.findUnique({
       where: { id: deviceId }
     });
@@ -28,7 +27,12 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       return json({ success: false, error: 'Device not found' }, { status: 404 });
     }
 
-    // Check if device is already in bundle
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && device.accountId !== currentAccountId) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
+    }
+
+    // Check if device tag is already on this device
     const existingDeviceDeviceTag = await locals.prisma.device.findFirst({
       where: {
         id: deviceId,
@@ -80,7 +84,12 @@ export const DELETE: RequestHandler = async ({ params, request, locals }) => {
       return json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Remove device tag from device
+    const device = await locals.prisma.device.findUnique({ where: { id: deviceId }, select: { accountId: true } });
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && device?.accountId !== currentAccountId) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
+    }
+
     await locals.prisma.device.update({
       where: { id: deviceId },
       data: {

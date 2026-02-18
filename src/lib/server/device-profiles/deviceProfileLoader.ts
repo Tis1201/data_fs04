@@ -17,16 +17,6 @@ export async function loadDeviceProfileList(
     }
 ) {
     try {
-        // Get user's account memberships for filtering
-        let accountIds: string[] = [];
-        if (options?.checkOwnership && options?.userId) {
-            const userAccountMemberships = await locals.prisma.accountMembership.findMany({
-                where: { userId: options.userId },
-                select: { accountId: true }
-            });
-            accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
-        }
-
         // Create table options with optional ownership filtering
         const tableOptions = options?.checkOwnership
             ? createDeviceProfileTableOptions({
@@ -36,12 +26,28 @@ export async function loadDeviceProfileList(
             })
             : createDeviceProfileTableOptions(); // Admin can see all profiles
 
-        // Add account filtering to baseWhere if ownership check is enabled
+        // Add account filtering when ownership check is enabled
         if (options?.checkOwnership) {
-            tableOptions.baseWhere = {
-                ...tableOptions.baseWhere,
-                accountId: { in: accountIds }
-            };
+            // When current account is set (user route), scope to that account only
+            if (options.accountId) {
+                tableOptions.baseWhere = {
+                    ...tableOptions.baseWhere,
+                    accountId: options.accountId
+                };
+            } else {
+                // Fallback: scope to all accounts the user is a member of (e.g. admin or legacy)
+                const userAccountMemberships = await locals.prisma.accountMembership.findMany({
+                    where: { userId: options.userId ?? '' },
+                    select: { accountId: true }
+                });
+                const accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+                if (accountIds.length > 0) {
+                    tableOptions.baseWhere = {
+                        ...tableOptions.baseWhere,
+                        accountId: { in: accountIds }
+                    };
+                }
+            }
         }
 
         // Apply status filter (URL: statuses=active|inactive -> DB: isActive boolean)
@@ -128,16 +134,21 @@ export async function loadDeviceProfileDetail(
         }
 
         // Check ownership if needed
-        if (options?.checkOwnership && options?.userId) {
-            const hasAccess = await locals.prisma.accountMembership.findFirst({
-                where: {
-                    accountId: profile.accountId,
-                    userId: options.userId
+        if (options?.checkOwnership) {
+            if (options.accountId) {
+                if (profile.accountId !== options.accountId) {
+                    throw error(403, 'Access denied');
                 }
-            });
-
-            if (!hasAccess) {
-                throw error(403, 'Access denied');
+            } else if (options.userId) {
+                const hasAccess = await locals.prisma.accountMembership.findFirst({
+                    where: {
+                        accountId: profile.accountId,
+                        userId: options.userId
+                    }
+                });
+                if (!hasAccess) {
+                    throw error(403, 'Access denied');
+                }
             }
         }
 

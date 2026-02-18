@@ -8,6 +8,13 @@ export const GET: RequestHandler = restrict(async (event: any) => {
   const { params, locals } = event as { params: { id: string; waveId: string }; locals: any };
   const { id: bundleId, waveId } = params;
   try {
+    // Verify bundle belongs to current account
+    const bundle = await locals.prisma.bundle.findUnique({ where: { id: bundleId }, select: { accountId: true } });
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && bundle?.accountId !== currentAccountId) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
+    }
+
     const rows = await locals.prisma.bundleDeviceProgress.findMany({
       where: { bundleId, waveId },
       include: { bundleDevice: true },

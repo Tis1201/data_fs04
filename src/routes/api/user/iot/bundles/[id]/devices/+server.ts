@@ -26,7 +26,6 @@ export const POST: RequestHandler = async ({ params, request, locals, getClientA
     console.log('User ID:', auth.user.id);
     console.log('User ID type:', typeof auth.user.id);
 
-    // Check if bundle exists
     const bundle = await locals.prisma.bundle.findUnique({
       where: { id: bundleId }
     });
@@ -35,7 +34,11 @@ export const POST: RequestHandler = async ({ params, request, locals, getClientA
       return json({ success: false, error: 'Bundle not found' }, { status: 404 });
     }
 
-    // Enforce DRAFT-only modifications
+    const currentAccountId = (locals as any).currentAccount?.account?.id;
+    if (currentAccountId && bundle.accountId !== currentAccountId) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
+    }
+
     if (bundle.status !== 'DRAFT') {
       return json({ success: false, error: 'Bundle is not editable (must be DRAFT)' }, { status: 403 });
     }
@@ -125,7 +128,13 @@ export const DELETE: RequestHandler = async ({ params, request, locals, getClien
       return json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get existing bundle devices for audit log before deletion
+    // Verify bundle belongs to current account
+    const bundleDel = await locals.prisma.bundle.findUnique({ where: { id: bundleId }, select: { accountId: true } });
+    const currentAccountIdDel = (locals as any).currentAccount?.account?.id;
+    if (currentAccountIdDel && bundleDel?.accountId !== currentAccountIdDel) {
+      return json({ success: false, error: 'Access denied' }, { status: 403 });
+    }
+
     const existingBundleDevices = await locals.prisma.bundleDevice.findMany({
       where: {
         bundleId,

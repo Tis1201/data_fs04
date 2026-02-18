@@ -10,14 +10,17 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
 export const load = restrict(
-    async ({ params, locals }: AuthenticatedLoadEvent) => {
+    async ({ params, locals, cookies }: AuthenticatedLoadEvent) => {
         try {
             const { id } = params;
             if (!id) {
                 throw error(400, 'Bundle ID is required');
             }
+
+            const currentAccountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
             
-            // Load existing bundle
             const bundle = await locals.prisma.bundle.findUnique({
                 where: { id },
                 include: {
@@ -39,6 +42,10 @@ export const load = restrict(
 
             if (!bundle) {
                 throw error(404, "Bundle not found");
+            }
+
+            if (currentAccountId && bundle.accountId !== currentAccountId) {
+                throw error(403, 'Access denied');
             }
 
             // Allow editing for DRAFT, PUBLISHED+scheduled, FAILED

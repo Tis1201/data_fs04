@@ -14,7 +14,7 @@ import { deviceTagSchema } from '../new/device-tag';
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+    async ({ params, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         depends('app:deviceTag');
         
         const { id } = params;
@@ -23,10 +23,11 @@ export const load = restrict(
         }
 
         try {
-            // User routes need ownership checking - only show device tags from their accounts
             const auth = await locals.auth.validate();
             const userId = auth?.user?.id;
-            const accountId = (locals as any).currentAccount?.account?.id;
+            const accountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
             
             return await loadDeviceTagDetail(
                 locals,

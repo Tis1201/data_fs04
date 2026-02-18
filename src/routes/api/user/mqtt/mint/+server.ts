@@ -5,12 +5,19 @@ import { buildMqttMintPayload, getMqttBrokerWsUrl, mintIoTCoreCredentials } from
 
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
 
-export const POST: RequestHandler = restrict(async ({ locals, auth }) => {
+export const POST: RequestHandler = restrict(async (event) => {
+  const { locals, auth, cookies } = event;
   const user = auth.user;
   logger.info(`[UserMqttMintAPI] Received request for user: ${String(user.id)}`);
 
   try {
-    const accountId = auth.currentAccount?.account.id ?? user.primaryAccountId ?? null;
+    // Prefer current account (switch-account aware)
+    const accountId =
+      (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+      cookies.get('current_account_id') ??
+      auth.currentAccount?.account?.id ??
+      (user as { primaryAccountId?: string }).primaryAccountId ??
+      null;
 
     const mqttUsername = `user:${user.id}:${accountId}`;
     // Use WebSocket URL for browser clients

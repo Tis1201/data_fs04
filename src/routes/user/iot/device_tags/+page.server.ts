@@ -13,14 +13,15 @@ import { createDeviceTagActions } from '$lib/server/device-tags/deviceTagActions
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ url, locals, depends }: AuthenticatedLoadEvent) => {
+    async ({ url, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         depends('app:userDeviceTags');
         
         try {
-            // User routes need ownership checking - only show device tags from their accounts
             const auth = await locals.auth.validate();
             const userId = auth?.user?.id;
-            const accountId = (locals as any).currentAccount?.account?.id;
+            const accountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
             
             return await loadDeviceTagList(locals, url, {
                 checkOwnership: true, // User can only see tags from their accounts

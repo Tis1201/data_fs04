@@ -29,7 +29,7 @@ const deviceActions = createDeviceActions({
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+    async ({ params, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         // Mark for client-side invalidation
         depends('app:device');
         
@@ -43,9 +43,9 @@ export const load = restrict(
             id,
             deviceEditSchema,
             {
-                checkOwnership: true, // User routes need ownership check
+                checkOwnership: true,
                 userId: (locals as any).user?.id,
-                accountId: (locals as any).currentAccount?.account.id,
+                accountId: (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id'),
                 verboseLogging: false // User routes use simpler logging
             }
         );

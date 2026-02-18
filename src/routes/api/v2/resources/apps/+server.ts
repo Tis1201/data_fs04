@@ -155,15 +155,19 @@ export const GET = unifiedEndpoint(
     if (!where.NOT) where.NOT = [] as any;
     (where.NOT as any[]).push({ packageName: null });
 
-    // Role-based account filtering
+    // Role-based account filtering: user sees current account only (switch-account aware)
     if (session.user.systemRole !== 'ADMIN') {
-      const memberships = await prisma.accountMembership.findMany({
-        where: { userId: session.user.id },
-        select: { accountId: true }
-      });
-      const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
-      // If no accounts, force empty result set
-      where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
+      const currentAccountId = context.account?.id;
+      if (currentAccountId) {
+        where.accountId = currentAccountId;
+      } else {
+        const memberships = await prisma.accountMembership.findMany({
+          where: { userId: session.user.id },
+          select: { accountId: true }
+        });
+        const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
+        where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
+      }
     }
 
     // Pagination

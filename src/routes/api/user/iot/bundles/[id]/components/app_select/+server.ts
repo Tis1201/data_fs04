@@ -54,11 +54,16 @@ export const GET = restrict(
 
       // Filter formats by bundle target OS: macOS → cpk; Linux → deb, cpk; Android → apk
       const allowedFormats = getFormatsByTargetOs(bundle?.os);
-      const baseWhere = {
+      const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+      const baseWhere: Record<string, unknown> = {
         format: {
           in: allowedFormats
         }
       };
+      // Scope to current account only (switch-account aware)
+      if (currentAccountId) {
+        baseWhere.accountId = currentAccountId;
+      }
 
       // Use the reusable fetchTableData function with base filtering
       const result = await fetchTableData(locals, url, {
@@ -124,13 +129,17 @@ export const POST = restrict(
         throw error(404, 'Resource not found');
       }
       
-      // Check if the bundle exists
       const bundle = await prisma.bundle.findUnique({
         where: { id: bundleId }
       });
       
       if (!bundle) {
         throw error(404, 'Bundle not found');
+      }
+
+      const currentAccountId = (locals as any).currentAccount?.account?.id;
+      if (currentAccountId && bundle.accountId !== currentAccountId) {
+        throw error(403, 'Access denied');
       }
       
       // Check if the resource is already in the bundle
@@ -202,7 +211,13 @@ export const DELETE = restrict(
         throw error(400, 'Bundle ID is required');
       }
       
-      // Check if the bundle resource exists
+      // Verify bundle belongs to current account
+      const bundle = await prisma.bundle.findUnique({ where: { id: bundleId }, select: { accountId: true } });
+      const currentAccountId = (locals as any).currentAccount?.account?.id;
+      if (currentAccountId && bundle?.accountId !== currentAccountId) {
+        throw error(403, 'Access denied');
+      }
+
       const bundleResource = await (prisma as any).bundleApp.findFirst({
         where: {
           bundleId,

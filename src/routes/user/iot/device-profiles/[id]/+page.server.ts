@@ -12,8 +12,7 @@ import { loadDeviceProfileDetail } from '$lib/server/device-profiles/deviceProfi
  * 
  *******************************************************************************************/
 export const load = restrict(
-    async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
-        // Mark for client-side invalidation
+    async ({ params, locals, depends, cookies }: AuthenticatedLoadEvent) => {
         depends('app:deviceProfile');
         
         const { id: profileId } = params;
@@ -22,10 +21,11 @@ export const load = restrict(
         }
         
         try {
-            // User routes need ownership checking - only show device profiles from their accounts
             const auth = await locals.auth.validate();
             const userId = auth?.user?.id;
-            const accountId = (locals as any).currentAccount?.account?.id;
+            const accountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
             
             return await loadDeviceProfileDetail(locals, profileId, {
                 checkOwnership: true, // User can only see profiles from their accounts

@@ -18,7 +18,13 @@ export const POST: RequestHandler = restrict(
         return json({ success: false, error: 'Unauthorized' }, { status: 401 });
       }
 
-      // Ensure wave belongs to bundle
+      // Verify bundle belongs to current account
+      const bundle = await locals.prisma.bundle.findUnique({ where: { id: bundleId }, select: { accountId: true } });
+      const currentAccountId = (locals as any).currentAccount?.account?.id;
+      if (currentAccountId && bundle?.accountId !== currentAccountId) {
+        return json({ success: false, error: 'Access denied' }, { status: 403 });
+      }
+
       const wave = await locals.prisma.bundleWave.findFirst({ where: { id: waveId, bundleId } });
       if (!wave) {
         return json({ success: false, error: 'Wave not found' }, { status: 404 });
