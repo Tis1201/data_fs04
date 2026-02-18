@@ -5,7 +5,6 @@
     import AlertToastContainer from '$lib/components/AlertToastContainer.svelte';
     import { TopNavigation } from '$lib/design-system/components';
     import type { TopNavStyle, UserInfo } from '$lib/design-system/components';
-    import AccountSelector from "$lib/components/account/AccountSelector.svelte";
     import { goto } from "$app/navigation";
     
     // Import Design System Tokens - CRITICAL for design system to work
@@ -363,6 +362,10 @@
     function handleUserMenuAction(e: CustomEvent<{ id: string }>) {
         const id = e.detail?.id;
         if (!id) return;
+        if (id === 'profile') {
+            goto('/user/profile');
+            return;
+        }
         if (id === 'settings') {
             goto('/user/settings/account');
             return;
@@ -371,6 +374,28 @@
             // Use hard navigation so cookies/session are cleared reliably
             window.location.href = '/auth/logout';
             return;
+        }
+    }
+
+    async function handleSwitchAccount(e: CustomEvent<{ accountId: string }>) {
+        const accountId = e.detail?.accountId;
+        if (!accountId) return;
+        try {
+            const response = await fetch('/api/account/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accountId })
+            });
+            const result = await response.json();
+            if (result.success) {
+                window.location.href = '/user/dashboard';
+            } else {
+                console.error('Switch account failed:', result.message);
+                window.location.href = '/user/dashboard';
+            }
+        } catch (err) {
+            console.error('Switch account error:', err);
+            window.location.href = '/user/dashboard';
         }
     }
 
@@ -413,9 +438,11 @@
                 subtitle={pageConfig.subtitle}
                 user={userInfo}
                 userMenuItems={[
-                    { id: 'settings', label: 'Settings' },
-                    { id: 'logout', label: 'Logout', destructive: true }
+                    { id: 'profile', label: 'My Profile' },
+                    { id: 'logout', label: 'Sign out of all accounts', destructive: true }
                 ]}
+                accountMemberships={data.accountMemberships ?? []}
+                currentAccount={data.currentAccount}
                 showSearch={false}
                 showNotifications={false}
                 showBackButton={pageConfig.showBackButton ?? false}
@@ -426,18 +453,10 @@
                 on:notifications={handleNotifications}
                 on:userMenuClick={handleUserMenuClick}
                 on:userMenuAction={handleUserMenuAction}
+                on:switchAccount={handleSwitchAccount}
                 on:back={handleBack}
                 on:gridClick={handleGridClick}
             />
-            <!-- Account Selector - positioned absolutely before user menu -->
-            {#if data.accountMemberships && data.accountMemberships.length > 0}
-                <div class="absolute right-24 top-1/2 -translate-y-1/2">
-                    <!-- <AccountSelector 
-                        currentAccount={data.currentAccount} 
-                        accountMemberships={data.accountMemberships} 
-                    /> -->
-                </div>
-            {/if}
         </div>
 
         <!-- Page content -->

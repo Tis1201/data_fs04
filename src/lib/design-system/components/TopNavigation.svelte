@@ -13,7 +13,7 @@
 
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { Search, Bell, ChevronDown, ChevronLeft, Grip, Monitor, Radio } from 'lucide-svelte';
+	import { Search, Bell, ChevronDown, ChevronLeft, Grip, Monitor, Radio, User, LogOut } from 'lucide-svelte';
 	import Divider from './Divider.svelte';
 	import { Avatar } from '$lib/design-system/components';
 	// TODO: Refactor to use ActionMenu component when external trigger support is complete
@@ -54,12 +54,22 @@
 		{ id: 'profile', label: 'Profile' },
 		{ id: 'logout', label: 'Logout', destructive: true }
 	];
+
+	// Switch Account section (optional – shown inside user dropdown when provided)
+	export let accountMemberships: Array<{
+		id: string;
+		role?: string;
+		account?: { id: string; name: string; slug?: string };
+		name?: string;
+	}> = [];
+	export let currentAccount: { id: string; name?: string } | null = null;
 	
 	const dispatch = createEventDispatcher<{
 		search: void;
 		notifications: void;
 		userMenuClick: void;
 		userMenuAction: { id: string };
+		switchAccount: { accountId: string };
 		back: void;
 		gridClick: void;
 	}>();
@@ -110,6 +120,15 @@
 		showUserDropdown = false;
 		dispatch('userMenuAction', { id });
 	}
+
+	function handleSwitchAccount(accountId: string) {
+		dispatch('switchAccount', { accountId });
+	}
+
+	$: currentAccountId = currentAccount?.id ?? null;
+	$: nonLogoutItems = userMenuItems.filter((item) => item.id !== 'logout');
+	$: logoutItems = userMenuItems.filter((item) => item.id === 'logout');
+	$: showSwitchSection = accountMemberships && accountMemberships.length > 0;
 	
 	function handleBack() {
 		dispatch('back');
@@ -290,13 +309,59 @@
 					}}
 				>
 					<div class="user-dropdown-content">
-						{#each userMenuItems as item (item.id)}
+						<!-- My Profile / non-logout items (with icon) -->
+						{#each nonLogoutItems as item (item.id)}
 							<button
 								type="button"
-								class="user-dropdown-item"
+								class="user-dropdown-item user-dropdown-item-with-icon"
+								on:click={() => handleUserMenuAction(item.id)}
+							>
+								<User size={16} strokeWidth={2} class="user-dropdown-icon" />
+								{item.label}
+							</button>
+						{/each}
+						<!-- Switch Account section -->
+						{#if showSwitchSection}
+							<div class="user-dropdown-divider" role="separator"></div>
+							<div class="user-dropdown-section-label">Switch Account</div>
+							{#each accountMemberships as membership (membership.id)}
+								{@const accountId = membership.account?.id ?? membership.id}
+								{@const accountName = membership.account?.name ?? membership.name ?? 'Unknown'}
+								{@const roleLabel = membership.role ?? 'Member'}
+								<button
+									type="button"
+									class="user-dropdown-account-option"
+									class:is-selected={currentAccountId === accountId}
+									on:click={() => handleSwitchAccount(accountId)}
+								>
+									<span class="user-dropdown-radio" aria-hidden="true">
+										{#if currentAccountId === accountId}
+											<span class="user-dropdown-radio-dot"></span>
+										{/if}
+									</span>
+									<Avatar
+										name={accountName}
+										size="xs"
+										gradient={avatarGradient}
+										className="user-dropdown-account-avatar"
+									/>
+									<div class="user-dropdown-account-info">
+										<span class="user-dropdown-account-role">{roleLabel}</span>
+										<span class="user-dropdown-account-name">{accountName}</span>
+									</div>
+								</button>
+							{/each}
+							<div class="user-dropdown-divider" role="separator"></div>
+						{/if}
+						<!-- Sign out / logout items (with icon) -->
+						{#each logoutItems as item (item.id)}
+							<button
+								type="button"
+								class="user-dropdown-item user-dropdown-item-with-icon"
 								class:destructive={item.destructive}
 								on:click={() => handleUserMenuAction(item.id)}
 							>
+								<LogOut size={16} strokeWidth={2} class="user-dropdown-icon" />
 								{item.label}
 							</button>
 						{/each}
@@ -440,7 +505,9 @@
 		top: 100%;
 		margin-top: var(--ds-space-2);
 		z-index: 9999;
-		width: 222px;
+		min-width: 222px;
+		width: max-content;
+		max-width: 320px;
 	}
 	
 	.user-dropdown-content {
@@ -449,13 +516,16 @@
 		box-shadow: var(--ds-shadow-lg);
 		border: 1px solid var(--ds-border-default);
 		padding: var(--ds-space-2);
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
 	}
 	
 	.user-dropdown-item {
 		width: 100%;
 		display: flex;
 		align-items: center;
-		height: 40px;
+		min-height: 40px;
 		padding: var(--ds-space-2) var(--ds-space-3);
 		border-radius: var(--ds-radius-lg);
 		background: transparent;
@@ -476,6 +546,109 @@
 	
 	.user-dropdown-item.destructive {
 		color: var(--ds-color-error-600);
+	}
+	
+	.user-dropdown-item-with-icon {
+		display: flex;
+		align-items: center;
+		gap: var(--ds-space-2);
+	}
+	
+	.user-dropdown-icon {
+		flex-shrink: 0;
+		color: inherit;
+	}
+	
+	.user-dropdown-divider {
+		height: 1px;
+		background: var(--ds-border-default);
+		margin: var(--ds-space-1) 0;
+	}
+	
+	.user-dropdown-section-label {
+		font-family: var(--ds-font-family-primary);
+		font-size: var(--ds-text-xs);
+		font-weight: var(--ds-font-medium);
+		color: var(--ds-color-gray-500);
+		padding: var(--ds-space-1) var(--ds-space-3);
+		margin-top: 2px;
+	}
+	
+	.user-dropdown-account-option {
+		display: flex;
+		align-items: center;
+		gap: var(--ds-space-2);
+		width: 100%;
+		min-height: 44px;
+		padding: var(--ds-space-2) var(--ds-space-3);
+		border-radius: var(--ds-radius-lg);
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		transition: background-color 0.15s ease;
+		text-align: left;
+	}
+	
+	.user-dropdown-account-option:hover {
+		background: var(--ds-bg-tertiary);
+	}
+	
+	.user-dropdown-account-option.is-selected {
+		background: var(--ds-bg-tertiary);
+	}
+	
+	.user-dropdown-radio {
+		width: 16px;
+		height: 16px;
+		border-radius: 50%;
+		border: 2px solid var(--ds-color-gray-400);
+		background: var(--ds-bg-primary);
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	
+	.user-dropdown-account-option.is-selected .user-dropdown-radio {
+		border-color: var(--ds-color-gray-800);
+	}
+	
+	.user-dropdown-radio-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--ds-color-gray-800);
+	}
+	
+	.user-dropdown-account-avatar {
+		flex-shrink: 0;
+	}
+	
+	.user-dropdown-account-info {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		min-width: 0;
+		flex: 1;
+	}
+	
+	.user-dropdown-account-role {
+		font-family: var(--ds-font-family-primary);
+		font-weight: var(--ds-font-medium);
+		font-size: var(--ds-text-sm);
+		color: var(--ds-color-gray-800);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	
+	.user-dropdown-account-name {
+		font-family: var(--ds-font-family-primary);
+		font-size: var(--ds-text-xs);
+		color: var(--ds-color-gray-500);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	
 	/* User Menu Trigger Button */
