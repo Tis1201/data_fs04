@@ -3,6 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma';
+import type { Prisma } from '@prisma/client';
 
 // Define enum locally to avoid Vite ESM/CJS issues with @prisma/client
 const SensorTemplateType = {
@@ -280,17 +281,28 @@ export const actions: Actions = {
                     data: {
                         name: name.trim(),
                         description: description?.trim() || null,
-                        config
+                        config: config as Prisma.InputJsonValue
                     }
                 });
 
                 // Update sensor assignments
-                // First, remove all existing assignments
+                // Determine which sensors are NEWLY assigned vs already assigned.
+                // Only newly assigned sensors get template config applied (a:1 → a:2).
+                // Already-assigned sensors keep their own config (a:3 stays a:3).
+                const existingAssignments = await prisma.sensorTemplateAssignment.findMany({
+                    where: { templateId: id },
+                    select: { sensorId: true }
+                });
+                const previouslyAssignedIds = new Set(existingAssignments.map(a => a.sensorId));
+                const newSensorIds = (parsedSelectedSensors as { id: string }[])
+                    .map(s => s.id)
+                    .filter(sid => !previouslyAssignedIds.has(sid));
+
+                // Remove all existing assignments, then recreate
                 await prisma.sensorTemplateAssignment.deleteMany({
                     where: { templateId: id }
                 });
 
-                // Then, create new assignments
                 if (parsedSelectedSensors.length > 0) {
                     await prisma.sensorTemplateAssignment.createMany({
                         data: parsedSelectedSensors.map((sensor: { id: string }) => ({
@@ -299,6 +311,30 @@ export const actions: Actions = {
                             assignedBy: user?.id
                         }))
                     });
+
+                    // Apply template config only to NEWLY assigned sensors
+                    if (newSensorIds.length > 0) {
+                        const templateConfig = (config as Record<string, unknown>) || {};
+                        for (const sensorId of newSensorIds) {
+                            const sensor = await prisma.sensor.findUnique({
+                                where: { id: sensorId },
+                                select: { config: true, configVersion: true }
+                            });
+                            if (!sensor) continue;
+                            const merged = {
+                                ...(typeof sensor.config === 'object' && sensor.config !== null ? (sensor.config as Record<string, unknown>) : {}),
+                                ...templateConfig
+                            };
+                            await prisma.sensor.update({
+                                where: { id: sensorId },
+                                data: {
+                                    config: merged as Prisma.InputJsonValue,
+                                    configVersion: sensor.configVersion + 1,
+                                    syncStatus: 'PENDING'
+                                }
+                            });
+                        }
+                    }
                 }
 
                 return { success: true };
