@@ -326,6 +326,8 @@
     let activityLogsPageSize = 10;
     let activityLogsTotalPages = 1;
 
+    let downloadLogsLoading = false;
+
     // Toggle activity log expansion
     function toggleActivityLogExpansion(logId: string) {
         activityLogs = activityLogs.map(log =>
@@ -409,6 +411,61 @@
     // Load activity logs when tab changes
     $: if (activeTab === 'activity' && device?.id && !activityLogsLoaded && !activityLogsLoading) {
         loadActivityLogs();
+    }
+
+    // Download logs: request device to upload logs to GCS, then poll for signed URL and start download
+    async function handleDownloadLogs() {
+        if (!device?.id || downloadLogsLoading) return;
+        downloadLogsLoading = true;
+        addAlert('info', 'Requesting logs from device...');
+        try {
+            const res = await fetch(`/api/devices/${device.id}/actions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'getLogs', format: 'zip' })
+            });
+            const result = await res.json();
+            if (!res.ok || !result.success) {
+                const msg = result?.error?.message || `Request failed: ${res.statusText}`;
+                addAlert('error', msg);
+                return;
+            }
+            const logId = result?.data?.operationId;
+            if (!logId) {
+                addAlert('error', 'No operation ID returned');
+                return;
+            }
+            const pollIntervalMs = 2000;
+            const pollMaxMs = 120000; // 2 min
+            const start = Date.now();
+            while (Date.now() - start < pollMaxMs) {
+                await new Promise((r) => setTimeout(r, pollIntervalMs));
+                const urlRes = await fetch(`/api/v2/devices/${device.id}/pull-file-download-url?logId=${encodeURIComponent(logId)}`);
+                if (urlRes.ok) {
+                    const urlResult = await urlRes.json();
+                    const downloadUrl = urlResult?.data?.downloadUrl;
+                    const fileName = urlResult?.data?.fileName || `logs_${logId}.zip`;
+                    if (downloadUrl) {
+                        const link = document.createElement('a');
+                        link.href = downloadUrl;
+                        link.download = fileName;
+                        link.target = '_blank';
+                        link.rel = 'noopener noreferrer';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        addAlert('success', 'Logs download started.');
+                        loadActivityLogs();
+                        return;
+                    }
+                }
+            }
+            addAlert('error', 'Logs download timed out. The device may be offline or still uploading.');
+        } catch (e) {
+            addAlert('error', e instanceof Error ? e.message : 'Failed to download logs');
+        } finally {
+            downloadLogsLoading = false;
+        }
     }
 
     // Load apps data
@@ -2115,14 +2172,32 @@
 
         {:else if activeTab === 'activity'}
             <Card variant="default" padding="none" class="activity-card">
-                <div slot="header" class="info-card-header">
-                    <div class="icon-wrap">
-                        <History size={20} color="#A3A3A3" />
+                <div slot="header" class="activity-header-with-action">
+                    <div class="info-card-header">
+                        <div class="icon-wrap">
+                            <History size={20} color="#A3A3A3" />
+                        </div>
+                        <div class="header-text">
+                            <h4>Activity Logs</h4>
+                            <p>History of all actions performed on this device.</p>
+                        </div>
                     </div>
-                    <div class="header-text">
-                        <h4>Activity Logs</h4>
-                        <p>History of all actions performed on this device.</p>
-                    </div>
+                    <Button
+                        class="download-logs-btn"
+                        variant="outline"
+                        color="primary"
+                        size="md"
+                        icon={downloadLogsLoading ? undefined : Download}
+                        iconPosition="left"
+                        disabled={downloadLogsLoading}
+                        on:click={handleDownloadLogs}
+                    >
+                        {#if downloadLogsLoading}
+                            Requesting logs...
+                        {:else}
+                            Download Logs
+                        {/if}
+                    </Button>
                 </div>
                 <div class="activity-body">
                     {#if activityLogsLoading}
@@ -3828,6 +3903,44 @@
     /* Align with tab Details: padding="none", use info-card-header (has padding), body has padding */
     :global(.activity-card .card-body) {
         padding: var(--ds-card-padding-md);
+    }
+
+    .activity-header-with-action {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--ds-space-4);
+        width: 100%;
+        padding-left: var(--ds-card-padding-md);
+        padding-right: var(--ds-card-padding-md);
+    }
+
+    /* Align left content with card body; avoid double padding from inner info-card-header */
+    .activity-header-with-action .info-card-header {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    /* Download Logs button: Blue light/700, larger tap target */
+    .activity-header-with-action :global(.download-logs-btn) {
+        min-width: 140px;
+        height: 40px;
+        padding: 10px 20px;
+        font-family: 'Poppins', var(--ds-font-sans);
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 20px;
+        letter-spacing: 0;
+        color: #026AA2;
+        border-color: #0BA5EC;
+    }
+    .activity-header-with-action :global(.download-logs-btn:hover:not(:disabled)) {
+        color: #065986;
+        background-color: #F0F9FF;
+    }
+    .activity-header-with-action :global(.download-logs-btn svg) {
+        color: inherit;
     }
 
     .activity-body {

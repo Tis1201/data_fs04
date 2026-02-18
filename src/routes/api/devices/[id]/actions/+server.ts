@@ -727,9 +727,10 @@ export const POST: RequestHandler = restrict(
                 logger.warn(`[UnifiedActionAPI] Failed to broadcast initial status:`, broadcastErr);
             }
 
-            // Prepare message payload for MQTT
+            // Prepare message payload for MQTT (use device action type, e.g. get_logs, not API name getLogs)
+            const deviceActionType = actionConfig.actionType;
             const messagePayload: any = {
-                action,
+                action: deviceActionType,
                 deviceId,
                 ...payload,
                 logId: created.id,

@@ -16,8 +16,9 @@ export async function broadcastDeviceActionUpdate(params: {
     progress?: number;
     durationMs?: number | null;
     accountId?: string | null;
+    objectPath?: string;
 }): Promise<void> {
-    const { prisma, deviceId, logId, action, status, message, progress, durationMs, accountId } = params;
+    const { prisma, deviceId, logId, action, status, message, progress, durationMs, accountId, objectPath } = params;
     const transport = getMqttTransport();
 
     const payload: any = {
@@ -38,6 +39,11 @@ export async function broadcastDeviceActionUpdate(params: {
     // Include duration if provided
     if (durationMs !== undefined && durationMs !== null) {
         payload.durationMs = durationMs;
+    }
+
+    // Include objectPath for get_logs/pull_file so UI can trigger download without polling
+    if (objectPath) {
+        payload.objectPath = objectPath;
     }
 
     // Determine which users to notify based on device ownership

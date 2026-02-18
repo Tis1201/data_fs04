@@ -36,16 +36,6 @@ export async function handleStatusUpdate(
             }
         }
         
-        logger.debug('[MQTT Reply] Processing device:statusUpdate', {
-            logId,
-            action,
-            status,
-            message: message?.substring(0, 100),
-            progress,
-            progressSource: resultObj.progress !== undefined ? 'field' : (progress !== undefined ? 'parsed' : 'none'),
-            resultObj
-        });
-
         // Format message consistently for app actions
         const isAppAction = ['restart_app', 'uninstall_app', 'config_app'].includes(action);
         let formattedMessage = message;
@@ -175,10 +165,34 @@ export async function handleStatusUpdate(
             }
         }
 
-        logger.debug('[MQTT Reply] Attempting to update action log', {
-            logId,
-            updateData
-        });
+        // For get_logs / pull_file: persist objectPath to action log metadata so pull-file-download-url and UI can use it
+        const objectPath = resultObj.objectPath as string | undefined;
+        const isFileUploadAction = action === 'get_logs' || action === 'pull_file';
+        if (isFileUploadAction && objectPath) {
+            try {
+                const existingLog = await (prisma as any).deviceActionLog.findUnique({
+                    where: { id: logId },
+                    select: { metadata: true }
+                });
+                const currentMetadata = (existingLog?.metadata as Record<string, unknown>) || {};
+                await (prisma as any).deviceActionLog.update({
+                    where: { id: logId },
+                    data: {
+                        metadata: {
+                            ...currentMetadata,
+                            objectPath,
+                            bucket: (resultObj.bucket as string) || currentMetadata.bucket
+                        }
+                    }
+                });
+            } catch (metaErr) {
+                logger.warn('[MQTT Reply] Failed to persist objectPath to action log', {
+                    logId,
+                    action,
+                    error: metaErr instanceof Error ? metaErr.message : String(metaErr)
+                });
+            }
+        }
 
         const updatedLog = await (prisma as any).deviceActionLog.update({
             where: { id: logId },
@@ -186,29 +200,7 @@ export async function handleStatusUpdate(
             include: { device: true }
         });
 
-        logger.info('[MQTT Reply] Updated action log from device:statusUpdate', {
-            logId,
-            action,
-            status: updateData.status,
-            message,
-            progress: updateData.progress,
-            durationMs: updatedLog.durationMs,
-            updatedLogId: updatedLog.id
-        });
-
         // Broadcast status update to users monitoring this device
-        logger.info(`[MQTT Reply] Broadcasting device:statusUpdate to UI`, {
-            logId,
-            action,
-            status: updateData.status,
-            message: message?.substring(0, 100),
-            progress: updateData.progress,
-            durationMs: updatedLog.durationMs,
-            deviceId: updatedLog.deviceId,
-            accountId: updatedLog.device?.accountId,
-            hasProgress: updateData.progress !== undefined && updateData.progress !== null
-        });
-
         const durationToBroadcast = updateData.durationMs !== undefined && updateData.durationMs !== null
             ? updateData.durationMs
             : updatedLog.durationMs;
@@ -222,7 +214,8 @@ export async function handleStatusUpdate(
             message,
             progress: updateData.progress,
             durationMs: durationToBroadcast,
-            accountId: updatedLog.device?.accountId
+            accountId: updatedLog.device?.accountId,
+            objectPath: objectPath || undefined
         });
 
         // If this is an applyProfile action, update the DeviceProfileAssignment status

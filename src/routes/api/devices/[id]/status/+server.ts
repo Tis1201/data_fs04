@@ -60,7 +60,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
             action,
             status,
             logId,
-            profileId
+            profileId,
+            hasObjectPath: !!objectPath,
+            progress
         });
 
         // Find the action log
@@ -72,6 +74,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         });
 
         if (!actionLog) {
+            logger.warn(`[Device Status Update] Action log not found`, { logId, deviceId: device.id, action, status });
             return json({
                 success: false,
                 error: 'Action log not found',
@@ -83,23 +86,27 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         let updatedLog = null;
         let durationMs = null;
 
-        // For pullFile actions, update metadata with objectPath if provided
-        if (action === 'pullFile' && objectPath) {
+        // Normalize device action name for branch logic (device may send get_logs, server uses getLogs for event type)
+        const actionForBranch = action === 'get_logs' ? 'getLogs' : action;
+
+        // For pullFile/getLogs actions, update metadata with objectPath if provided (from request body or metadata)
+        const objectPathToSave = objectPath || (metadata as any)?.objectPath;
+        if ((actionForBranch === 'pullFile' || actionForBranch === 'getLogs') && objectPathToSave) {
             const currentMetadata = (actionLog.metadata as any) || {};
             await prisma.deviceActionLog.update({
                 where: { id: actionLog.id },
                 data: {
                     metadata: {
                         ...currentMetadata,
-                        objectPath: objectPath,
-                        // Preserve bucket if it exists, otherwise it will be retrieved from config
-                        bucket: currentMetadata.bucket || undefined
+                        objectPath: objectPathToSave,
+                        bucket: (metadata as any)?.bucket || currentMetadata.bucket || undefined
                     }
                 }
             });
             logger.info(`[Device Status Update] Updated action log metadata with objectPath`, {
                 logId: actionLog.id,
-                objectPath
+                actionForBranch,
+                objectPath: objectPathToSave.substring(0, 80) + (objectPathToSave.length > 80 ? '...' : '')
             });
         }
 
@@ -124,10 +131,17 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         }
 
         // Publish SSE update for real-time UI updates only
-        // Don't publish if only device connection exists (device reporting its own status)
-        
+        logger.info(`[Device Status Update] Applying status to action log`, {
+            logId,
+            action,
+            actionForBranch,
+            status,
+            willFinalize: status === 'complete' || status === 'success',
+            willPublishGetLogsOrPullFile: actionForBranch === 'pullFile' || actionForBranch === 'getLogs'
+        });
+
         // For pullFile and getLogs actions, publish as specific status events with objectPath
-        if (action === 'pullFile' || action === 'getLogs') {
+        if (actionForBranch === 'pullFile' || actionForBranch === 'getLogs') {
             // Get the latest metadata (may have been updated above)
             const latestLog = await prisma.deviceActionLog.findUnique({
                 where: { id: actionLog.id },
@@ -139,23 +153,30 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
             const effectiveObjectPath = objectPath || latestMetadata?.objectPath || metadata?.objectPath;
             
             if (!effectiveObjectPath && (status === 'success' || status === 'complete')) {
-                logger.warn(`[Device Status Update] ${action} succeeded but no objectPath found`, {
+                logger.warn(`[Device Status Update] ${actionForBranch} succeeded but no objectPath found`, {
                     logId,
                     deviceId: device.id,
                     metadata: latestMetadata
                 });
             }
+
+            logger.info(`[Device Status Update] Publishing file-action status event`, {
+                logId,
+                actionForBranch,
+                eventType: actionForBranch === 'pullFile' ? 'device:pullFileStatus' : 'device:getLogsStatus',
+                hasEffectiveObjectPath: !!effectiveObjectPath
+            });
             
-            const eventType = action === 'pullFile' ? 'device:pullFileStatus' : 'device:getLogsStatus';
+            const eventType = actionForBranch === 'pullFile' ? 'device:pullFileStatus' : 'device:getLogsStatus';
             const statusMessage = MessageFactory.createSystemMessage(
                 eventType,
                 `subscription:device:${device.id}`,
                 {
                     logId,
-                    action,
+                    action: actionForBranch,
                     status,
                     deviceId: device.id,
-                    message: message || `${action} ${status}`,
+                    message: message || `${actionForBranch} ${status}`,
                     progress,
                     objectPath: effectiveObjectPath, // Include objectPath for download
                     timestamp: new Date().toISOString()

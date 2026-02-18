@@ -59,15 +59,6 @@ export async function handleReplyMessage(
         const message = resultObj.message as string;
         const action = resultObj.action as string;
 
-        logger.debug('[MQTT Reply] Processing reply result', {
-            messageType,
-            logId,
-            status,
-            action,
-            hasResult: !!result,
-            resultKeys: resultObj ? Object.keys(resultObj) : []
-        });
-
         // Handle device:statusUpdate (matches old SSE flow)
         // This updates the database and calculates durationMs
         let updatedLogData: { durationMs?: number | null; progress?: number | null } | null = null;
