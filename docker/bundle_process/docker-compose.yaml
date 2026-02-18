@@ -1,0 +1,7 @@
+services:
+  bundle-process:
+    build:
+      context: ../..
+      dockerfile: docker/bundle_process/Dockerfile
+    image: fs04-web-bundle-process:${TAG:-latest}
+    platform: linux/amd64
