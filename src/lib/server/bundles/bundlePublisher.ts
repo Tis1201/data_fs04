@@ -173,7 +173,8 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
                   version: a.resource?.version,
                   format: a.resource?.format,
                   size: a.resource?.size,
-                  order: a.order ?? idx + 1
+                  order: a.order ?? idx + 1,
+                  autoOpen: !!a.autoOpen
                 };
               }
 
@@ -208,7 +209,8 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
                   version: a.resource.version,
                   format: a.resource.format,
                   size: a.resource.size,
-                  order: a.order ?? idx + 1
+                  order: a.order ?? idx + 1,
+                  autoOpen: !!a.autoOpen
                 };
               } catch (err) {
                 logger.error(`[PublishBundle] Error generating presigned URL for app ${a.resourceId}: ${err instanceof Error ? err.message : String(err)}`);
@@ -221,11 +223,14 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
                   version: a.resource?.version,
                   format: a.resource?.format,
                   size: a.resource?.size,
-                  order: a.order ?? idx + 1
+                  order: a.order ?? idx + 1,
+                  autoOpen: !!a.autoOpen
                 };
               }
             })
           );
+
+          const anyAutoOpen = apps.some((a: any) => !!a.autoOpen);
 
           logger.info(`[PublishBundle] Generated ${apps.length} presigned URLs for bundle apps`);
 
@@ -387,7 +392,7 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
                   ],
                   options: {
                     reboot: bundleMeta?.reboot ?? false,
-                    autoOpen: bundleMeta?.autoOpen ?? false,
+                    autoOpen: anyAutoOpen,
                     forceUpdate: bundleMeta?.forceUpdate ?? false
                   }
                 },
