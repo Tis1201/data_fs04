@@ -47,7 +47,7 @@
             icon: LayoutList,
             children: [
                 { id: 'all-devices', label: 'All Devices', href: '/user/devices/listing' },
-                { id: 'tags', label: 'Tags', href: '/user/devices/tags' }
+                { id: 'tags', label: 'Tags', href: '/user/iot/device_tags' }
             ]
         },
         {

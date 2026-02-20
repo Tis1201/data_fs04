@@ -1,20 +1,18 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
     import { page } from "$app/stores";
-    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
+    import { createEventDispatcher } from 'svelte';
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import { ArrowUp, ArrowDown, MoreVertical, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-svelte";
     import type { DeviceTag } from "@prisma/client";
-    import { toast } from "svelte-sonner";
-    import { api_delete } from "$lib/utils/ApiUtils";
     import { handleTableSort, handleTablePagination } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
-    import { invalidate } from '$app/navigation';
 
     type DeviceTagRow = DeviceTag & { _count?: { devices: number } };
 
-    async function refreshData() {
-        await invalidate('app:userDeviceTags');
-    }
+    const dispatch = createEventDispatcher<{
+        edit: DeviceTagRow;
+        delete: DeviceTagRow;
+    }>();
 
     export let props = {
         records: [] as DeviceTagRow[],
@@ -31,17 +29,8 @@
         loading: false
     };
 
-    let state = {
-        selectedRecord: null as DeviceTagRow | null,
-        confirmationOpen: false
-    };
     let openActionMenuId: string | null = null;
     let actionMenuPosition: { top: number; left: number } | null = null;
-
-    function confirmDelete(tag: DeviceTagRow) {
-        state.selectedRecord = tag;
-        state.confirmationOpen = true;
-    }
 
     function toggleActionMenu(rowId: string, e: MouseEvent) {
         if (openActionMenuId === rowId) {
@@ -109,33 +98,6 @@
 </script>
 
 <svelte:window on:click={handleClickOutside} />
-
-<RecordDeleteDialog
-    state={{
-        selectedRecord: state.selectedRecord,
-        confirmationOpen: state.confirmationOpen,
-        title: 'Delete Tag',
-        message: state.selectedRecord ? `Are you sure you want to delete tag "${state.selectedRecord.name || state.selectedRecord.id}"?` : '',
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel'
-    }}
-    useFormSubmission={false}
-    onConfirm={async () => {
-        if (!state.selectedRecord) return;
-        try {
-            await api_delete('/user/iot/device_tags', state.selectedRecord.id);
-            toast.success('Tag deleted successfully');
-            await refreshData();
-        } catch (error) {
-            console.error('Error deleting tag:', error);
-            toast.error(error instanceof Error ? error.message : 'Failed to delete tag');
-        }
-    }}
-    on:close={() => {
-        state.confirmationOpen = false;
-        state.selectedRecord = null;
-    }}
-/>
 
 {#if props.loading}
     <div class="bg-white overflow-hidden" style="border-radius: 9px; border: 1px solid #E5E5E5;">
@@ -332,19 +294,20 @@
             >
                 View
             </a>
-            <a
-                href="/user/iot/device_tags/{currentRow.id}"
+            <button
+                type="button"
                 class="block w-full text-left hover:bg-[#F9FAFB] transition-colors"
-                style="padding: 10px 16px; font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-800); border: none; background: transparent; cursor: pointer; text-decoration: none;"
+                style="padding: 10px 16px; font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-800); border: none; background: transparent; cursor: pointer;"
+                on:click={() => { dispatch('edit', currentRow); openActionMenuId = null; actionMenuPosition = null; }}
             >
                 Edit
-            </a>
+            </button>
             <div style="height: 1px; background: var(--ds-border-default); margin: 4px 0;"></div>
             <button
                 type="button"
                 class="w-full text-left hover:bg-[#F9FAFB] transition-colors"
                 style="padding: 10px 16px; font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-error-600); border: none; background: transparent; cursor: pointer;"
-                on:click={() => { confirmDelete(currentRow); openActionMenuId = null; actionMenuPosition = null; }}
+                on:click={() => { dispatch('delete', currentRow); openActionMenuId = null; actionMenuPosition = null; }}
             >
                 Delete
             </button>

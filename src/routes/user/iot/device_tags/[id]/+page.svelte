@@ -1,48 +1,88 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
-    import { Pencil, Info, HardDrive, Save, Trash2, X, Plus, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
+    import { Pencil, Info, HardDrive, Trash2, Plus, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
     import { toast } from 'svelte-sonner';
     import { api_delete } from '$lib/utils/ApiUtils';
     import { Button, Card, InputField, Badge, ActionMenu, ConfirmModal } from '$lib/design-system/components';
-    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
-    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
-    import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     import AddDeviceToTagModal from "$lib/components/ui_components_sveltekit/device_tags/AddDeviceToTagModal.svelte";
+    import EditTagModal from "$lib/components/ui_components_sveltekit/device_tags/EditTagModal.svelte";
     
     export let data;
     $: deviceTag = data?.deviceTag;
-    
-    const { form, errors, enhance, submitting, errorMessage } = createFormHandler(data.form, {
-        successRedirect: `/user/iot/device_tags/${data?.deviceTag?.id ?? ''}`,
-        validateOnInput: true,
-        onSuccess: () => {
-            toast.success('Tag updated successfully');
-            goto($page.url.pathname, { replaceState: true });
+
+    let showDeleteModal = false;
+    let deleteTagLoading = false;
+    let showEditTagModal = false;
+    let editTagLoading = false;
+
+    $: accounts = deviceTag?.account ? [{ id: deviceTag.account.id, name: deviceTag.account.name }] : [];
+    $: editTagData = deviceTag ? {
+        id: deviceTag.id,
+        name: deviceTag.name,
+        description: deviceTag.description,
+        accountId: deviceTag.account?.id,
+        accountName: deviceTag.account?.name
+    } : null;
+
+    function openEditTagModal() {
+        showEditTagModal = true;
+    }
+
+    function closeEditTagModal() {
+        showEditTagModal = false;
+    }
+
+    async function handleEditTag(event: CustomEvent<{ id: string; name: string; description: string; accountId: string }>) {
+        const { name, description } = event.detail;
+        editTagLoading = true;
+
+        try {
+            const fd = new FormData();
+            fd.set('name', name);
+            fd.set('description', description);
+
+            const res = await fetch('?/updateTag', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result?.type === 'failure') {
+                toast.error(result?.data?.error || 'Unable to update Tag. Please try again!');
+                return;
+            }
+
+            if (result?.type === 'success' || result?.data?.success) {
+                toast.success('Tag updated successfully!');
+                closeEditTagModal();
+                await invalidate('app:deviceTag');
+            } else {
+                toast.error('Unable to update Tag. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to update Tag. Please try again!');
+        } finally {
+            editTagLoading = false;
         }
-    });
-
-    $: isEditMode = $page.url.searchParams.get('edit') === '1';
-
-    let confirmationOpen = false;
+    }
 
     function openDeleteConfirm() {
-        confirmationOpen = true;
+        showDeleteModal = true;
+    }
+
+    function closeDeleteModal() {
+        showDeleteModal = false;
     }
 
     async function handleDeleteConfirm() {
+        deleteTagLoading = true;
         try {
             await api_delete('/user/iot/device_tags', deviceTag.id);
-            toast.success('Tag deleted successfully');
+            toast.success('Tag deleted successfully!');
             goto('/user/iot/device_tags');
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to delete tag');
+            toast.error(error instanceof Error ? error.message : 'Unable to delete Tag. Please try again!');
+        } finally {
+            deleteTagLoading = false;
         }
-    }
-
-    function submitSave() {
-        const formEl = document.querySelector('form[action="?/updateTag"]') as HTMLFormElement | null;
-        formEl?.requestSubmit();
     }
 
     function formatDate(d: Date | string | null | undefined): string {
@@ -51,9 +91,6 @@
         if (Number.isNaN(date.getTime())) return '—';
         return date.toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
-
-    $: nameErr = Array.isArray($errors.name) ? $errors.name.join(', ') : ($errors.name || '');
-    $: descErr = Array.isArray($errors.description) ? $errors.description.join(', ') : ($errors.description || '');
 
     let showAddDeviceModal = false;
     function openAddDeviceModal() { showAddDeviceModal = true; }
@@ -152,53 +189,30 @@
 
 <div class="tag-detail">
     <div class="detail-buttons">
-        {#if isEditMode}
-            <div class="detail-buttons-row">
-                <Button
-                    variant="outline"
-                    color="gray"
-                    size="lg"
-                    on:click={() => goto($page.url.pathname)}
-                    style="height: 44px;"
-                >
-                    <X size={20} slot="icon" />
-                    Cancel
-                </Button>
-                <Button
-                    variant="filled"
-                    color="danger"
-                    size="lg"
-                    on:click={openDeleteConfirm}
-                    style="height: 44px;"
-                >
-                    <Trash2 size={20} slot="icon" />
-                    Delete
-                </Button>
-                <Button
-                    variant="filled"
-                    color="primary"
-                    size="lg"
-                    disabled={$submitting}
-                    on:click={submitSave}
-                    style="height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
-                >
-                    <Save size={20} slot="icon" />
-                    Save
-                </Button>
-            </div>
-        {:else}
+        <div class="detail-buttons-row">
+            <Button
+                variant="filled"
+                color="danger"
+                size="lg"
+                iconLeft={true}
+                on:click={openDeleteConfirm}
+                style="height: 44px;"
+            >
+                <Trash2 size={20} slot="icon-left" />
+                Delete
+            </Button>
             <Button
                 variant="filled"
                 color="primary"
                 size="lg"
                 iconLeft={true}
-                on:click={() => goto($page.url.pathname + '?edit=1')}
+                on:click={openEditTagModal}
                 style="height: 44px; background: var(--ds-color-blue-light-600); border: 1px solid var(--ds-color-blue-light-600); box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);"
             >
                 <Pencil size={20} slot="icon-left" />
                 Edit Tag
             </Button>
-        {/if}
+        </div>
     </div>
 
     <div class="detail-grid">
@@ -210,80 +224,34 @@
                     </div>
                     <div class="overview-header-text">
                         <h3 class="overview-title">Tag Overview</h3>
-                        <p class="overview-subtitle">
-                            {#if isEditMode}
-                                Update name and description.
-                            {:else}
-                                Key information about this tag.
-                            {/if}
-                        </p>
+                        <p class="overview-subtitle">Key information about this tag.</p>
                     </div>
                 </div>
             </div>
-            {#if isEditMode}
-                <div class="overview-body">
-                    <FormContainer method="POST" action="?/updateTag" {enhance} novalidate errorMessage={$errorMessage}>
-                        {#if $errorMessage}
-                            <div class="form-error-message">
-                                {$errorMessage.error?.message || 'Please try again.'}
-                            </div>
-                        {/if}
-                        <div class="overview-grid overview-grid-edit">
-                            <div class="overview-field">
-                                <label class="overview-label" for="tag-name">Name</label>
-                                <InputField
-                                    id="tag-name"
-                                name="name" 
-                                    type="text"
-                                    placeholder="Enter name"
-                                bind:value={$form.name}
-                                disabled={$submitting}
-                                    state={nameErr ? 'error' : 'default'}
-                                    helperText={nameErr || undefined}
-                                />
-                            </div>
-                            <div class="overview-field overview-field-desc">
-                                <label class="overview-label" for="tag-description">Description</label>
-                                <InputField
-                                    id="tag-description"
-                                name="description" 
-                                    type="text"
-                                    placeholder="Enter description"
-                                bind:value={$form.description}
-                                disabled={$submitting}
-                                    state={descErr ? 'error' : 'default'}
-                                    helperText={descErr || undefined}
-                                />
-                            </div>
-                        </div>
-                    </FormContainer>
-                </div>
-            {:else}
-                <div class="overview-body">
-                    <div class="overview-grid">
-                        <div class="overview-field">
-                            <span class="overview-label">Tag Name</span>
-                            <span class="overview-value">{deviceTag?.name || '—'}</span>
-                        </div>
-                        <div class="overview-field overview-field-desc">
-                            <span class="overview-label">Description</span>
-                            <span class="overview-value">{deviceTag?.description || '—'}</span>
-                        </div>
-                        <div class="overview-field">
-                            <span class="overview-label">Account</span>
-                            <span class="overview-value">{deviceTag?.account?.name ?? '—'}</span>
-                        </div>
-                        <div class="overview-field">
-                            <span class="overview-label">Created</span>
-                            <span class="overview-value">{formatDate(deviceTag?.createdAt)}</span>
-                        </div>
-                        <div class="overview-field">
-                            <span class="overview-label">Last updated</span>
-                            <span class="overview-value">{formatDate(deviceTag?.updatedAt)}</span>
-                        </div>
+            <div class="overview-body">
+                <div class="overview-grid">
+                    <div class="overview-field">
+                        <span class="overview-label">Tag Name</span>
+                        <span class="overview-value">{deviceTag?.name || '—'}</span>
+                    </div>
+                    <div class="overview-field overview-field-desc">
+                        <span class="overview-label">Description</span>
+                        <span class="overview-value">{deviceTag?.description || '—'}</span>
+                    </div>
+                    <div class="overview-field">
+                        <span class="overview-label">Account</span>
+                        <span class="overview-value">{deviceTag?.account?.name ?? '—'}</span>
+                    </div>
+                    <div class="overview-field">
+                        <span class="overview-label">Created</span>
+                        <span class="overview-value">{formatDate(deviceTag?.createdAt)}</span>
+                    </div>
+                    <div class="overview-field">
+                        <span class="overview-label">Last updated</span>
+                        <span class="overview-value">{formatDate(deviceTag?.updatedAt)}</span>
                     </div>
                 </div>
-            {/if}
+            </div>
         </Card>
     </div>
 
@@ -424,10 +392,11 @@
 
 <ConfirmModal
     open={confirmRemoveDeviceOpen}
-    title="Remove device from tag"
-    description={deviceToRemove ? `Remove "${deviceToRemove.name}" from this tag?` : ''}
+    title="Remove Device"
+    description="Are you sure you want to remove this device? This action can not be reverse."
     confirmText="Remove"
     cancelText="Cancel"
+    type="error"
     confirmLoading={removeDeviceLoading}
     on:confirm={handleConfirmRemoveDevice}
     on:close={() => { if (!removeDeviceLoading) { confirmRemoveDeviceOpen = false; deviceToRemove = null; } }}
@@ -441,18 +410,25 @@
     on:added={onAddDeviceAdded}
 />
 
-<RecordDeleteDialog
-    state={{
-        selectedRecord: deviceTag,
-        confirmationOpen,
-        title: 'Delete Tag',
-        message: confirmationOpen ? `Are you sure you want to delete tag "${deviceTag.name}"?` : '',
-        confirmButtonText: 'Delete',
-        cancelButtonText: 'Cancel'
-    }}
-    useFormSubmission={false}
-    onConfirm={handleDeleteConfirm}
-    on:close={() => { confirmationOpen = false; }}
+<ConfirmModal
+    open={showDeleteModal}
+    title="Delete Tag"
+    description="Are you sure you want to delete this tag? Once you delete this tag, it can not be reversed."
+    confirmText="Delete"
+    cancelText="Cancel"
+    type="error"
+    confirmLoading={deleteTagLoading}
+    on:close={closeDeleteModal}
+    on:confirm={handleDeleteConfirm}
+/>
+
+<EditTagModal
+    bind:open={showEditTagModal}
+    tag={editTagData}
+    {accounts}
+    loading={editTagLoading}
+    on:close={closeEditTagModal}
+    on:save={handleEditTag}
 />
 
 <style>
@@ -579,9 +555,6 @@
         width: 100%;
         min-width: 0;
     }
-    .overview-grid-edit {
-        grid-template-columns: 1fr 1fr;
-    }
     .overview-field {
         display: flex;
         flex-direction: column;
@@ -590,9 +563,6 @@
     }
     .overview-field-desc {
         grid-column: 2 / -1;
-    }
-    .overview-grid-edit .overview-field-desc {
-        grid-column: 1 / -1;
     }
     @media (max-width: 900px) {
         .overview-grid {
@@ -824,15 +794,5 @@
     .assigned-devices-td-actions {
         padding: 12px 16px;
         vertical-align: middle;
-    }
-    .form-error-message {
-        font-family: var(--ds-font-family-primary);
-        font-size: 14px;
-        padding: 12px 16px;
-        border-radius: 8px;
-        border: 1px solid var(--ds-color-error-200);
-        background: var(--ds-color-error-50);
-        color: var(--ds-color-error-700);
-        margin-bottom: 8px;
     }
 </style>
