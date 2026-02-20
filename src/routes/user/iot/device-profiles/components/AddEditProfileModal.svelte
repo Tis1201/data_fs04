@@ -94,6 +94,19 @@
         loadAvailablePackages();
     }
 
+    // Get current datetime in local format for min attribute (prevent selecting past dates)
+    function getCurrentDateTimeLocal(): string {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+
+    $: minDatetime = getCurrentDateTimeLocal();
+
     // Schedule options from availableSettings (same as Edit Device modal)
     $: frequencyOptions = (() => {
         const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_frequency');
@@ -624,7 +637,12 @@
                         <p class="config-description">Scheduled time to turn on the device</p>
                     </div>
                     <div class="config-input-wrap config-datetime-wrap">
-                        <input type="datetime-local" class="config-input" bind:value={powerOnDatetime} />
+                        <InputField
+                            type="datetime-local"
+                            bind:value={powerOnDatetime}
+                            min={minDatetime}
+                            placeholder=""
+                        />
                     </div>
                 </div>
                 <div class="config-row config-sub-row">
@@ -633,7 +651,12 @@
                         <p class="config-description">Scheduled time to turn off the device</p>
                     </div>
                     <div class="config-input-wrap config-datetime-wrap">
-                        <input type="datetime-local" class="config-input" bind:value={powerOffDatetime} />
+                        <InputField
+                            type="datetime-local"
+                            bind:value={powerOffDatetime}
+                            min={minDatetime}
+                            placeholder=""
+                        />
                     </div>
                 </div>
                 {/if}
@@ -673,7 +696,11 @@
                         <p class="config-description">Time for scheduled reboot</p>
                     </div>
                     <div class="config-input-wrap">
-                        <input type="time" class="config-input" bind:value={rebootTime} />
+                        <InputField
+                            type="time"
+                            bind:value={rebootTime}
+                            placeholder=""
+                        />
                     </div>
                 </div>
                 {/if}
@@ -713,7 +740,11 @@
                         <p class="config-description">Time for scheduled downloads</p>
                     </div>
                     <div class="config-input-wrap">
-                        <input type="time" class="config-input" bind:value={downloadTime} />
+                        <InputField
+                            type="time"
+                            bind:value={downloadTime}
+                            placeholder=""
+                        />
                     </div>
                 </div>
                 {/if}
@@ -831,25 +862,6 @@
 
     .config-sub-label {
         font-size: var(--ds-text-sm);
-    }
-
-    .config-input {
-        width: 100%;
-        height: 40px;
-        padding: 6px 12px;
-        border: 1px solid var(--ds-border-default);
-        border-radius: var(--ds-radius-sm);
-        font-family: var(--ds-font-family-primary);
-        font-size: var(--ds-text-sm);
-        background: #FFFFFF;
-        color: var(--ds-text-primary);
-        box-sizing: border-box;
-    }
-
-    .config-input:focus {
-        outline: none;
-        border-color: var(--ds-color-primary-500);
-        box-shadow: 0px 0px 0px 3px var(--ds-color-primary-100);
     }
 
     .config-input-wrap .relative {
