@@ -87,10 +87,19 @@ export const actions: Actions = {
      * Update device data
      */
     save: restrict(
-        async ({ request, params, locals }: AuthenticatedEvent) => {
+        async ({ request, params, locals, cookies }: AuthenticatedEvent) => {
             const id = params.id;
             if (!id) {
                 return fail(400, { error: 'Device ID is required' });
+            }
+
+            // Get current account ID
+            const currentAccountId =
+                (locals as any).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
+
+            if (!currentAccountId) {
+                return fail(403, { error: 'No account selected' });
             }
 
             const form = await superValidate(request, zod(deviceEditSchema));
@@ -102,7 +111,7 @@ export const actions: Actions = {
 
             try {
                 // Debug logging to understand the access check
-                logger.debug(`User access check - userId: ${locals.user?.id}, currentAccountId: ${locals.currentAccount?.account.id}, userRole: ${locals.currentAccount?.role}`);
+                logger.debug(`User access check - userId: ${locals.user?.id}, currentAccountId: ${currentAccountId}, userRole: ${locals.currentAccount?.role}`);
                 logger.debug(`Current account details:`, { 
                     currentAccount: locals.currentAccount,
                     accountMemberships: locals.accountMemberships?.length || 0
@@ -151,10 +160,10 @@ export const actions: Actions = {
 
                 logger.debug(`Update data prepared:`, updateData);
 
-                // Update the device
+                // Update the device (include accountId in where clause for defense-in-depth)
                 logger.debug(`Attempting to update device ${id}...`);
                 const device = await locals.prisma.device.update({
-                    where: { id },
+                    where: { id, accountId: currentAccountId },
                     data: updateData
                 });
                 logger.debug(`Device update successful:`, device);

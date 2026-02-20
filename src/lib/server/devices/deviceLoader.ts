@@ -149,11 +149,13 @@ export async function loadDeviceList(
             throw err;
         }
 
-        // Fetch available tags for the filter
+        // Fetch available tags for the filter - filtered by accountId
         // Wrap in try-catch to allow page to load even if tags query fails
         let availableTags = [];
         try {
+            const tagWhereClause = options?.accountId ? { accountId: options.accountId } : {};
             availableTags = await locals.prisma.deviceTag.findMany({
+                where: tagWhereClause,
                 select: {
                     id: true,
                     name: true

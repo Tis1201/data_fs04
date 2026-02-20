@@ -190,6 +190,20 @@ export const actions: Actions = {
             };
 
             try {
+                // Verify all selected sensors belong to current account
+                if (parsedSelectedSensors.length > 0) {
+                    const sensorIds = parsedSelectedSensors.map((s: { id: string }) => s.id);
+                    const validSensors = await prisma.sensor.findMany({
+                        where: { id: { in: sensorIds }, accountId },
+                        select: { id: true }
+                    });
+                    const validSensorIds = new Set(validSensors.map(s => s.id));
+                    const invalidSensors = sensorIds.filter((id: string) => !validSensorIds.has(id));
+                    if (invalidSensors.length > 0) {
+                        return { success: false, error: 'Some selected sensors do not belong to your account' };
+                    }
+                }
+
                 // Create template in database
                 const template = await prisma.sensorTemplate.create({
                     data: {
@@ -268,9 +282,23 @@ export const actions: Actions = {
                     config.alertSettings = parsedAlertSettings;
                 }
 
-                // Update template
+                // Verify all selected sensors belong to current account
+                if (parsedSelectedSensors.length > 0) {
+                    const sensorIds = parsedSelectedSensors.map((s: { id: string }) => s.id);
+                    const validSensors = await prisma.sensor.findMany({
+                        where: { id: { in: sensorIds }, accountId },
+                        select: { id: true }
+                    });
+                    const validSensorIds = new Set(validSensors.map(s => s.id));
+                    const invalidSensors = sensorIds.filter((sid: string) => !validSensorIds.has(sid));
+                    if (invalidSensors.length > 0) {
+                        return { success: false, error: 'Some selected sensors do not belong to your account' };
+                    }
+                }
+
+                // Update template (include accountId for defense-in-depth)
                 await prisma.sensorTemplate.update({
-                    where: { id },
+                    where: { id, accountId },
                     data: {
                         name: name.trim(),
                         description: description?.trim() || null,

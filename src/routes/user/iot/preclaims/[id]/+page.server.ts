@@ -86,8 +86,20 @@ export const load = restrict(
                 label: p.name
             }));
 
+            // Get accounts that user has access to (via membership)
+            const userMemberships = auth?.user?.id 
+                ? await locals.prisma.accountMembership.findMany({
+                      where: { userId: auth.user.id },
+                      select: { accountId: true }
+                  })
+                : [];
+            const userAccountIds = userMemberships.map(m => m.accountId);
+            
             const accounts = await locals.prisma.account.findMany({
-                where: { isSystem: false },
+                where: { 
+                    isSystem: false,
+                    id: { in: userAccountIds }
+                },
                 select: { id: true, name: true },
                 orderBy: { name: 'asc' }
             });
@@ -115,7 +127,7 @@ export const load = restrict(
 export const actions: Actions = {
     importDevices: restrict(
         async (event: AuthenticatedEvent) => {
-            const { request, params, locals, auth } = event;
+            const { request, params, locals, auth, cookies } = event;
             if (!auth?.user) {
                 return fail(401, { message: 'Unauthorized.' });
             }
@@ -124,6 +136,16 @@ export const actions: Actions = {
             if (!setId) {
                 return fail(400, { message: 'Preclaim set ID is required.' });
             }
+            
+            // Get current account ID for ownership verification
+            const currentAccountId = 
+                (locals as any).currentAccount?.account?.id ?? 
+                cookies.get('current_account_id');
+            
+            if (!currentAccountId) {
+                return fail(403, { message: 'No account selected.' });
+            }
+            
             try {
                 const formData = await request.formData();
                 const rawFile = formData.get('file');
@@ -147,8 +169,10 @@ export const actions: Actions = {
                     return fail(400, { message: 'No valid rows found in file. CSV must have a macId or mac column.' });
                 }
                 const prismaClient = locals.prisma;
+                
+                // Verify preclaim set belongs to current account
                 const set = await prismaClient.preclaimSet.findFirst({
-                    where: { id: setId },
+                    where: { id: setId, accountId: currentAccountId },
                     select: { id: true, accountId: true }
                 });
                 if (!set) {

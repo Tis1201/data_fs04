@@ -316,8 +316,9 @@ export const actions: Actions = {
                     if (newSensorIds.length > 0) {
                         const templateConfig = (config as Record<string, unknown>) || {};
                         for (const sensorId of newSensorIds) {
-                            const sensor = await prisma.sensor.findUnique({
-                                where: { id: sensorId },
+                            // Verify sensor belongs to current account before updating
+                            const sensor = await prisma.sensor.findFirst({
+                                where: { id: sensorId, accountId },
                                 select: { config: true, configVersion: true }
                             });
                             if (!sensor) continue;
@@ -326,7 +327,7 @@ export const actions: Actions = {
                                 ...templateConfig
                             };
                             await prisma.sensor.update({
-                                where: { id: sensorId },
+                                where: { id: sensorId, accountId },
                                 data: {
                                     config: merged as Prisma.InputJsonValue,
                                     configVersion: sensor.configVersion + 1,

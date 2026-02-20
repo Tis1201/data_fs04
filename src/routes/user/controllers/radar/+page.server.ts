@@ -313,9 +313,11 @@ async function createRadarController(
         if (pinError) return fail(400, { form, error: pinError });
         if (!deviceId) return fail(400, { form, error: 'Could not resolve device from PIN. Please try again.' });
 
+        // Clean up soft-deleted sensors in current account only
         await locals.prisma.sensor.deleteMany({
-            where: { serialNumber: form.data.serialNumber, controller: { isDeleted: true } }
+            where: { serialNumber: form.data.serialNumber, accountId: currentAccountId, controller: { isDeleted: true } }
         });
+        // Check if serial number already exists (globally unique)
         const existingSensor = await locals.prisma.sensor.findFirst({
             where: { serialNumber: form.data.serialNumber },
             include: { controller: true }
@@ -323,14 +325,16 @@ async function createRadarController(
         if (existingSensor) return fail(400, { form, error: 'A sensor with this serial number already exists' });
 
         const controllerSerial = `${form.data.serialNumber}-CTRL`;
+        // Clean up soft-deleted controllers in current account only
         const softDeletedControllers = await locals.prisma.controller.findMany({
-            where: { serialNumber: controllerSerial, isDeleted: true },
+            where: { serialNumber: controllerSerial, accountId: currentAccountId, isDeleted: true },
             include: { sensors: true }
         });
         for (const ctrl of softDeletedControllers) {
             for (const s of ctrl.sensors) await locals.prisma.sensor.delete({ where: { id: s.id } });
             await locals.prisma.controller.delete({ where: { id: ctrl.id } });
         }
+        // Check if controller already exists (globally unique)
         const existingController = await locals.prisma.controller.findFirst({
             where: { serialNumber: controllerSerial, isDeleted: false }
         });
@@ -417,9 +421,11 @@ async function createSensorForDevice(
             return { type: 'error', message: 'This device already has an active radar sensor. Only one sensor per device is allowed.' };
         }
 
+        // Clean up soft-deleted sensors in current account only
         await locals.prisma.sensor.deleteMany({
-            where: { serialNumber, controller: { isDeleted: true } }
+            where: { serialNumber, accountId: currentAccountId, controller: { isDeleted: true } }
         });
+        // Check if serial number already exists (globally unique)
         const existingSensor = await locals.prisma.sensor.findFirst({
             where: { serialNumber },
             include: { controller: true }
@@ -427,14 +433,16 @@ async function createSensorForDevice(
         if (existingSensor) return { type: 'error', message: 'A sensor with this serial number already exists' };
 
         const controllerSerial = `${serialNumber}-CTRL`;
+        // Clean up soft-deleted controllers in current account only
         const softDeletedControllers = await locals.prisma.controller.findMany({
-            where: { serialNumber: controllerSerial, isDeleted: true },
+            where: { serialNumber: controllerSerial, accountId: currentAccountId, isDeleted: true },
             include: { sensors: true }
         });
         for (const ctrl of softDeletedControllers) {
             for (const s of ctrl.sensors) await locals.prisma.sensor.delete({ where: { id: s.id } });
             await locals.prisma.controller.delete({ where: { id: ctrl.id } });
         }
+        // Check if controller already exists (globally unique)
         const existingController = await locals.prisma.controller.findFirst({
             where: { serialNumber: controllerSerial, isDeleted: false }
         });
