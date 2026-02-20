@@ -313,3 +313,52 @@ export function getCurrentAccountId(auth: ValidatedAuth | null): string {
   
   return accountId;
 }
+
+/**
+ * Gets the current account ID from locals and cookies (for use in +page.server.ts load functions)
+ * Priority: locals.currentAccount > cookie > user.primaryAccountId
+ * @param locals The locals object from request event
+ * @param cookies The cookies object from request event
+ * @param user Optional user object with primaryAccountId fallback
+ * @returns The current account ID or undefined if not available
+ */
+export function getAccountIdFromLocals(
+  locals: App.Locals,
+  cookies: { get: (name: string) => string | undefined },
+  user?: { primaryAccountId?: string | null }
+): string | undefined {
+  // Priority 1: From locals.currentAccount (set by auth middleware)
+  const localsAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+  if (localsAccountId) return localsAccountId;
+  
+  // Priority 2: From cookie
+  const cookieAccountId = cookies.get('current_account_id');
+  if (cookieAccountId) return cookieAccountId;
+  
+  // Priority 3: From user's primaryAccountId (fallback)
+  if (user?.primaryAccountId) return user.primaryAccountId;
+  
+  return undefined;
+}
+
+/**
+ * Gets the current account ID from locals and cookies, throws 403 if not available
+ * @param locals The locals object from request event
+ * @param cookies The cookies object from request event
+ * @param user Optional user object with primaryAccountId fallback
+ * @returns The current account ID (always returns a string)
+ * @throws 403 error if account ID is not available
+ */
+export function requireAccountId(
+  locals: App.Locals,
+  cookies: { get: (name: string) => string | undefined },
+  user?: { primaryAccountId?: string | null }
+): string {
+  const accountId = getAccountIdFromLocals(locals, cookies, user);
+  
+  if (!accountId) {
+    throw error(403, 'No account selected. Please select an account first.');
+  }
+  
+  return accountId;
+}

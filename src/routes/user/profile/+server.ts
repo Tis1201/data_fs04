@@ -19,7 +19,7 @@ const apiKeySchema = z.object({
 
 // List API keys
 export const GET = restrict(
-    async ({ locals, auth }: any) => {
+    async ({ locals, auth, cookies }: any) => {
         try {
             if (!auth?.user?.id) {
                 throw new Error('User not authenticated');
@@ -27,11 +27,25 @@ export const GET = restrict(
             
             const userId = auth.user.id;
             
+            // Get current account ID for filtering
+            const currentAccountId =
+                locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
+            
             // Log the user ID for debugging
-            console.log(`Fetching API keys for user: ${userId}`);
+            console.log(`Fetching API keys for user: ${userId}, account: ${currentAccountId || 'all'}`);
+            
+            // Build where clause - filter by user and optionally by account
+            const whereClause: any = { userId };
+            if (currentAccountId) {
+                // When account is selected, show only keys for that account or keys without account
+                whereClause.OR = [
+                    { accountId: currentAccountId },
+                    { accountId: null }
+                ];
+            }
             
             const apiKeys = await locals.prisma.apiKey.findMany({
-                where: { userId },
+                where: whereClause,
                 select: {
                     id: true,
                     name: true,
@@ -40,7 +54,8 @@ export const GET = restrict(
                     createdAt: true,
                     lastUsedAt: true,
                     expiresAt: true,
-                    active: true
+                    active: true,
+                    accountId: true
                 },
                 orderBy: { createdAt: 'desc' }
             });
@@ -71,7 +86,7 @@ export const GET = restrict(
 
 // Create new API key
 export const POST = restrict(
-    async ({ request, locals, auth }: any) => {
+    async ({ request, locals, auth, cookies }: any) => {
         try {
             // Parse the request body directly
             const data = await request.json();
@@ -85,6 +100,10 @@ export const POST = restrict(
 
             const userId = auth.user.id;
             const { name, description = '' } = data;
+
+            // Get current account ID (optional for profile API keys)
+            const currentAccountId =
+                locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
 
             // Check if user already has 10 or more API keys
             const existingKeysCount = await locals.prisma.apiKey.count({
@@ -100,13 +119,14 @@ export const POST = restrict(
             // Generate a new API key
             const apiKey = generateId(32);
            
-            // Store the API key in the database
+            // Store the API key in the database (associate with current account if available)
             const newKey = await locals.prisma.apiKey.create({
                 data: {
                     name,
                     description,
                     key: apiKey,
                     userId,
+                    accountId: currentAccountId || null,
                     expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year from now
                 },
                 select: {
@@ -147,7 +167,7 @@ export const POST = restrict(
 
 // Delete API key
 export const DELETE = restrict(
-    async ({ request, locals, auth }: any) => {
+    async ({ request, locals, auth, cookies }: any) => {
         try {
             // Parse the request body to get the API key ID
             const data = await request.json();
@@ -158,10 +178,21 @@ export const DELETE = restrict(
 
             const userId = auth.user.id;
             const { id } = data;
+            
+            // Get current account ID for filtering
+            const currentAccountId =
+                locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
 
             // Check if the API key exists and belongs to the user
-            const apiKey = await locals.prisma.apiKey.findUnique({
-                where: { id, userId }
+            // Also verify it belongs to current account or has no account
+            const apiKey = await locals.prisma.apiKey.findFirst({
+                where: { 
+                    id, 
+                    userId,
+                    OR: currentAccountId 
+                        ? [{ accountId: currentAccountId }, { accountId: null }]
+                        : [{ accountId: null }]
+                }
             });
 
             if (!apiKey) {
@@ -179,7 +210,7 @@ export const DELETE = restrict(
                 logger.warn(`Failed to delete cronjob for API key ${id}:`, cronError);
             }
 
-            // Delete the API key
+            // Delete the API key (ownership already verified)
             await locals.prisma.apiKey.delete({
                 where: { id }
             });

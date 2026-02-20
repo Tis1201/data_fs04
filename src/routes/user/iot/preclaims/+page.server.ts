@@ -102,14 +102,26 @@ export const actions: Actions = {
     ),
 
     delete: restrict(
-        async ({ request, locals }: AuthenticatedEvent) => {
+        async ({ request, locals, cookies }: AuthenticatedEvent) => {
             const formData = await request.formData();
             const id = formData.get('id')?.toString();
             if (!id) {
                 return fail(400, { type: 'error', message: 'Pre-Enrollment set ID is required' });
             }
+
+            // Get current account ID
+            const currentAccountId =
+                (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+            
+            if (!currentAccountId) {
+                return fail(403, { type: 'error', message: 'No account selected' });
+            }
+
             try {
-                const existing = await locals.prisma.preclaimSet.findFirst({ where: { id } });
+                // Verify preclaim set belongs to current account
+                const existing = await locals.prisma.preclaimSet.findFirst({ 
+                    where: { id, accountId: currentAccountId } 
+                });
                 if (!existing) {
                     return fail(404, { type: 'error', message: 'Pre-Enrollment set not found' });
                 }

@@ -5,12 +5,21 @@ import { SystemRole } from '$lib/types/roles';
 
 /** GET: export preclaim set device list as CSV (for Edit modal download link) */
 export const GET = restrict(
-    async ({ params, locals }: { params: { id: string }; locals: any }) => {
+    async ({ params, locals, cookies }: { params: { id: string }; locals: any; cookies: any }) => {
         const id = params.id;
         if (!id) throw error(400, 'Preclaim set ID is required');
 
+        // Get current account ID
+        const currentAccountId =
+            locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
+        
+        if (!currentAccountId) {
+            throw error(403, 'No account selected');
+        }
+
+        // Verify preclaim set belongs to current account
         const set = await locals.prisma.preclaimSet.findFirst({
-            where: { id },
+            where: { id, accountId: currentAccountId },
             include: { claims: true }
         });
         if (!set) throw error(404, 'Pre-claim set not found');

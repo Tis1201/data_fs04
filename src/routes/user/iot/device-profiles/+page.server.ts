@@ -197,12 +197,14 @@ export const actions: Actions = {
             request,
             locals,
             getClientAddress,
-            fetch: fetchFn
+            fetch: fetchFn,
+            cookies
         }: {
             request: Request;
             locals: App.Locals;
             getClientAddress: () => string;
             fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+            cookies: { get: (name: string) => string | undefined };
         }) => {
             try {
                 const auth = await locals.auth.validate();
@@ -217,17 +219,19 @@ export const actions: Actions = {
                 if (!profileId) {
                     return fail(400, { form, message: 'Profile ID is required for update' });
                 }
-                const existingProfile = await locals.prisma.deviceProfile.findUnique({
-                    where: { id: profileId }
+                // Get current account ID
+                const currentAccountId =
+                    (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+                    cookies.get('current_account_id');
+                if (!currentAccountId) {
+                    return fail(403, { form, message: 'No current account selected' });
+                }
+                // Verify profile belongs to current account
+                const existingProfile = await locals.prisma.deviceProfile.findFirst({
+                    where: { id: profileId, accountId: currentAccountId }
                 });
                 if (!existingProfile) {
                     return fail(404, { form, error: 'Device profile not found' });
-                }
-                const hasAccess = await locals.prisma.accountMembership.findFirst({
-                    where: { accountId: existingProfile.accountId, userId: auth.user.id }
-                });
-                if (!hasAccess) {
-                    return fail(403, { form, message: 'Access denied' });
                 }
                 let settingsArray: any[] = [];
                 try {
@@ -238,8 +242,9 @@ export const actions: Actions = {
                 await locals.prisma.deviceProfileSetting.deleteMany({
                     where: { profileId }
                 });
+                // Include accountId in where clause for defense-in-depth
                 const updatedProfile = await locals.prisma.deviceProfile.update({
-                    where: { id: profileId },
+                    where: { id: profileId, accountId: currentAccountId },
                     data: {
                         name: form.data.name,
                         description: form.data.description,

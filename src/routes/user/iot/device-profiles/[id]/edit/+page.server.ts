@@ -15,7 +15,7 @@ const profileSchema = z.object({
     settings: z.string().optional().default('[]') // Store as JSON string
 });
 
-export const load: PageServerLoad = async ({ params, url, locals }) => {
+export const load: PageServerLoad = async ({ params, url, locals, cookies }) => {
     // Check authentication
     const auth = await locals.auth.validate();
     if (!auth?.user) {
@@ -24,9 +24,18 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
     const { id: profileId } = params;
 
-    // Get profile details
-    const profile = await locals.prisma.deviceProfile.findUnique({
-        where: { id: profileId },
+    // Get current account ID
+    const currentAccountId =
+        (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+        cookies.get('current_account_id');
+    
+    if (!currentAccountId) {
+        throw error(403, 'No account selected');
+    }
+
+    // Get profile details - filter by current account
+    const profile = await locals.prisma.deviceProfile.findFirst({
+        where: { id: profileId, accountId: currentAccountId },
         include: {
             settings: {
                 orderBy: { order: 'asc' }
@@ -42,18 +51,6 @@ export const load: PageServerLoad = async ({ params, url, locals }) => {
 
     if (!profile) {
         throw error(404, 'Profile not found');
-    }
-
-    // Check if user has access to this profile (user context - no admin override)
-    const hasAccess = await locals.prisma.accountMembership.findFirst({
-        where: {
-            accountId: profile.accountId,
-            userId: auth.user.id
-        }
-    });
-
-    if (!hasAccess) {
-        throw error(403, 'Access denied');
     }
 
     // Initialize form with existing profile data
@@ -79,7 +76,7 @@ function getIpAddress(locals: App.Locals, getClientAddress: () => string): strin
 }
 
 export const actions: Actions = {
-    update: async ({ params, request, locals, fetch, getClientAddress }) => {
+    update: async ({ params, request, locals, fetch, getClientAddress, cookies }) => {
         const { id: profileId } = params;
         try {
             const auth = await locals.auth.validate();
@@ -92,8 +89,18 @@ export const actions: Actions = {
                 return fail(400, { form });
             }
 
-            const existingProfile = await locals.prisma.deviceProfile.findUnique({
-                where: { id: profileId }
+            // Get current account ID
+            const currentAccountId =
+                (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+                cookies.get('current_account_id');
+            
+            if (!currentAccountId) {
+                return fail(403, { form, message: 'No account selected' });
+            }
+
+            // Verify profile belongs to current account
+            const existingProfile = await locals.prisma.deviceProfile.findFirst({
+                where: { id: profileId, accountId: currentAccountId }
             });
             if (!existingProfile) {
                 return fail(404, { form, error: 'Device profile not found' });
@@ -110,8 +117,9 @@ export const actions: Actions = {
                 where: { profileId }
             });
 
+            // Include accountId in where clause for defense-in-depth
             const updatedProfile = await locals.prisma.deviceProfile.update({
-                where: { id: profileId },
+                where: { id: profileId, accountId: currentAccountId },
                 data: {
                     name: form.data.name,
                     description: form.data.description,

@@ -18,8 +18,13 @@ export const load = restrict(
       const currentAccountId =
         (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
 
-      const preclaimSet = await locals.prisma.preclaimSet.findUnique({
-        where: { id },
+      if (!currentAccountId) {
+        throw error(403, 'No account selected');
+      }
+
+      // Verify preclaim set belongs to current account
+      const preclaimSet = await locals.prisma.preclaimSet.findFirst({
+        where: { id, accountId: currentAccountId },
         select: {
           id: true,
           name: true,
@@ -92,7 +97,7 @@ export const load = restrict(
 
 export const actions: Actions = {
   save: restrict(
-    async ({ request, params, locals }: any) => {
+    async ({ request, params, locals, cookies }: any) => {
       const id = params.id;
       const form = await superValidate(request, zod(preclaimSetEditSchema));
       logger.debug(`Preclaim set edit form data: ${JSON.stringify(form)}`);
@@ -101,8 +106,19 @@ export const actions: Actions = {
         return fail(400, { form });
       }
 
+      // Get current account ID
+      const currentAccountId =
+        (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+      
+      if (!currentAccountId) {
+        return fail(403, { form, error: 'No account selected' });
+      }
+
       try {
-        const existing = await locals.prisma.preclaimSet.findUnique({ where: { id } });
+        // Verify preclaim set belongs to current account
+        const existing = await locals.prisma.preclaimSet.findFirst({ 
+          where: { id, accountId: currentAccountId } 
+        });
         if (!existing) {
           return fail(404, { form, error: 'Pre-claim set not found' });
         }

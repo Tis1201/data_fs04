@@ -54,7 +54,7 @@ export const POST = restrict(
                 }
             });
 
-            logger.info(`Device Tag created: ${deviceTag.id} by user ${locals.user.id}`);
+            logger.info(`Device Tag created: ${deviceTag.id} by user ${locals.user?.id}`);
 
             await logAudit({
                 actionType: AuditActionType.INSERT,
@@ -62,7 +62,7 @@ export const POST = restrict(
                 recordId: deviceTag.id,
                 oldData: null,
                 newData: deviceTag,
-                userId: locals.user.id,
+                userId: locals.user?.id ?? 'system',
                 ipAddress: (locals as any).ipAddress,
                 prisma: prisma
             });
@@ -87,19 +87,26 @@ export const DELETE = restrict(
             if (!id) {
                 throw error(400, 'Device Tag ID is required');
             }
+
+            // Get current account ID
+            const currentAccount = (locals as any).currentAccount?.account;
+            if (!currentAccount?.id) {
+                throw error(400, 'No account selected');
+            }
+            const accountId = currentAccount.id;
             
-            // Check if Device Tag exists
-            const deviceTag = await prisma.deviceTag.findUnique({
-                where: { id }
+            // Check if Device Tag exists and belongs to current account
+            const deviceTag = await prisma.deviceTag.findFirst({
+                where: { id, accountId }
             });
             
             if (!deviceTag) {
                 throw error(404, 'Device Tag not found');
             }
             
-            // Delete the Device Tag
+            // Delete the Device Tag (with accountId filter for defense-in-depth)
             await prisma.deviceTag.delete({
-                where: { id }
+                where: { id, accountId }
             });
             
             logger.info(`Device Tag deleted: ${id}`);

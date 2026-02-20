@@ -13,7 +13,7 @@ import { createBundleActions } from '$lib/server/bundles/bundleActions';
  * 
  *******************************************************************************************/
 export const load = restrict(
-  async ({ params, locals, depends }: AuthenticatedLoadEvent) => {
+  async ({ params, locals, depends, cookies }: AuthenticatedLoadEvent) => {
     // Mark this load for client-side invalidation when bundles are updated
     depends('app:bundle');
     const { id } = params;
@@ -21,14 +21,29 @@ export const load = restrict(
       throw error(400, 'Bundle ID is required');
     }
 
+    // Get current account ID
+    const currentAccountId =
+      (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+    
+    if (!currentAccountId) {
+      throw error(403, 'No account selected');
+    }
+
     try {
       // User routes: use real-time device status (Redis) so bundle device list matches devices list
-      return await loadBundleDetail(locals, id, {
+      const result = await loadBundleDetail(locals, id, {
         includeAccount: false,          // Users don't need account management
         checkDeviceOnline: true,       // Use Redis real-time status (same as devices list)
         enableAutoStartWaves: false,    // Users don't auto-start waves
         enableTimeoutChecking: false    // Users don't check timeouts
       });
+
+      // Verify bundle belongs to current account
+      if (result.bundle?.accountId !== currentAccountId) {
+        throw error(404, 'Bundle not found');
+      }
+
+      return result;
     } catch (err) {
       logger.error(`Error loading bundle details: ${err instanceof Error ? err.message : String(err)}`);
       throw error(500, 'Failed to load bundle details');
@@ -53,11 +68,30 @@ export const actions: Actions = {
    * Update bundle action
    */
   updateBundle: restrict(
-    async ({ params, request, locals }: AuthenticatedEvent) => {
+    async ({ params, request, locals, cookies }: AuthenticatedEvent) => {
       const { id } = params;
       if (!id) {
         throw error(400, 'Bundle ID is required');
       }
+
+      // Get current account ID
+      const currentAccountId =
+        (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+      
+      if (!currentAccountId) {
+        throw error(403, 'No account selected');
+      }
+
+      // Verify bundle belongs to current account before update
+      const bundle = await locals.prisma.bundle.findFirst({
+        where: { id, accountId: currentAccountId },
+        select: { id: true }
+      });
+
+      if (!bundle) {
+        throw error(404, 'Bundle not found');
+      }
+
       return await bundleActions.update({
         params: { id },
         request,

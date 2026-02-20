@@ -50,9 +50,43 @@ export const actions: Actions = {
      * Delete bundle action
      */
     delete: restrict(
-        async ({ request, locals }: AuthenticatedEvent) => {
+        async ({ request, locals, cookies }: AuthenticatedEvent) => {
+            // Get current account ID
+            const currentAccountId =
+                (locals as any).currentAccount?.account?.id ?? cookies.get('current_account_id');
+            
+            if (!currentAccountId) {
+                return { success: false, error: 'No account selected' };
+            }
+
+            // Get bundle ID from form data
+            const formData = await request.formData();
+            const bundleId = formData.get('id')?.toString();
+
+            if (!bundleId) {
+                return { success: false, error: 'Bundle ID is required' };
+            }
+
+            // Verify bundle belongs to current account before delete
+            const bundle = await locals.prisma.bundle.findFirst({
+                where: { id: bundleId, accountId: currentAccountId },
+                select: { id: true }
+            });
+
+            if (!bundle) {
+                return { success: false, error: 'Bundle not found' };
+            }
+
+            // Create a new request with the form data for bundleActions.delete
+            const newFormData = new FormData();
+            newFormData.append('id', bundleId);
+            const newRequest = new Request(request.url, {
+                method: 'POST',
+                body: newFormData
+            });
+
             return await bundleActions.delete({
-                request,
+                request: newRequest,
                 locals
             });
         },
