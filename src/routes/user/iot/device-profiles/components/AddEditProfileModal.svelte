@@ -57,6 +57,43 @@
     let downloadDay = 'monday';
     let downloadTime = '03:00';
 
+    // Packages list for Kiosk Application and Home/Launcher dropdowns
+    interface PackageOption {
+        id: string;
+        label: string;
+    }
+    let availablePackages: PackageOption[] = [];
+    let packagesLoading = false;
+
+    async function loadAvailablePackages() {
+        packagesLoading = true;
+        try {
+            const res = await fetch('/api/v2/resources/packages/all');
+            if (!res.ok) throw new Error('Failed to load packages');
+            const data = await res.json();
+            
+            if (data.success || data.data) {
+                const allPackages = data.data?.packages || [];
+                availablePackages = allPackages.map((pkg: any) => ({
+                    id: pkg.packageName,
+                    label: pkg.displayName ? `${pkg.displayName} (${pkg.packageName})` : pkg.packageName
+                }));
+            } else {
+                availablePackages = [];
+            }
+        } catch (error) {
+            console.error('Failed to load packages:', error);
+            availablePackages = [];
+        } finally {
+            packagesLoading = false;
+        }
+    }
+
+    // Load packages when modal opens
+    $: if (open) {
+        loadAvailablePackages();
+    }
+
     // Schedule options from availableSettings (same as Edit Device modal)
     $: frequencyOptions = (() => {
         const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_frequency');
@@ -394,6 +431,7 @@
                     <Toggle bind:checked={kioskLockMode} size="sm" />
                 </div>
 
+                {#if kioskLockMode}
                 <div class="config-row">
                     <div>
                         <p class="config-label">Exit Lockdown Password</p>
@@ -421,6 +459,7 @@
                         </div>
                     </div>
                 </div>
+                {/if}
 
                 <div class="config-row config-row-last">
                     <div>
@@ -428,9 +467,11 @@
                         <p class="config-description">Application to run in kiosk mode</p>
                     </div>
                     <div class="config-input-wrap">
-                        <InputField
-                            placeholder="Enter app name or package"
+                        <Dropdown
+                            placeholder={packagesLoading ? 'Loading...' : 'Select application'}
+                            options={availablePackages}
                             bind:value={kioskApplication}
+                            disabled={packagesLoading}
                         />
                     </div>
                 </div>
@@ -555,16 +596,13 @@
                         <p class="config-label">Home/ Launcher</p>
                         <p class="config-description">Default home screen launcher</p>
                     </div>
-                    <div class="config-launcher-preview">
-                        {#if homeLauncher && (homeLauncher.startsWith('http') || homeLauncher.startsWith('data:'))}
-                            <img src={homeLauncher} alt="Launcher" />
-                        {:else}
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="3" y="3" width="18" height="18" rx="2" stroke="#98A2B3" stroke-width="2"/>
-                                <circle cx="8.5" cy="8.5" r="1.5" fill="#98A2B3"/>
-                                <path d="M21 15L16 10L5 21" stroke="#98A2B3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        {/if}
+                    <div class="config-input-wrap">
+                        <Dropdown
+                            placeholder={packagesLoading ? 'Loading...' : 'Select launcher'}
+                            options={availablePackages}
+                            bind:value={homeLauncher}
+                            disabled={packagesLoading}
+                        />
                     </div>
                 </div>
             </div>
@@ -911,21 +949,4 @@
         pointer-events: none;
     }
 
-    .config-launcher-preview {
-        width: 64px;
-        height: 64px;
-        background: var(--ds-bg-primary);
-        border: 1px solid var(--ds-border-default);
-        border-radius: var(--ds-radius-lg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-    }
-
-    .config-launcher-preview img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
 </style>
