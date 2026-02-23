@@ -31,7 +31,7 @@ import { canPerformAdminActions } from '$lib/utils/permissions';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 
-export const load: PageServerLoad = async ({ params, locals, cookies }: RequestEvent) => {
+export const load: PageServerLoad = async ({ params, locals, cookies, url }: RequestEvent) => {
     const userId = params.id;
     
     // Get the authentication state
@@ -112,11 +112,47 @@ export const load: PageServerLoad = async ({ params, locals, cookies }: RequestE
             joinedAt: targetUserMembership.createdAt,
             activeSessionsCount: targetUserMembership.user._count.sessions,
             totalAccountsCount: targetUserMembership.user._count.accountMemberships,
-            // Additional fields required by PasswordUpdateDialog
-            password: '', // Always empty for security
-            rolesString: '', // Not used in user context, but required by dialog
-            primaryAccountId: null // Not used in user context, but required by dialog
+            password: '',
+            rolesString: '',
+            primaryAccountId: null
         };
+
+        const isAdminOrOwner = ['ADMIN', 'OWNER'].includes(currentUserMembership.role);
+        let sessions: { id: string; createdAt: Date; expiresAt: Date; status: string | null }[] = [];
+        let sessionsMeta: { totalItems: number; currentPage: number; itemsPerPage: number; totalPages: number } | null = null;
+
+        let sessionsSortField = 'createdAt';
+        let sessionsSortOrder: 'asc' | 'desc' = 'desc';
+
+        if (isAdminOrOwner) {
+            const sessionPage = Math.max(1, parseInt(url.searchParams.get('session_page') || '1', 10));
+            const sessionPerPage = Math.min(50, Math.max(1, parseInt(url.searchParams.get('session_per_page') || '10', 10)));
+            const sortFieldParam = url.searchParams.get('session_sort_field') || 'createdAt';
+            const sortOrderParam = url.searchParams.get('session_sort_order') || 'desc';
+            if (sortFieldParam === 'createdAt' || sortFieldParam === 'expiresAt') {
+                sessionsSortField = sortFieldParam;
+            }
+            if (sortOrderParam === 'asc' || sortOrderParam === 'desc') {
+                sessionsSortOrder = sortOrderParam;
+            }
+            const [sessionList, totalSessions] = await Promise.all([
+                prisma.session.findMany({
+                    where: { userId },
+                    select: { id: true, createdAt: true, expiresAt: true, status: true },
+                    orderBy: { [sessionsSortField]: sessionsSortOrder },
+                    skip: (sessionPage - 1) * sessionPerPage,
+                    take: sessionPerPage
+                }),
+                prisma.session.count({ where: { userId } })
+            ]);
+            sessions = sessionList;
+            sessionsMeta = {
+                totalItems: totalSessions,
+                currentPage: sessionPage,
+                itemsPerPage: sessionPerPage,
+                totalPages: Math.ceil(totalSessions / sessionPerPage) || 1
+            };
+        }
 
         return {
             user: userProfile,
@@ -125,8 +161,12 @@ export const load: PageServerLoad = async ({ params, locals, cookies }: RequestE
                 name: targetUserMembership.account.name,
                 userRole: currentUserMembership.role
             },
-            canEdit: ['ADMIN', 'OWNER'].includes(currentUserMembership.role) || auth.user.id === userId,
-            currentUserId: auth.user.id
+            canEdit: isAdminOrOwner || auth.user.id === userId,
+            currentUserId: auth.user.id,
+            sessions,
+            sessionsMeta,
+            sessionsSortField,
+            sessionsSortOrder
         };
     } catch (err) {
         logger.error('Error loading user profile:', { error: err, userId: params.id });

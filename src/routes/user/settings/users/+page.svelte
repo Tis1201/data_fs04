@@ -1,402 +1,769 @@
 <script lang="ts">
-    import {goto, invalidateAll} from "$app/navigation";
-    import {Key, KeyRound, Mail, Pencil, Shield, Trash, User, UserCheck, UserPlus, UserX} from "lucide-svelte";
-    import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
-    import UserCard from "$lib/components/user/layout/UserCard.svelte";
-    import {Button} from "$lib/components/ui/button";
-    import {Badge} from "$lib/components/ui/badge";
-    import RecordActions from "$lib/components/ui_components_sveltekit/table/column/RecordActions.svelte";
-    import RecordDeleteDialog from "$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte";
-    import RecordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/RecordUpdateDialog.svelte";
-    import PasswordUpdateDialog from "$lib/components/ui_components_sveltekit/dialog/PasswordUpdateDialog.svelte";
-    import ResetPasswordDialog from "$lib/components/ui_components_sveltekit/dialog/ResetPasswordDialog.svelte";
-    import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
-    import {toast} from "svelte-sonner";
-    import {canPerformAdminActions} from '$lib/utils/permissions';
-
-    import type {PageData} from "./$types";
+    import { tick } from 'svelte';
+    import { goto, invalidateAll } from '$app/navigation';
+    import { page } from '$app/stores';
+    import { toast } from '$lib/stores/alertToast';
+    import {
+        Button,
+        InputField,
+        DataTable,
+        Modal,
+        ConfirmModal,
+        Dropdown,
+        Toggle
+    } from '$lib/design-system/components';
+    import type { ColumnDef, PaginationState, BadgeColor } from '$lib/design-system/components';
+    import { Search, Plus, Eye, EyeOff } from 'lucide-svelte';
+    import type { PageData } from './$types';
+    import { canPerformAdminActions } from '$lib/utils/permissions';
+    import PasswordUpdateDialog from '$lib/components/ui_components_sveltekit/dialog/PasswordUpdateDialog.svelte';
+    import ResetPasswordDialog from '$lib/components/ui_components_sveltekit/dialog/ResetPasswordDialog.svelte';
+    import EditMemberModal from '$lib/components/ui_components_sveltekit/dialog/EditMemberModal.svelte';
 
     export let data: PageData;
-    
-    // Define page metadata
-    const pageTitle = "Team Members";
-    const pageDescription = `Manage team members in ${data.currentAccount?.name || 'your account'} (${data.users?.length || 0} members)`;
-    
-    // Define breadcrumbs
-    const pageCrumbs = [
-        ["Dashboard", "/user/dashboard"],
-        ["Settings", ""],
-        ["Team Members", ""]
-    ] as [string, string][];
 
-    // State for dialogs
-    let state = {
-        selectedRecord: null as any | null,
-        confirmationOpen: false
+    interface MemberRow {
+        id: string;
+        name: string | null;
+        email: string;
+        role: string;
+        systemRole?: string;
+        status: string;
+        createdAt: string;
+        lastActive: string | null;
+        activeSessionsCount: number;
+        joinedAt: string;
+    }
+
+    $: members = (data.users || []) as unknown as MemberRow[];
+    $: currentAccount = data.currentAccount;
+    $: meta = data.meta || {};
+    $: sort = {
+        field: data.sort?.field || 'name',
+        direction: (data.sort?.order || 'asc') as 'asc' | 'desc' | null
     };
 
-    // User to be toggled (for status change)
-    let userToToggle: any | null = null;
-    let isTogglingStatus = false;
-    let statusToggleDialogOpen = false;
-    
-    // State for password update dialog
-    let passwordUpdateDialogOpen = false;
-    let userToUpdatePassword: any | null = null;
-    
-    // State for reset password dialog
-    let resetPasswordDialogOpen = false;
-    let userToResetPassword: any | null = null;
-    
-    // Get status badge class
-    function getStatusClass(status: string) {
-        switch(status.toLowerCase()) {
-            case 'active': return 'bg-green-500';
-            case 'inactive': return 'bg-gray-400';
-            case 'suspended': return 'bg-red-500';
-            default: return 'bg-gray-400';
+    let loading = false;
+    let searchValue = $page.url.searchParams.get('search') || '';
+    let searchTimeout: ReturnType<typeof setTimeout>;
+    let searchWrapperEl: HTMLDivElement | null = null;
+
+    let pagination: PaginationState = {
+        page: 1,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0
+    };
+    $: if (meta.totalItems !== undefined) {
+        pagination = {
+            page: meta.currentPage ?? 1,
+            pageSize: meta.itemsPerPage ?? 10,
+            totalItems: meta.totalItems ?? 0,
+            totalPages: meta.totalPages ?? 1
+        };
+    }
+
+    const columns: ColumnDef<MemberRow>[] = [
+        {
+            id: 'name',
+            header: 'Member Name',
+            type: 'textWithSupporting',
+            accessor: (row) => row.name || row.email,
+            supportingField: 'email',
+            sortable: true,
+            width: '25%'
+        },
+        {
+            id: 'role',
+            header: 'Account Role',
+            accessor: (row) => row.role || 'Member',
+            sortable: true,
+            width: '15%'
+        },
+        {
+            id: 'session',
+            header: 'Session',
+            accessor: (row) => row.activeSessionsCount ?? 0,
+            width: '10%',
+            align: 'left'
+        },
+        {
+            id: 'createdAt',
+            header: 'Created On',
+            type: 'datetime',
+            accessor: (row) => row.joinedAt || row.createdAt,
+            sortable: true,
+            width: '18%'
+        },
+        {
+            id: 'status',
+            header: 'Status',
+            type: 'badge',
+            accessor: (row) => (row.status === 'ACTIVE' ? 'Active' : 'Deactivated'),
+            sortable: true,
+            width: '12%',
+            statusColor: (_v, row): BadgeColor => (row.status === 'ACTIVE' ? 'success' : 'gray'),
+            showDot: () => true
+        },
+        {
+            id: 'actions',
+            header: 'Actions',
+            type: 'moreMenu',
+            width: '10%',
+            align: 'center',
+            getMenuActions: (row: MemberRow) => {
+                const actions: { id: string; label: string; onClick?: () => void; destructive?: boolean }[] = [
+                    { id: 'view', label: 'View', onClick: () => goto(`/user/settings/users/${row.id}`) },
+                    { id: 'edit', label: 'Edit', onClick: () => openEditModal(row) }
+                ];
+                if (canPerformAdminActions(currentAccount)) {
+                    actions.push(
+                        {
+                            id: 'toggle',
+                            label: row.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate',
+                            onClick: () => (row.status === 'ACTIVE' ? openDeactivateModal(row) : openReactivateModal(row))
+                        },
+                        { id: 'delete', label: 'Delete', destructive: true, onClick: () => openDeleteModal(row) }
+                    );
+                }
+                return actions;
+            }
+        }
+    ];
+
+    function handleSearch() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(async () => {
+            const url = new URL($page.url);
+            if (searchValue.trim()) url.searchParams.set('search', searchValue.trim());
+            else url.searchParams.delete('search');
+            url.searchParams.set('page', '1');
+            await goto(url.pathname + url.search, { noScroll: true });
+            await tick();
+            // Restore focus to search input after navigation so user can keep typing
+            const input = searchWrapperEl?.querySelector('input');
+            if (input) input.focus();
+        }, 300);
+    }
+
+    function handlePageChange(event: CustomEvent<number>) {
+        const url = new URL($page.url);
+        url.searchParams.set('page', String(event.detail));
+        goto(url.pathname + url.search, { noScroll: true });
+    }
+
+    function handleSort(event: CustomEvent<{ field: string | null; direction: 'asc' | 'desc' | null }>) {
+        const url = new URL($page.url);
+        const field = event.detail.field || 'name';
+        const direction = event.detail.direction || 'asc';
+        url.searchParams.set('sort_field', field);
+        url.searchParams.set('sort_order', direction);
+        url.searchParams.set('page', '1');
+        goto(url.pathname + url.search, { noScroll: true });
+    }
+
+    function handleRowClick(event: CustomEvent<{ row: MemberRow }>) {
+        goto(`/user/settings/users/${event.detail.row.id}`);
+    }
+
+    // Add Member modal
+    let showAddModal = false;
+    let addLoading = false;
+    let addName = '';
+    let addEmail = '';
+    let addAccountRole = 'MEMBER';
+    let addActive = true;
+    let addPassword = '';
+    let addPasswordVisible = false;
+    let addNameError = '';
+    let addEmailError = '';
+    let addPasswordError = '';
+
+    const accountRoleOptions = [
+        { id: 'MEMBER', label: 'Member' },
+        { id: 'ADMIN', label: 'Admin' }
+    ];
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    function openAddModal() {
+        addName = '';
+        addEmail = '';
+        addAccountRole = 'MEMBER';
+        addActive = true;
+        addPassword = '';
+        addNameError = '';
+        addEmailError = '';
+        addPasswordError = '';
+        showAddModal = true;
+    }
+
+    function closeAddModal() {
+        showAddModal = false;
+        addNameError = '';
+        addEmailError = '';
+        addPasswordError = '';
+    }
+
+    // Edit Member modal (shared EditMemberModal component)
+    let showEditModal = false;
+    let editLoading = false;
+    let editTarget: MemberRow | null = null;
+
+    function openEditModal(row: MemberRow) {
+        editTarget = row;
+        showEditModal = true;
+    }
+
+    function closeEditModal() {
+        showEditModal = false;
+        editTarget = null;
+    }
+
+    async function handleEditSave(e: CustomEvent<{ userId: string; name: string; email: string; accountRole: string; status: string; password?: string }>) {
+        const p = e.detail;
+        editLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('userId', p.userId);
+            fd.set('name', p.name);
+            fd.set('email', p.email);
+            fd.set('accountRole', p.accountRole);
+            fd.set('status', p.status);
+            if (p.password) fd.set('password', p.password);
+            const res = await fetch('?/updateMember', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result.type === 'success') {
+                toast.success('Member updated successfully');
+                closeEditModal();
+                await invalidateAll();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.message || result.message || 'Unable to update member. Please try again.');
+            }
+        } catch {
+            toast.error('Unable to update member. Please try again.');
+        } finally {
+            editLoading = false;
         }
     }
-    
-    // Get role badge variant - now using account roles
-    function getRoleVariant(role: string) {
-        switch(role.toUpperCase()) {
-            case 'OWNER': return 'default';
-            case 'ADMIN': return 'secondary';
-            case 'MEMBER': return 'outline';
-            default: return 'outline';
+
+    async function handleAddMember() {
+        addNameError = '';
+        addEmailError = '';
+        addPasswordError = '';
+        if (!addName.trim()) {
+            addNameError = 'Member name is required';
+        }
+        if (!addEmail.trim()) {
+            addEmailError = 'Contact email is required';
+        } else if (!emailRegex.test(addEmail.trim())) {
+            addEmailError = 'Please enter a valid email address';
+        }
+        if (!addPassword) {
+            addPasswordError = 'Password is required';
+        }
+        if (addNameError || addEmailError || addPasswordError) {
+            return;
+        }
+        addLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('name', addName.trim());
+            fd.set('contactEmail', addEmail.trim());
+            fd.set('accountRole', addAccountRole);
+            fd.set('status', addActive ? 'ACTIVE' : 'INACTIVE');
+            fd.set('password', addPassword);
+            const res = await fetch('?/create', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result.type === 'success') {
+                toast.success('Member added successfully');
+                closeAddModal();
+                await invalidateAll();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.error || 'Unable to add member. Please try again.');
+            }
+        } catch {
+            toast.error('Unable to add member. Please try again.');
+        } finally {
+            addLoading = false;
         }
     }
-    
-    // Format last active time
-    function formatLastActive(date: Date | string | null) {
-        if (!date) return 'Never';
-        return date;
+
+    // Delete (Remove from account)
+    let showDeleteModal = false;
+    let deleteTarget: MemberRow | null = null;
+    let deleteLoading = false;
+
+    function openDeleteModal(row: MemberRow) {
+        deleteTarget = row;
+        showDeleteModal = true;
     }
 
-    // Function to open delete confirmation dialog
-    function confirmDelete(user: any) {
-        state.selectedRecord = user;
-        userToDelete = user; // Store the user separately
-        state.confirmationOpen = true;
-    }
-    
-    // Store the user to be deleted separately to avoid state clearing issues
-    let userToDelete: any | null = null;
-    
-    // Function to prepare for status toggle
-    function prepareToggleStatus(user: any) {
-        userToToggle = user;
-        statusToggleDialogOpen = true;
-    }
-    
-    // Function to open password update dialog
-    function openPasswordUpdateDialog(user: any) {
-        userToUpdatePassword = user;
-        passwordUpdateDialogOpen = true;
+    function closeDeleteModal() {
+        showDeleteModal = false;
+        deleteTarget = null;
     }
 
-    // Function to open reset password dialog
-    function openResetPasswordDialog(user: any) {
-        userToResetPassword = user;
-        resetPasswordDialogOpen = true;
-    }
-
-    // Generate action items for each user
-    function getActionItems(user: any): any[] {
-        const actions: any[] = [];
-
-        // View/Edit Profile - always available
-        actions.push({
-            label: "View Profile",
-            icon: Pencil,
-            onClick: () => goto(`/user/settings/users/${user.id}`)
-        });
-
-        // Admin/Owner only actions
-        if (canPerformAdminActions(data.currentAccount)) {
-            actions.push({
-                label: "View Sessions",
-                icon: Key,
-                onClick: () => goto(`/user/settings/users/${user.id}/sessions`)
-            });
-
-            actions.push({
-                label: "Update Password",
-                icon: KeyRound,
-                onClick: () => openPasswordUpdateDialog(user)
-            });
-
-            actions.push({
-                label: "Reset Password",
-                icon: KeyRound,
-                onClick: () => openResetPasswordDialog(user)
-            });
-
-            actions.push({
-                label: isTogglingStatus && userToToggle?.id === user.id 
-                    ? "Updating..." 
-                    : (user.status === 'ACTIVE' ? "Deactivate" : "Activate"),
-                icon: isTogglingStatus && userToToggle?.id === user.id 
-                    ? null 
-                    : (user.status === 'ACTIVE' ? UserX : UserCheck),
-                onClick: () => prepareToggleStatus(user),
-                disabled: isTogglingStatus
-            });
-
-            actions.push({
-                label: "Remove User",
-                icon: Trash,
-                onClick: () => confirmDelete(user)
-            });
+    async function handleDelete() {
+        if (!deleteTarget) return;
+        deleteLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('userId', deleteTarget.id);
+            const res = await fetch('?/removeFromAccount', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result.type === 'success') {
+                toast.success('Member deleted successfully!');
+                closeDeleteModal();
+                await invalidateAll();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.message || result.message || 'Unable to delete Member. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to delete Member. Please try again!');
+        } finally {
+            deleteLoading = false;
         }
-
-        return actions;
     }
+
+    // Deactivate
+    let showDeactivateModal = false;
+    let deactivateTarget: MemberRow | null = null;
+    let deactivateLoading = false;
+
+    function openDeactivateModal(row: MemberRow) {
+        deactivateTarget = row;
+        showDeactivateModal = true;
+    }
+
+    function closeDeactivateModal() {
+        showDeactivateModal = false;
+        deactivateTarget = null;
+    }
+
+    async function handleDeactivate() {
+        if (!deactivateTarget) return;
+        deactivateLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('userId', deactivateTarget.id);
+            fd.set('status', 'INACTIVE');
+            const res = await fetch('?/updateUserStatus', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result.type === 'success') {
+                toast.success('Member deactivated successfully!');
+                closeDeactivateModal();
+                await invalidateAll();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.message || result.message || 'Unable to deactivate Member. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to deactivate Member. Please try again!');
+        } finally {
+            deactivateLoading = false;
+        }
+    }
+
+    // Reactivate
+    let showReactivateModal = false;
+    let reactivateTarget: MemberRow | null = null;
+    let reactivateLoading = false;
+
+    function openReactivateModal(row: MemberRow) {
+        reactivateTarget = row;
+        showReactivateModal = true;
+    }
+
+    function closeReactivateModal() {
+        showReactivateModal = false;
+        reactivateTarget = null;
+    }
+
+    async function handleReactivate() {
+        if (!reactivateTarget) return;
+        reactivateLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('userId', reactivateTarget.id);
+            fd.set('status', 'ACTIVE');
+            const res = await fetch('?/updateUserStatus', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+            if (result.type === 'success') {
+                toast.success('Member reactivated successfully!');
+                closeReactivateModal();
+                await invalidateAll();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.message || result.message || 'Unable to reactivate Member. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to reactivate Member. Please try again!');
+        } finally {
+            reactivateLoading = false;
+        }
+    }
+
+    // Password dialogs (for list row actions)
+    let passwordDialogOpen = false;
+    let resetDialogOpen = false;
+    let selectedUser: MemberRow | null = null;
+
+    function openPasswordDialog(row: MemberRow) {
+        selectedUser = row;
+        passwordDialogOpen = true;
+    }
+
+    function openResetDialog(row: MemberRow) {
+        selectedUser = row;
+        resetDialogOpen = true;
+    }
+
+    $: userForDialog = selectedUser
+        ? {
+            id: selectedUser.id,
+            email: selectedUser.email,
+            name: selectedUser.name,
+            password: '',
+            rolesString: '',
+            primaryAccountId: null,
+            status: selectedUser.status || 'ACTIVE',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            systemRole: selectedUser.systemRole || 'USER'
+        }
+        : null;
 </script>
 
-<UserPageLayout 
-    title={pageTitle}
-    crumbs={pageCrumbs}
-    actionButtons={canPerformAdminActions(data.currentAccount) ? [
-        {
-            label: "Add User",
-            icon: UserPlus,
-            onClick: () => goto('/user/settings/users/new')
-        }
-    ] : []}
->
-    <UserCard 
-        title="Team Members"
-        description={`Manage team members in ${data.currentAccount?.name || 'your account'} (${data.users?.length || 0} members)`}
-        icon={Shield}
-    >
-        <div class="space-y-4">
-            <!-- Account info -->
-            {#if data.currentAccount}
-                <div class="bg-muted/30 rounded-lg p-4 border">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="font-medium">Current Account</h3>
-                            <p class="text-sm text-muted-foreground">{data.currentAccount.name}</p>
-                        </div>
-                        <Badge variant="outline">
-                            Your role: {data.currentAccount.userRole}
-                        </Badge>
-                    </div>
-                </div>
-            {/if}
-
-            <!-- Users table -->
-            <div class="rounded-md border overflow-hidden">
-                {#if data.users && data.users.length > 0}
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
-                            <thead>
-                                <tr class="bg-muted/50">
-                                    <th class="text-left p-3 font-medium">User</th>
-                                    <th class="text-left p-3 font-medium">Email</th>
-                                    <th class="text-left p-3 font-medium">Account Role</th>
-                                    <th class="text-left p-3 font-medium">System Role</th>
-                                    <th class="text-left p-3 font-medium">Status</th>
-                                    <th class="text-left p-3 font-medium">Joined</th>
-                                    <th class="text-left p-3 font-medium">Sessions</th>
-                                    <th class="text-right p-3 font-medium">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y">
-                                {#each data.users as user}
-                                    <tr class="hover:bg-muted/50">
-                                        <td class="p-3 whitespace-nowrap">
-                                            <div class="flex items-center">
-                                                <div class="p-2 rounded-full bg-muted mr-3">
-                                                    <User class="h-4 w-4" />
-                                                </div>
-                                                <div>
-                                                    <p class="font-medium">{user.name || 'Unnamed User'}</p>
-                                                    <p class="text-xs text-muted-foreground">ID: {user.id}</p>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap">
-                                            <div class="flex items-center">
-                                                <Mail class="h-4 w-4 mr-2 text-muted-foreground" />
-                                                {user.email}
-                                            </div>
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap">
-                                            <Badge variant={getRoleVariant(user.role || 'MEMBER')}>
-                                                {user.role || 'MEMBER'}
-                                            </Badge>
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap">
-                                            <Badge variant="outline" class="text-xs">
-                                                {user.systemRole || 'USER'}
-                                            </Badge>
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap">
-                                            <div class="flex items-center">
-                                                <span class={`h-2 w-2 rounded-full mr-2 ${getStatusClass(user.status || 'inactive')}`}></span>
-                                                <span>{(user.status || 'inactive').charAt(0).toUpperCase() + (user.status || 'inactive').slice(1)}</span>
-                                            </div>
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap text-muted-foreground">
-                                            {#if user.joinedAt}
-                                                <RelativeDate date={user.joinedAt} format="relative" />
-                                            {:else}
-                                                Unknown
-                                            {/if}
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap text-muted-foreground">
-                                            {user.activeSessionsCount || 0}
-                                        </td>
-                                        <td class="p-3 whitespace-nowrap text-right">
-                                            <RecordActions items={getActionItems(user)} />
-                                        </td>
-                                    </tr>
-                                {/each}
-                            </tbody>
-                        </table>
-                    </div>
-                {:else}
-                    <div class="text-center p-8 text-muted-foreground">
-                        <User class="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p class="font-medium">No team members found</p>
-                        <p class="text-sm mt-1">No users are currently members of this account</p>
-                        {#if canPerformAdminActions(data.currentAccount)}
-                            <Button class="mt-4" on:click={() => goto('/user/settings/users/new')}>
-                                <UserPlus class="h-4 w-4 mr-2" />
-                                Invite Team Member
-                            </Button>
-                        {/if}
-                    </div>
-                {/if}
-            </div>
-            
-            <!-- Statistics -->
-            {#if data.users && data.users.length > 0}
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div class="bg-muted/50 rounded-lg p-4">
-                        <p class="text-sm text-muted-foreground">Total Members</p>
-                        <p class="text-2xl font-bold">{data.users.length}</p>
-                    </div>
-                    <div class="bg-muted/50 rounded-lg p-4">
-                        <p class="text-sm text-muted-foreground">Active Members</p>
-                        <p class="text-2xl font-bold text-green-600">
-                            {data.users.filter(u => u.status === 'ACTIVE').length}
-                        </p>
-                    </div>
-                    <div class="bg-muted/50 rounded-lg p-4">
-                        <p class="text-sm text-muted-foreground">Admins</p>
-                        <p class="text-2xl font-bold text-blue-600">
-                            {data.users.filter(u => u.role === 'ADMIN').length}
-                        </p>
-                    </div>
-                    <div class="bg-muted/50 rounded-lg p-4">
-                        <p class="text-sm text-muted-foreground">Active Sessions</p>
-                        <p class="text-2xl font-bold">
-                            {data.users.reduce((sum, u) => sum + (u.activeSessionsCount || 0), 0)}
-                        </p>
-                    </div>
-                </div>
-            {/if}
-            
-            <!-- Help text -->
-            <p class="text-sm text-muted-foreground">
-                These are users who are members of {data.currentAccount?.name || 'your current account'}. 
-                <a href="/user/help/permissions" class="text-primary hover:underline">Learn about account permissions</a>
-            </p>
+<div class="members-page">
+    <div class="toolbar">
+        <div class="search-wrapper" bind:this={searchWrapperEl}>
+            <InputField
+                placeholder="Search by Member name"
+                bind:value={searchValue}
+                on:input={handleSearch}
+                prefixIcon={true}
+            >
+                <Search slot="prefix-icon" size={20} />
+            </InputField>
         </div>
-    </UserCard>
+        {#if canPerformAdminActions(currentAccount)}
+            <div class="actions-wrapper">
+                <Button
+                    variant="filled"
+                    color="primary"
+                    size="lg"
+                    icon={Plus}
+                    iconPosition="left"
+                    on:click={openAddModal}
+                >
+                    Add Member
+                </Button>
+            </div>
+        {/if}
+    </div>
 
-    <!-- Password Update Dialog -->
+    <div class="table-wrapper">
+        <DataTable
+            data={members}
+            {columns}
+            {pagination}
+            {sort}
+            {loading}
+            emptyMessage="No members found"
+            on:sort={handleSort}
+            on:pageChange={handlePageChange}
+            on:rowClick={handleRowClick}
+        />
+    </div>
+</div>
+
+<!-- Add Member Modal: Row1 = Member Name (left) | Account Role + Active (right), Row2 = Contact Email (left) | Password (right) -->
+<Modal
+    open={showAddModal}
+    title="Add Member"
+    width="880px"
+    on:close={closeAddModal}
+>
+    <div class="form-body modal-form-two-col">
+        <div class="form-row">
+            <div class="form-col">
+                <InputField
+                    label="Member Name"
+                    placeholder="Enter"
+                    bind:value={addName}
+                    required={true}
+                    state={addNameError ? 'error' : 'default'}
+                    helperText={addNameError}
+                />
+            </div>
+            <div class="form-col form-col-role-active">
+                <div class="dropdown-field">
+                    <span class="field-label">Account Role</span>
+                    <Dropdown
+                        options={accountRoleOptions}
+                        bind:value={addAccountRole}
+                        width="100%"
+                        disabled={true}
+                    />
+                </div>
+                <div class="toggle-field toggle-field-inline">
+                    <Toggle bind:checked={addActive} />
+                    <span class="field-label">Active</span>
+                </div>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-col">
+                <InputField
+                    label="Contact Email"
+                    placeholder="Enter"
+                    type="email"
+                    bind:value={addEmail}
+                    required={true}
+                    state={addEmailError ? 'error' : 'default'}
+                    helperText={addEmailError}
+                />
+            </div>
+            <div class="form-col">
+                <InputField
+                    label="Password"
+                    placeholder="Enter"
+                    type={addPasswordVisible ? 'text' : 'password'}
+                    bind:value={addPassword}
+                    required={true}
+                    state={addPasswordError ? 'error' : 'default'}
+                    helperText={addPasswordError}
+                    suffixIcon={true}
+                >
+                    <button
+                        slot="suffix-icon"
+                        type="button"
+                        class="password-toggle-btn"
+                        aria-label={addPasswordVisible ? 'Hide password' : 'Show password'}
+                        on:click|stopPropagation={() => (addPasswordVisible = !addPasswordVisible)}
+                    >
+                        {#if addPasswordVisible}
+                            <EyeOff size={20} />
+                        {:else}
+                            <Eye size={20} />
+                        {/if}
+                    </button>
+                </InputField>
+            </div>
+        </div>
+    </div>
+    <div slot="footer" class="footer-actions">
+        <Button variant="outline" color="primary" size="lg" on:click={closeAddModal}>
+            Cancel
+        </Button>
+        <Button variant="filled" color="primary" size="lg" loading={addLoading} on:click={handleAddMember}>
+            Add
+        </Button>
+    </div>
+</Modal>
+
+<!-- Edit Member Modal (shared component) -->
+<EditMemberModal
+    bind:open={showEditModal}
+    member={editTarget ? { id: editTarget.id, name: editTarget.name, email: editTarget.email, accountRole: editTarget.role, status: editTarget.status } : null}
+    loading={editLoading}
+    on:close={closeEditModal}
+    on:save={handleEditSave}
+/>
+
+<!-- Delete Member ConfirmModal -->
+<ConfirmModal
+    open={showDeleteModal}
+    title="Delete Member"
+    description="Are you sure you want to delete this member? This action can not be reverse."
+    cancelText="Cancel"
+    confirmText="Delete"
+    type="error"
+    confirmLoading={deleteLoading}
+    on:close={closeDeleteModal}
+    on:confirm={handleDelete}
+/>
+
+<!-- Deactivate Member ConfirmModal -->
+<ConfirmModal
+    open={showDeactivateModal}
+    title="Deactivate Member"
+    description="Are you sure you want to deactivate this member?"
+    cancelText="Cancel"
+    confirmText="Deactivate"
+    type="error"
+    confirmLoading={deactivateLoading}
+    on:close={closeDeactivateModal}
+    on:confirm={handleDeactivate}
+/>
+
+<!-- Reactivate Member ConfirmModal -->
+<ConfirmModal
+    open={showReactivateModal}
+    title="Reactivate Member"
+    description="Are you sure you want to reactivate this member?"
+    cancelText="Cancel"
+    confirmText="Reactivate"
+    type="info"
+    confirmLoading={reactivateLoading}
+    on:close={closeReactivateModal}
+    on:confirm={handleReactivate}
+/>
+
+{#if userForDialog}
     <PasswordUpdateDialog
-        bind:open={passwordUpdateDialogOpen}
-        bind:user={userToUpdatePassword}
+        bind:open={passwordDialogOpen}
+        user={userForDialog}
         action="?/updatePassword"
         onSuccess={() => {
-            passwordUpdateDialogOpen = false;
-            userToUpdatePassword = null;
+            passwordDialogOpen = false;
+            selectedUser = null;
         }}
     />
-    
-    <!-- Reset Password Dialog -->
     <ResetPasswordDialog
-        bind:open={resetPasswordDialogOpen}
-        user={userToResetPassword}
+        bind:open={resetDialogOpen}
+        user={userForDialog}
         action="?/resetPassword"
         onSuccess={() => {
-            resetPasswordDialogOpen = false;
-            userToResetPassword = null;
+            resetDialogOpen = false;
+            selectedUser = null;
             invalidateAll();
         }}
     />
-    
-    <!-- Delete Confirmation Dialog -->
-    <RecordDeleteDialog
-        {state}
-        actionName="removeFromAccount"
-        useFormSubmission={false}
-        onConfirm={async () => {
-            // Handle user removal from account
-            if (userToDelete) {
-                try {
-                    const formData = new FormData();
-                    formData.append('userId', userToDelete.id);
-                    
-                    const response = await fetch('?/removeFromAccount', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const result = await response.json();
-                    console.log("result", result);
-                    console.log("result.type", result.type);
-                    console.log("userToDelete", userToDelete);
-                    if (result.type === 'success') {
-                        console.log("result.type", result.type);
-                        toast.success(`${userToDelete.name || userToDelete.email} removed from account`);
-                        state.confirmationOpen = false;
-                        state.selectedRecord = null;
-                        userToDelete = null;
-                        invalidateAll();
-                    } else {
-                        toast.error(result.message || 'Failed to remove user from account');
-                    }
-                } catch (error) {
-                    console.log("error", error);
-                    toast.error('Failed to remove user from account');
-                }
-            }
-        }}
-    />
-    
-    <!-- Status Toggle Dialog -->
-    <RecordUpdateDialog
-        bind:open={statusToggleDialogOpen}
-        action="?/updateUserStatus"
-        bind:record={userToToggle}
-        bind:isProcessing={isTogglingStatus}
-        title={userToToggle ? (userToToggle.status === 'ACTIVE' ? 'Deactivate User' : 'Activate User') : null}
-        description={userToToggle ? `Are you sure you want to ${userToToggle.status === 'ACTIVE' ? 'deactivate' : 'activate'} ${userToToggle.name || userToToggle.email}?` : null}
-        confirmText={userToToggle ? (userToToggle.status === 'ACTIVE' ? 'Deactivate' : 'Activate') : null}
-        onSuccess={(result) => {
-            if (userToToggle) {
-                const newStatus = userToToggle.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-                toast.success(`User ${newStatus === 'ACTIVE' ? 'activated' : 'deactivated'} successfully`);
-                userToToggle = null;
-                statusToggleDialogOpen = false;
-                invalidateAll();
-            }
-        }}
-        onError={(result) => {
-            toast.error(`Failed to update user status: ${result.data?.error || 'Unknown error'}`);
-            userToToggle = null;
-            statusToggleDialogOpen = false;
-        }}
-    >
-        <input type="hidden" name="userId" value={userToToggle?.id || ''} />
-        <input type="hidden" name="status" value={userToToggle?.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'} />
-        <button type="submit" class="hidden">Submit</button>
-    </RecordUpdateDialog>
-</UserPageLayout>
+{/if}
+
+<style>
+    .members-page {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-height: 100%;
+        background: var(--ds-bg-secondary);
+        padding: var(--ds-space-6);
+        gap: var(--ds-space-6);
+    }
+
+    .toolbar {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--ds-space-4);
+    }
+
+    .search-wrapper {
+        flex: 1;
+        max-width: 480px;
+    }
+
+    .actions-wrapper {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-3);
+    }
+
+    .table-wrapper {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--ds-space-4);
+    }
+
+    .form-col {
+        min-width: 0;
+    }
+
+    /* Account Role + Active side by side in right column; align to same baseline */
+    .form-col-role-active {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-end;
+        gap: var(--ds-space-4);
+    }
+
+    .form-col-role-active .dropdown-field {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .form-col-role-active .toggle-field {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        padding-bottom: var(--ds-space-0-5);
+        min-width: 120px;
+    }
+
+    .dropdown-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-1-5);
+    }
+
+    .toggle-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-1-5);
+    }
+
+    /* Active: toggle left, label right; vertical center alignment */
+    .toggle-field-inline {
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        gap: var(--ds-space-2);
+        min-height: 44px;
+    }
+
+    .toggle-field-inline .field-label {
+        margin: 0;
+        white-space: nowrap;
+    }
+
+    .password-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: none;
+        cursor: pointer;
+        color: var(--ds-text-tertiary);
+    }
+
+    .password-toggle-btn:hover {
+        color: var(--ds-text-primary);
+    }
+
+    .field-label {
+        font: var(--ds-text-sm-medium);
+        color: var(--ds-text-secondary);
+    }
+
+    /* Modal footer: align with design-system (flex-end, gap 16px) */
+    .footer-actions {
+        display: flex;
+        flex-direction: row;
+        justify-content: flex-end;
+        align-items: center;
+        gap: var(--ds-space-4);
+        width: 100%;
+    }
+</style>

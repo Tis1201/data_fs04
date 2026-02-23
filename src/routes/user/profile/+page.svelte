@@ -1,602 +1,891 @@
 <script lang="ts">
-    import { enhance } from "$app/forms";
-    import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
-    import UserCard from "$lib/components/user/layout/UserCard.svelte";
-    import { Button } from "$lib/components/ui/button";
-    import { Input } from "$lib/components/ui/input";
-    import { Label } from "$lib/components/ui/label";
-    import { Badge } from "$lib/components/ui/badge";
-    import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "$lib/components/ui/dialog";
-    import { Textarea } from "$lib/components/ui/textarea";
-    import { Pencil, User, Key, Plus, Copy, ToggleLeft, ToggleRight, Trash2, AlertCircle, RefreshCw, Save, X, Lock } from "lucide-svelte";
-    import SecureKeyDisplay from "$lib/components/ui_components_sveltekit/display/SecureKeyDisplay.svelte";
-    import { superForm } from "sveltekit-superforms/client";
-    import { toast } from "svelte-sonner";
-    import { formatDistanceToNow } from 'date-fns';
-    import type { PageData } from "./$types";
-    import { onMount } from 'svelte';
-    import ConfirmationDialog from '$lib/components/ui_components_sveltekit/dialog/ConfirmationDialog.svelte';
-    import { z } from 'zod';
-
-    // Form components
-    import FormContainer from "$lib/components/ui_components_sveltekit/form/FormContainer.svelte";
-    import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
-    import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
-    import EnhancedPasswordInput from "$lib/components/ui_components_sveltekit/form/EnhancedPasswordInput.svelte";
-    import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
-
-    // Define the API key schema
-    const apiKeySchema = z.object({
-        name: z.string().min(1, 'Name is required'),
-        description: z.string().optional()
-    });
+    import { goto, invalidate } from '$app/navigation';
+    import { page } from '$app/stores';
+    import { toast } from '$lib/stores/alertToast';
+    import {
+        Button,
+        Card,
+        InputField,
+        TextareaField,
+        DataTable,
+        Modal,
+        Dropdown,
+        ConfirmModal,
+        PhoneInput,
+        TabGroup
+    } from '$lib/design-system/components';
+    import type { ColumnDef, PaginationState, BadgeColor, TabItem } from '$lib/design-system/components';
+    import { Info, Pencil, Plus, Building2 } from 'lucide-svelte';
+    import type { PageData } from './$types';
 
     export let data: PageData;
 
-    const title = "My Profile";
-    const pageCrumbs = [
-        ["Dashboard", "/user"],
-        ["Settings", ""],
-        "Profile"
-    ];
+    // Reactive data
+    $: account = data.account;
+    $: organizations = (data.organizations || []) as OrganizationRow[];
 
-    let editMode = false;
-    let showPasswordFields = false;
-
-    // API key state
-    let showNewKeyDialog = false;
-    let newKeyData: { id: string; key: string; name: string } | null = null;
-    let apiKeys: Array<{
+    // Types
+    interface OrganizationRow {
         id: string;
         name: string;
-        key: string;
+        contactEmail: string | null;
+        totalDevices: number;
+        address: string | null;
+        status: string;
         createdAt: string;
-        lastUsedAt?: string;
-        expiresAt?: string;
-        active?: boolean;
-        description?: string;
-    }> = [];
-    let isLoading = true;
-    let error: string | null = null;
-
-    // Delete dialog state
-    let keyToDelete: string | null = null;
-    let showDeleteDialog = false;
-
-    // Create form handler with proper validation and success handling
-    const {
-        form,
-        errors,
-        enhance: formEnhance,
-        submitting,
-        constraints,
-        errorMessage,
-        successMessage,
-    } = createFormHandler(data.form, {
-        validateOnInput: true,
-        onSuccess: (result) => {
-            toast.success("Profile updated successfully!");
-            editMode = false;
-            showPasswordFields = false;
-            return { text: "Profile updated successfully!" };
-        },
-        onError: (error) => ({
-            text: error?.message || "Failed to update profile",
-        }),
-    });
-
-    // Handle API key creation result
-    function handleApiKeyResult(result) {
-        console.log('API key creation result:', result);
-        if (result.type === 'success') {
-            // Check different possible response structures
-            if (result.data?.data) {
-                newKeyData = result.data.data;
-                showNewKeyDialog = true;
-                toast.success('API key created successfully');
-                // Refresh the keys list
-                apiKeys = [...apiKeys, result.data.data];
-            } else if (result.data?.key) {
-                newKeyData = result.data;
-                showNewKeyDialog = true;
-                toast.success('API key created successfully');
-                // Refresh the keys list with the new structure
-                apiKeys = [...apiKeys, result.data];
-            }
-        } else if (result.type === 'error') {
-            toast.error(result.error?.message || 'Failed to create API key');
-        }
+        updatedAt: string;
+        description: string | null;
+        contactPhone: string | null;
     }
 
-    // Initialize form with default values
-    const { form: apiKeyForm } = superForm({
-        name: '',
-        description: ''
-    });
+    // Tab state
+    const tabs: TabItem[] = [
+        { id: 'companies', label: 'Assigned Companies' },
+        { id: 'notifications', label: 'Notifications' },
+        { id: 'security', label: 'Security' }
+    ];
+    let activeTab = 'companies';
 
-    // Copy API key to clipboard
-    function copyToClipboard(text: string) {
-        navigator.clipboard.writeText(text);
-        toast.success('API key copied to clipboard');
+    // Loading state
+    let loading = false;
+
+    // Pagination
+    let pagination: PaginationState = {
+        page: 1,
+        pageSize: 10,
+        totalItems: 0,
+        totalPages: 0
+    };
+
+    $: if (data.meta) {
+        pagination = {
+            page: data.meta.currentPage,
+            pageSize: data.meta.itemsPerPage,
+            totalItems: data.meta.totalItems,
+            totalPages: data.meta.totalPages
+        };
     }
 
-    // Toggle API key active status
-    async function toggleApiKey(id: string, active: boolean) {
-        const formData = new FormData();
-        formData.append('id', id);
+    // Sort
+    let sort = {
+        field: data.sort?.field || 'name',
+        direction: (data.sort?.order || 'asc') as 'asc' | 'desc' | null
+    };
 
-        try {
-            const response = await fetch('?/toggleApiKey', {
-                method: 'POST',
-                body: formData
-            });
-
-            const result = await response.json();
-
-            if (response.ok) {
-                // Update the local state to reflect the change
-                apiKeys = apiKeys.map(key =>
-                    key.id === id ? { ...key, active: !active } : key
-                );
-                toast.success(`API key ${active ? 'deactivated' : 'activated'} successfully`);
-            } else {
-                toast.error(result.error || 'Failed to toggle API key status');
-            }
-        } catch (error) {
-            toast.error('An error occurred while updating the API key');
-            console.error('Error toggling API key:', error);
-        }
-    }
-
-    // Show delete confirmation dialog
-    function confirmDeleteApiKey(id: string) {
-        keyToDelete = id;
-        showDeleteDialog = true;
-    }
-
-    // Delete API key
-    async function deleteApiKey() {
-        if (!keyToDelete) return;
-
-        try {
-            const response = await fetch('/user/profile', {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                credentials: 'same-origin',
-                body: JSON.stringify({ id: keyToDelete })
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                apiKeys = apiKeys.filter(key => key.id !== keyToDelete);
-                toast.success(result.message || 'API key deleted successfully');
-            } else {
-                throw new Error(result.error?.message || 'Failed to delete API key');
-            }
-        } catch (error) {
-            console.error('Error deleting API key:', error);
-            toast.error(error.message || 'Failed to delete API key');
-        } finally {
-            // Close the dialog in both success and error cases
-            showDeleteDialog = false;
-        }
-    }
-
-    // Fetch API keys
-    async function fetchApiKeys() {
-        isLoading = true;
-        error = null;
-        try {
-            const response = await fetch('/user/profile', {
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json'
-                },
-                credentials: 'same-origin'
-            });
-
-            const result = await response.json();
-
-            if (response.ok && result.success) {
-                apiKeys = result.data || [];
-            } else {
-                throw new Error(result.error?.message || 'Failed to load API keys');
-            }
-        } catch (err) {
-            console.error('Error fetching API keys:', err);
-            error = err.message || 'Failed to load API keys';
-        } finally {
-            isLoading = false;
-        }
-    }
-
-    // Load API keys when component mounts
-    onMount(() => {
-        fetchApiKeys();
-    });
-
-    // Action buttons for the page layout
-    $: actionButtons = [
+    // Table columns
+    const columns: ColumnDef<OrganizationRow>[] = [
         {
-            label: editMode ? 'Cancel' : 'Edit Profile',
-            icon: editMode ? X : Pencil,
-            onClick: () => {
-                if (editMode) {
-                    // Reset form data when canceling
-                    $form.email = data.user.email;
-                    $form.name = data.user.name || '';
-                    $form.currentPassword = '';
-                    $form.newPassword = '';
-                    $form.confirmPassword = '';
-                    showPasswordFields = false;
-                }
-                editMode = !editMode;
+            id: 'name',
+            header: 'Name',
+            type: 'textWithSupporting',
+            accessor: 'name',
+            supportingField: 'contactEmail',
+            sortable: true,
+            width: '25%'
+        },
+        {
+            id: 'totalDevices',
+            header: 'Total Devices',
+            accessor: 'totalDevices',
+            sortable: true,
+            width: '12%',
+            align: 'left'
+        },
+        {
+            id: 'address',
+            header: 'Address',
+            accessor: (row: OrganizationRow) => row.address || '-',
+            width: '30%'
+        },
+        {
+            id: 'status',
+            header: 'Status',
+            type: 'badge',
+            accessor: (row: OrganizationRow) => row.status === 'ACTIVE' ? 'Active' : 'Inactive',
+            sortable: true,
+            width: '12%',
+            statusColor: (_value: any, row: OrganizationRow): BadgeColor => {
+                return row.status === 'ACTIVE' ? 'success' : 'gray';
             },
-            variant: editMode ? "outline" : "default"
+            showDot: () => true
         },
         {
-            label: 'Refresh',
-            icon: RefreshCw,
-            onClick: fetchApiKeys,
-            variant: "outline"
+            id: 'actions',
+            header: 'Actions',
+            type: 'moreMenu',
+            width: '10%',
+            align: 'center',
+            getMenuActions: (row: OrganizationRow) => [
+                {
+                    id: 'edit',
+                    label: 'Edit',
+                    onClick: () => openEditOrgModal(row)
+                },
+                {
+                    id: 'toggle-status',
+                    label: row.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate',
+                    onClick: () => openToggleStatusModal(row)
+                },
+                {
+                    id: 'delete',
+                    label: 'Delete',
+                    destructive: true,
+                    onClick: () => openDeleteModal(row)
+                }
+            ]
         }
     ];
 
-    function submitForm() {
-        const formElement = document.querySelector('form[action="?/update"]') as HTMLFormElement;
-        formElement?.requestSubmit();
+    // Search
+    let searchValue = $page.url.searchParams.get('search') || '';
+    let searchTimeout: ReturnType<typeof setTimeout>;
+
+    function handleSearch() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            const url = new URL($page.url);
+            if (searchValue.trim()) {
+                url.searchParams.set('search', searchValue.trim());
+            } else {
+                url.searchParams.delete('search');
+            }
+            url.searchParams.set('page', '1');
+            goto(url.pathname + url.search, { noScroll: true });
+        }, 300);
     }
 
-    function togglePasswordFields() {
-        showPasswordFields = !showPasswordFields;
-        if (!showPasswordFields) {
-            // Clear password fields when hiding
-            $form.currentPassword = '';
-            $form.newPassword = '';
-            $form.confirmPassword = '';
+    // Pagination handler
+    function handlePageChange(event: CustomEvent<number>) {
+        const url = new URL($page.url);
+        url.searchParams.set('page', String(event.detail));
+        goto(url.pathname + url.search, { noScroll: true });
+    }
+
+    // Sort handler
+    function handleSort(event: CustomEvent<{ field: string | null; direction: 'asc' | 'desc' | null }>) {
+        sort = {
+            field: event.detail.field || 'name',
+            direction: event.detail.direction
+        };
+        const url = new URL($page.url);
+        if (sort.field) {
+            url.searchParams.set('sort_field', sort.field);
+            url.searchParams.set('sort_order', sort.direction || 'asc');
+        }
+        url.searchParams.set('page', '1');
+        goto(url.pathname + url.search, { noScroll: true });
+    }
+
+    // =========================
+    // Edit Profile Modal
+    // =========================
+    let showEditProfileModal = false;
+    let editProfileLoading = false;
+    let profileName = '';
+    let profileDescription = '';
+
+    function openEditProfileModal() {
+        profileName = account?.name || '';
+        profileDescription = account?.description || '';
+        showEditProfileModal = true;
+    }
+
+    function closeEditProfileModal() {
+        showEditProfileModal = false;
+    }
+
+    async function handleEditProfile() {
+        if (!profileName.trim()) {
+            toast.error('Account name is required');
+            return;
+        }
+
+        editProfileLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('name', profileName);
+            fd.set('description', profileDescription);
+
+            const res = await fetch('?/updateProfile', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result.type === 'success' || result.data?.form?.message?.type === 'success') {
+                toast.success('Profile updated successfully!');
+                closeEditProfileModal();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.error || 'Unable to update profile. Please try again!');
+            }
+        } catch (err) {
+            toast.error('Unable to update profile. Please try again!');
+        } finally {
+            editProfileLoading = false;
         }
     }
 
-    // Format date for display
-    function formatDate(date: string | Date): string {
-        return new Date(date).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+    // =========================
+    // Add/Edit Organization Modal
+    // =========================
+    let showAddOrgModal = false;
+    let showEditOrgModal = false;
+    let editingOrg: OrganizationRow | null = null;
+    let orgFormLoading = false;
+
+    // Form state
+    let orgName = '';
+    let orgEmail = '';
+    let orgPhone = '';
+    let orgAddress = '';
+    let orgDescription = '';
+
+    function openAddOrgModal() {
+        orgName = '';
+        orgEmail = '';
+        orgPhone = '';
+        orgAddress = '';
+        orgDescription = '';
+        showAddOrgModal = true;
+    }
+
+    function closeAddOrgModal() {
+        showAddOrgModal = false;
+    }
+
+    function openEditOrgModal(org: OrganizationRow) {
+        editingOrg = org;
+        orgName = org.name;
+        orgEmail = org.contactEmail || '';
+        orgPhone = org.contactPhone || '';
+        orgAddress = org.address || '';
+        orgDescription = org.description || '';
+        showEditOrgModal = true;
+    }
+
+    function closeEditOrgModal() {
+        showEditOrgModal = false;
+        editingOrg = null;
+    }
+
+    async function handleAddOrg() {
+        if (!orgName.trim()) {
+            toast.error('Organization name is required');
+            return;
+        }
+        if (!orgEmail.trim()) {
+            toast.error('Contact email is required');
+            return;
+        }
+
+        orgFormLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('name', orgName);
+            fd.set('contactEmail', orgEmail);
+            fd.set('contactPhone', orgPhone);
+            fd.set('address', orgAddress);
+            fd.set('description', orgDescription);
+
+            const res = await fetch('?/createOrganization', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result.type === 'success') {
+                toast.success('Organization added successfully!');
+                closeAddOrgModal();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.error || 'Unable to add Organization. Please try again!');
+            }
+        } catch (err) {
+            toast.error('Unable to add Organization. Please try again!');
+        } finally {
+            orgFormLoading = false;
+        }
+    }
+
+    async function handleEditOrg() {
+        if (!editingOrg) return;
+        if (!orgName.trim()) {
+            toast.error('Organization name is required');
+            return;
+        }
+        if (!orgEmail.trim()) {
+            toast.error('Contact email is required');
+            return;
+        }
+
+        orgFormLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('id', editingOrg.id);
+            fd.set('name', orgName);
+            fd.set('contactEmail', orgEmail);
+            fd.set('contactPhone', orgPhone);
+            fd.set('address', orgAddress);
+            fd.set('description', orgDescription);
+
+            const res = await fetch('?/updateOrganization', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result.type === 'success') {
+                toast.success('Organization updated successfully!');
+                closeEditOrgModal();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.error || 'Unable to update Organization. Please try again!');
+            }
+        } catch (err) {
+            toast.error('Unable to update Organization. Please try again!');
+        } finally {
+            orgFormLoading = false;
+        }
+    }
+
+    // =========================
+    // Toggle Status Modal
+    // =========================
+    let showToggleStatusModal = false;
+    let toggleStatusOrg: OrganizationRow | null = null;
+    let toggleStatusLoading = false;
+
+    function openToggleStatusModal(org: OrganizationRow) {
+        toggleStatusOrg = org;
+        showToggleStatusModal = true;
+    }
+
+    function closeToggleStatusModal() {
+        showToggleStatusModal = false;
+        toggleStatusOrg = null;
+    }
+
+    async function handleToggleStatus() {
+        if (!toggleStatusOrg) return;
+
+        toggleStatusLoading = true;
+        const newStatus = toggleStatusOrg.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        const action = newStatus === 'ACTIVE' ? 'reactivated' : 'deactivated';
+
+        try {
+            const fd = new FormData();
+            fd.set('id', toggleStatusOrg.id);
+            fd.set('status', newStatus);
+
+            const res = await fetch('?/toggleOrganizationStatus', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result.type === 'success') {
+                toast.success(`Organization ${action} successfully!`);
+                closeToggleStatusModal();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.error || `Unable to ${action.slice(0, -1)} Organization. Please try again!`);
+            }
+        } catch (err) {
+            toast.error(`Unable to ${action.slice(0, -1)} Organization. Please try again!`);
+        } finally {
+            toggleStatusLoading = false;
+        }
+    }
+
+    // =========================
+    // Delete Modal
+    // =========================
+    let showDeleteModal = false;
+    let deleteOrg: OrganizationRow | null = null;
+    let deleteLoading = false;
+
+    function openDeleteModal(org: OrganizationRow) {
+        deleteOrg = org;
+        showDeleteModal = true;
+    }
+
+    function closeDeleteModal() {
+        showDeleteModal = false;
+        deleteOrg = null;
+    }
+
+    async function handleDelete() {
+        if (!deleteOrg) return;
+
+        deleteLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('id', deleteOrg.id);
+
+            const res = await fetch('?/deleteOrganization', { method: 'POST', body: fd });
+            const result = await res.json().catch(() => ({}));
+
+            if (result.type === 'success') {
+                toast.success('Organization deleted successfully!');
+                closeDeleteModal();
+                goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
+            } else {
+                toast.error(result.data?.error || 'Unable to delete Organization. Please try again!');
+            }
+        } catch (err) {
+            toast.error('Unable to delete Organization. Please try again!');
+        } finally {
+            deleteLoading = false;
+        }
+    }
+
+    // Tab change handler
+    function handleTabChange(event: CustomEvent<string>) {
+        activeTab = event.detail;
     }
 </script>
 
-<UserPageLayout
-        title={title}
-        crumbs={pageCrumbs}
-        {actionButtons}
->
-    <div class="space-y-6">
-        <!-- Profile Information Card -->
-        <UserCard
-                title="Profile Information"
-                description="View and manage your personal information"
-                icon={User}
+<div class="profile-page">
+    <!-- Top row: Edit Profile button outside cards (aligned right, same row as header title in layout) -->
+    <div class="profile-top-row">
+        <div class="profile-top-spacer"></div>
+        <Button
+            variant="filled"
+            color="primary"
+            size="lg"
+            icon={Pencil}
+            iconPosition="left"
+            on:click={openEditProfileModal}
         >
-            {#if editMode}
-                <FormContainer
-                        method="POST"
-                        action="?/update"
-                        enhance={formEnhance}
-                        novalidate
-                        errorMessage={$errorMessage?.text ? { text: $errorMessage.text } : null}
-                        successMessage={$successMessage?.text ? { text: $successMessage.text } : null}
-                >
-                    <div class="space-y-6">
-                        <FormRow columns={2}>
-                            <FormField id="name" label="Full Name" error={$errors.name} required={true}>
-                                <Input
-                                        id="name"
-                                        name="name"
-                                        type="text"
-                                        bind:value={$form.name}
-                                        placeholder="Enter your full name"
-                                        aria-invalid={$errors.name ? 'true' : undefined}
-                                        disabled={$submitting}
-                                        {...$constraints.name}
-                                />
-                            </FormField>
+            Edit Profile
+        </Button>
+    </div>
 
-                            <FormField id="email" label="Email Address" error={$errors.email} required={true}>
-                                <Input
-                                        id="email"
-                                        name="email"
-                                        type="email"
-                                        bind:value={$form.email}
-                                        placeholder="Enter your email address"
-                                        aria-invalid={$errors.email ? 'true' : undefined}
-                                        disabled={$submitting}
-                                        {...$constraints.email}
-                                />
-                            </FormField>
-                        </FormRow>
+    <!-- Account Overview Section (same structure as template detail info-card) -->
+    <Card variant="default" radius="2xl" padding="md" fullWidth={true} class="info-card">
+        <div slot="header" class="section-header">
+            <div class="section-header-icon" aria-hidden="true">
+                <Info class="icon-md" size={20} strokeWidth={1.5} />
+            </div>
+            <div class="section-header-content">
+                <h2 class="section-title-sm">Account Overview</h2>
+                <p class="section-subtitle">Manage your account details</p>
+            </div>
+        </div>
+        <div class="info-card-body">
+            <div class="info-grid-row">
+                <div class="info-field">
+                    <span class="info-label">Account Name</span>
+                    <span class="info-value">{account?.name || '—'}</span>
+                </div>
+                <div class="info-field">
+                    <span class="info-label">Account Slug</span>
+                    <span class="info-value">{account?.slug || '—'}</span>
+                </div>
+                <div class="info-field">
+                    <span class="info-label">Description</span>
+                    <span class="info-value">{account?.description || '—'}</span>
+                </div>
+            </div>
+        </div>
+    </Card>
 
-                        <!-- Password Change Section -->
-                        <div class="border-t pt-4">
-                            <div class="flex items-center justify-between mb-4">
-                                <div>
-                                    <h4 class="text-sm font-medium">Password</h4>
-                                    <p class="text-xs text-muted-foreground">Leave blank to keep current password</p>
-                                </div>
-                                <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        on:click={togglePasswordFields}
-                                >
-                                    <Lock class="h-4 w-4 mr-2" />
-                                    {showPasswordFields ? 'Hide' : 'Change'} Password
-                                </Button>
-                            </div>
+    <!-- Tabs -->
+    <div class="tabs-section">
+        <TabGroup
+            {tabs}
+            {activeTab}
+            type="underline"
+            size="md"
+            on:change={handleTabChange}
+        />
+    </div>
 
-                            {#if showPasswordFields}
-                                <FormRow columns={1}>
-                                    <FormField id="currentPassword" label="Current Password" error={$errors.currentPassword} required={true}>
-                                        <EnhancedPasswordInput
-                                                id="currentPassword"
-                                                name="currentPassword"
-                                                bind:value={$form.currentPassword}
-                                                placeholder="Enter your current password"
-                                                aria-invalid={$errors.currentPassword ? 'true' : undefined}
-                                                disabled={$submitting}
-                                                {...$constraints.currentPassword}
-                                        />
-                                    </FormField>
-                                </FormRow>
-
-                                <FormRow columns={2}>
-                                    <FormField id="newPassword" label="New Password" error={$errors.newPassword} required={true}>
-                                        <EnhancedPasswordInput
-                                                id="newPassword"
-                                                name="newPassword"
-                                                bind:value={$form.newPassword}
-                                                placeholder="Enter new password"
-                                                aria-invalid={$errors.newPassword ? 'true' : undefined}
-                                                disabled={$submitting}
-                                                showStrength={true}
-                                                {...$constraints.newPassword}
-                                        />
-                                    </FormField>
-
-                                    <FormField id="confirmPassword" label="Confirm New Password" error={$errors.confirmPassword} required={true}>
-                                        <EnhancedPasswordInput
-                                                id="confirmPassword"
-                                                name="confirmPassword"
-                                                bind:value={$form.confirmPassword}
-                                                placeholder="Confirm new password"
-                                                aria-invalid={$errors.confirmPassword ? 'true' : undefined}
-                                                disabled={$submitting}
-                                                {...$constraints.confirmPassword}
-                                        />
-                                    </FormField>
-                                </FormRow>
-                            {/if}
-                        </div>
-
-                        <!-- Form Actions -->
-                        <div class="flex justify-end gap-2 border-t pt-4">
-                            <Button
-                                    type="button"
-                                    variant="outline"
-                                    on:click={() => {
-                                    editMode = false;
-                                    showPasswordFields = false;
-                                }}
-                                    disabled={$submitting}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                    type="submit"
-                                    disabled={$submitting}
-                            >
-                                <Save class="h-4 w-4 mr-2" />
-                                {$submitting ? 'Saving...' : 'Save Changes'}
-                            </Button>
-                        </div>
+    <!-- Tab Content -->
+    {#if activeTab === 'companies'}
+        <!-- Assigned Organizations Section (same structure as template detail info-card with header action) -->
+        <Card variant="default" radius="2xl" padding="md" fullWidth={true} class="info-card organizations-card">
+            <div slot="header" class="section-header-row section-header-with-action">
+                <div class="section-header">
+                    <div class="section-header-icon" aria-hidden="true">
+                        <Building2 class="icon-md" size={20} strokeWidth={1.5} />
                     </div>
-                </FormContainer>
-            {:else}
-                <!-- Read-only view -->
-                <div class="space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <Label for="name-display">Full Name</Label>
-                            <p class="text-sm font-medium">{data.user.name || 'Not set'}</p>
-                        </div>
-
-                        <div class="space-y-2">
-                            <Label for="email-display">Email Address</Label>
-                            <p class="text-sm font-medium">{data.user.email}</p>
-                        </div>
-
-                        <div class="space-y-2">
-                            <Label for="role-display">User Role</Label>
-                            <p class="text-sm font-medium capitalize">{data.user.systemRole.toLowerCase()}</p>
-                        </div>
-
-                        <div class="space-y-2">
-                            <Label for="status-display">Account Status</Label>
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {
-                                data.user.status === 'ACTIVE'
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-red-100 text-red-800'
-                            }">
-                                {data.user.status}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="border-t pt-4">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-muted-foreground">
-                            <div>
-                                <span class="font-medium">Account Created:</span>
-                                <p>{formatDate(data.user.createdAt)}</p>
-                            </div>
-                            <div>
-                                <span class="font-medium">Last Updated:</span>
-                                <p>{formatDate(data.user.updatedAt)}</p>
-                            </div>
-                        </div>
+                    <div class="section-header-content">
+                        <h2 class="section-title-sm">Assigned Organizations</h2>
+                        <p class="section-subtitle">Organizations associated with this account</p>
                     </div>
                 </div>
-            {/if}
-        </UserCard>
-
-        <!-- API Keys Section -->
-        <Card class="w-full">
-            <CardHeader>
-                <div class="flex items-center justify-between">
-                    <div>
-                        <CardTitle class="flex items-center gap-2">
-                            <Key class="w-5 h-5" />
-                            API Keys
-                        </CardTitle>
-                        <CardDescription>Manage your API keys for accessing the API</CardDescription>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <Button
-                                type="button"
-                                class="whitespace-nowrap"
-                                on:click={async () => {
-                                try {
-                                    const response = await fetch('/user/profile', {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            'Accept': 'application/json'
-                                        },
-                                        // Include session cookie for authentication
-                                        credentials: 'same-origin',
-                                        body: JSON.stringify({
-                                            name: `API Key ${new Date().toLocaleString()}`,
-                                            description: ''
-                                        })
-                                    });
-
-                                    const result = await response.json();
-
-                                    if (!response.ok) {
-                                        throw new Error(result.error?.message || 'Failed to create API key');
-                                    }
-
-                                    if (result.success && result.data) {
-                                        const newKey = result.data;
-                                        // Update the local state with the new key
-                                        apiKeys = [newKey, ...apiKeys];
-                                        newKeyData = newKey;
-                                        showNewKeyDialog = true;
-                                        toast.success(result.message || 'API key created successfully');
-                                    } else {
-                                        throw new Error(result.error?.message || 'Failed to create API key');
-                                    }
-                                } catch (error) {
-                                    console.error('Error creating API key:', error);
-                                    toast.error(error.message || 'An unexpected error occurred');
-                                }
-                            }}
-                        >
-                            <Plus class="w-4 h-4 mr-2" />
-                            Create API Key
-                        </Button>
-                    </div>
-            </CardHeader>
-            <CardContent>
-                {#if isLoading}
-                    <div class="flex justify-center py-8">
-                        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    </div>
-                {:else if error}
-                    <div class="text-center py-8 text-destructive">
-                        <p>{error}</p>
-                        <Button variant="ghost" on:click={fetchApiKeys} class="mt-2">
-                            <RefreshCw class="w-4 h-4 mr-2" />
-                            Try Again
-                        </Button>
-                    </div>
-                {:else if apiKeys.length === 0}
-                    <div class="text-center py-8 text-muted-foreground">
-                        <p>No API keys found. Create your first API key to get started.</p>
-                    </div>
-                {:else}
-                    <div class="space-y-4">
-                        {#each apiKeys as key}
-                            <div class="border rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                <div class="space-y-1">
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-medium">{key.name}</span>
-                                        <Badge variant={key.active ? 'default' : 'secondary'}>
-                                            {key.active ? 'Active' : 'Inactive'}
-                                        </Badge>
-                                    </div>
-                                    <p class="text-sm text-muted-foreground">
-                                        Created {formatDistanceToNow(new Date(key.createdAt), { addSuffix: true })}{#if key.lastUsedAt} • Last used {formatDistanceToNow(new Date(key.lastUsedAt), { addSuffix: true })}{/if}{#if key.expiresAt} • Expires {formatDistanceToNow(new Date(key.expiresAt), { addSuffix: true })}{/if}
-                                    </p>
-                                    {#if key.description}
-                                        <p class="text-sm text-muted-foreground">{key.description}</p>
-                                    {/if}
-
-                                    <div class="mt-1 w-full">
-                                        <SecureKeyDisplay
-                                                apiKey={key.key}
-                                                createdAt={key.createdAt}
-                                                showVisibilityToggle={true}
-                                                showCopyButton={true}
-                                                className="py-1 w-full max-w-none"
-                                                buttonClass="h-8 w-8 p-1 hover:bg-muted rounded"
-                                        />
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            on:click={() => toggleApiKey(key.id, key.active)}
-                                    >
-                                        {#if key.active}
-                                            <ToggleLeft class="w-4 h-4 mr-2" />
-                                        {:else}
-                                            <ToggleRight class="w-4 h-4 mr-2" />
-                                        {/if}
-                                        {key.active ? 'Deactivate' : 'Activate'}
-                                    </Button>
-                                    <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            on:click={() => confirmDeleteApiKey(key.id)}
-                                    >
-                                        <Trash2 class="w-4 h-4 mr-2" />
-                                        Delete
-                                    </Button>
-                                </div>
-                            </div>
-                        {/each}
-                    </div>
-                {/if}
-            </CardContent>
+                <Button
+                    variant="filled"
+                    color="primary"
+                    size="lg"
+                    icon={Plus}
+                    iconPosition="left"
+                    on:click={openAddOrgModal}
+                >
+                    Add Organization
+                </Button>
+            </div>
+            <div class="organizations-card-body">
+                <DataTable
+                    data={organizations}
+                    {columns}
+                    {pagination}
+                    {sort}
+                    {loading}
+                    bordered={true}
+                    emptyMessage="No organizations found"
+                    on:sort={handleSort}
+                    on:pageChange={handlePageChange}
+                />
+            </div>
         </Card>
-    </div>
-</UserPageLayout>
+    {:else if activeTab === 'notifications'}
+        <div class="placeholder-section">
+            <p>Notifications settings coming soon...</p>
+        </div>
+    {:else if activeTab === 'security'}
+        <div class="placeholder-section">
+            <p>Security settings coming soon...</p>
+        </div>
+    {/if}
+</div>
 
-<!-- Delete API Key Confirmation Dialog -->
-<ConfirmationDialog
-        bind:open={showDeleteDialog}
-        title="Delete API Key"
-        description="Are you sure you want to delete this API key? This action cannot be undone."
-        confirmText="Delete"
-        cancelText="Cancel"
-        onConfirm={deleteApiKey}
+<!-- Edit Profile Modal -->
+<Modal
+    open={showEditProfileModal}
+    title="Edit Profile"
+    width="880px"
+    on:close={closeEditProfileModal}
+>
+    <div class="form-body">
+        <div class="form-row">
+            <InputField
+                label="Account Name"
+                placeholder="Enter account name"
+                bind:value={profileName}
+                required={true}
+            />
+            <InputField
+                label="Account Slug"
+                value={account?.slug || ''}
+                disabled={true}
+            />
+        </div>
+        <TextareaField
+            label="Description"
+            placeholder="Enter description"
+            bind:value={profileDescription}
+            rows={4}
+        />
+    </div>
+    <svelte:fragment slot="footer">
+        <Button variant="outline" color="primary" size="lg" on:click={closeEditProfileModal}>
+            Cancel
+        </Button>
+        <Button variant="filled" color="primary" size="lg" loading={editProfileLoading} on:click={handleEditProfile}>
+            Save
+        </Button>
+    </svelte:fragment>
+</Modal>
+
+<!-- Add Organization Modal -->
+<Modal
+    open={showAddOrgModal}
+    title="Add Organization"
+    width="880px"
+    on:close={closeAddOrgModal}
+>
+    <div class="form-body">
+        <div class="form-row">
+            <InputField
+                label="Organization Name"
+                placeholder="Enter"
+                bind:value={orgName}
+                required={true}
+            />
+            <div class="dropdown-field">
+                <span class="field-label">Account</span>
+                <Dropdown
+                    options={[{ id: account?.id || '', label: account?.name || 'System Account' }]}
+                    value={account?.id || ''}
+                    disabled={true}
+                />
+            </div>
+        </div>
+        <div class="form-row">
+            <InputField
+                label="Contact Email"
+                placeholder="Enter"
+                type="email"
+                bind:value={orgEmail}
+                required={true}
+            />
+            <PhoneInput
+                label="Contact Phone Number"
+                placeholder="### ###-####"
+                bind:value={orgPhone}
+            />
+        </div>
+        <InputField
+            label="Address"
+            placeholder="Enter"
+            bind:value={orgAddress}
+        />
+        <TextareaField
+            label="Description"
+            placeholder="Enter"
+            bind:value={orgDescription}
+            rows={4}
+        />
+    </div>
+    <svelte:fragment slot="footer">
+        <Button variant="outline" color="primary" size="lg" on:click={closeAddOrgModal}>
+            Cancel
+        </Button>
+        <Button variant="filled" color="primary" size="lg" loading={orgFormLoading} on:click={handleAddOrg}>
+            Add
+        </Button>
+    </svelte:fragment>
+</Modal>
+
+<!-- Edit Organization Modal -->
+<Modal
+    open={showEditOrgModal}
+    title="Edit Organization"
+    width="880px"
+    on:close={closeEditOrgModal}
+>
+    <div class="form-body">
+        <div class="form-row">
+            <InputField
+                label="Organization Name"
+                placeholder="Enter"
+                bind:value={orgName}
+                required={true}
+            />
+            <div class="dropdown-field">
+                <span class="field-label">Account</span>
+                <Dropdown
+                    options={[{ id: account?.id || '', label: account?.name || 'System Account' }]}
+                    value={account?.id || ''}
+                    disabled={true}
+                />
+            </div>
+        </div>
+        <div class="form-row">
+            <InputField
+                label="Contact Email"
+                placeholder="Enter"
+                type="email"
+                bind:value={orgEmail}
+                required={true}
+            />
+            <PhoneInput
+                label="Contact Phone Number"
+                placeholder="### ###-####"
+                bind:value={orgPhone}
+            />
+        </div>
+        <InputField
+            label="Address"
+            placeholder="Enter"
+            bind:value={orgAddress}
+        />
+        <TextareaField
+            label="Description"
+            placeholder="Enter"
+            bind:value={orgDescription}
+            rows={4}
+        />
+    </div>
+    <svelte:fragment slot="footer">
+        <Button variant="outline" color="primary" size="lg" on:click={closeEditOrgModal}>
+            Cancel
+        </Button>
+        <Button variant="filled" color="primary" size="lg" loading={orgFormLoading} on:click={handleEditOrg}>
+            Save
+        </Button>
+    </svelte:fragment>
+</Modal>
+
+<!-- Toggle Status Confirmation Modal -->
+<ConfirmModal
+    open={showToggleStatusModal}
+    title={toggleStatusOrg?.status === 'ACTIVE' ? 'Deactivate Organization' : 'Reactivate Organization'}
+    description={toggleStatusOrg?.status === 'ACTIVE'
+        ? 'Are you sure you want to deactivate this organization?'
+        : 'Are you sure you want to reactivate this organization?'}
+    cancelText="Cancel"
+    confirmText={toggleStatusOrg?.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
+    type="error"
+    confirmLoading={toggleStatusLoading}
+    on:close={closeToggleStatusModal}
+    on:confirm={handleToggleStatus}
 />
+
+<!-- Delete Confirmation Modal -->
+<ConfirmModal
+    open={showDeleteModal}
+    title="Delete Organization"
+    description="Are you sure you want to delete this organization? This action can not be reverse."
+    cancelText="Cancel"
+    confirmText="Delete"
+    type="error"
+    confirmLoading={deleteLoading}
+    on:close={closeDeleteModal}
+    on:confirm={handleDelete}
+/>
+
+<style>
+    .profile-page {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-height: 100%;
+        background: var(--ds-bg-secondary);
+        padding: var(--ds-space-6);
+        gap: var(--ds-space-6);
+    }
+
+    /* Edit Profile button row – outside cards, aligned right */
+    .profile-top-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-end;
+        width: 100%;
+        min-height: 44px;
+    }
+
+    .profile-top-spacer {
+        flex: 1;
+    }
+
+    /* Info card & section header – match template detail (info-card, card-header px-4 py-3 border-b) */
+    .section-header {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: var(--ds-space-2);
+    }
+
+    .section-header-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        padding: var(--ds-space-3);
+        border-radius: var(--ds-radius-lg);
+        color: var(--ds-color-neutral-true-400);
+    }
+
+    .section-header-icon :global(svg),
+    .section-header-icon :global(.icon-md) {
+        width: 20px;
+        height: 20px;
+    }
+
+    .section-header-content {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-0-5);
+    }
+
+    .section-header-with-action .section-header-content {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .section-title-sm {
+        margin: 0;
+        font: var(--ds-text-md-medium);
+        color: var(--ds-text-primary);
+    }
+
+    .section-subtitle {
+        margin: 0;
+        font: var(--ds-text-sm-regular);
+        color: var(--ds-text-tertiary);
+    }
+
+    .section-header-row {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+    }
+
+    .section-header-row.section-header-with-action {
+        gap: var(--ds-space-4);
+    }
+
+    .info-card-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+    }
+
+    .info-grid-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: var(--ds-space-6);
+    }
+
+    .info-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-1);
+    }
+
+    .info-label {
+        font: var(--ds-text-sm-regular);
+        color: var(--ds-text-tertiary);
+    }
+
+    .info-value {
+        font: var(--ds-text-md-medium);
+        color: var(--ds-text-primary);
+    }
+
+    .organizations-card-body {
+        padding-top: 0;
+    }
+
+    /* Tabs */
+    .tabs-section {
+        border-bottom: 1px solid var(--ds-border-default);
+    }
+
+
+    /* Placeholder for other tabs */
+    .placeholder-section {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--ds-space-12);
+        background: var(--ds-bg-secondary);
+        border-radius: var(--ds-radius-xl);
+        border: 1px solid var(--ds-border-default);
+    }
+
+    .placeholder-section p {
+        font: var(--ds-text-md-regular);
+        color: var(--ds-text-tertiary);
+    }
+
+    /* Form styles */
+    .form-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--ds-space-4);
+    }
+
+    .dropdown-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-1-5);
+    }
+
+    .field-label {
+        font: var(--ds-text-sm-medium);
+        color: var(--ds-text-secondary);
+    }
+</style>

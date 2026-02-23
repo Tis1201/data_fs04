@@ -13,11 +13,9 @@
         LayoutGrid,
         Settings,
         CircleHelp,
-        Globe,
         LayoutList,
         Box,
         Radio
-
     } from "lucide-svelte";
 
     export let data;
@@ -48,13 +46,7 @@
             children: [
                 { id: 'all-devices', label: 'All Devices', href: '/user/devices/listing' },
                 { id: 'tags', label: 'Tags', href: '/user/iot/device_tags' }
-            ]
-        },
-        {
-            id: 'organization',
-            label: 'Organizations',
-            icon: Globe,
-            href: '/user/settings/organizations',
+            ],
             dividerAfter: true
         },
         // RDM Management Section
@@ -82,17 +74,20 @@
                 { id: 'data', label: 'Data', href: '/user/analytics/radar' },
                 { id: 'api-keys', label: 'API Keys', href: '/user/settings/api-keys' }
             ]
-        }
-    ];
-
-    // Footer navigation items
-    const footerNavItems: NavItem[] = [
+        },
+        // Settings – temporarily only Members per design (Account, Organizations, API Keys, Billing can be added later)
         {
             id: 'settings',
             label: 'Settings',
             icon: Settings,
-            href: '/user/profile'
-        },
+            children: [
+                { id: 'members', label: 'Members', href: '/user/settings/users' }
+            ]
+        }
+    ];
+
+    // Footer navigation items (Settings moved to main nav; only Help remains)
+    const footerNavItems: NavItem[] = [
         {
             id: 'help',
             label: 'Help & Support',
@@ -333,6 +328,40 @@
                 title: 'Organization Details',
                 subtitle: 'View and manage organization profile',
                 showBackButton: true
+            };
+        }
+        // Members (Settings > Members listing)
+        if (pathname === '/user/settings/users' || pathname === '/user/settings/users/') {
+            return {
+                headerStyle: 'page',
+                title: 'Members',
+                subtitle: 'Manage all members in your organization'
+            };
+        }
+        // Member detail (single member profile)
+        if (/^\/user\/settings\/users\/[^/]+\/?$/.test(pathname.replace(/\/$/, '')) && !pathname.includes('/sessions') && !pathname.includes('/new')) {
+            return {
+                headerStyle: 'page',
+                title: 'Member Details',
+                subtitle: 'Manage your member account',
+                showBackButton: true
+            };
+        }
+        // Member sessions (sub-route of member detail)
+        if (/^\/user\/settings\/users\/[^/]+\/sessions\/?$/.test(pathname.replace(/\/$/, ''))) {
+            return {
+                headerStyle: 'page',
+                title: 'Sessions',
+                subtitle: 'Session of this member',
+                showBackButton: true
+            };
+        }
+        // My Profile (user profile page)
+        if (pathname === '/user/profile' || pathname === '/user/profile/') {
+            return {
+                headerStyle: 'page',
+                title: 'My Profile',
+                subtitle: 'Manage your profile account here'
             };
         }
         // Default

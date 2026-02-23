@@ -1,6 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
-import prisma from '$lib/server/prisma'; // Import raw Prisma client directly
+import prisma from '$lib/server/prisma';
 import { UserStatus } from '$lib/types/roles';
 import { hash } from '@node-rs/argon2';
 import { validatePassword } from '$lib/server/auth/password-validation';
@@ -10,77 +10,103 @@ import { resetUserPassword } from '$lib/server/services/password-reset';
 import { restrictAccountRole, type AccountAuthenticatedEvent } from '$lib/server/security/guards';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { getEnhancedPrisma } from '$lib/server/prisma';
+import { checkUserLimit, LimitExceededError } from '$lib/server/entitlements';
+import { createUserSchema } from './new/schema';
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
+const DEFAULT_PAGE = 1;
+const DEFAULT_PER_PAGE = 10;
+const MAX_PER_PAGE = 100;
+
+export const load: PageServerLoad = async ({ locals, cookies, url }) => {
     const loadHandler = restrictAccountRole(
         async ({ auth, accountMembership }: AccountAuthenticatedEvent) => {
             const { accountId } = accountMembership;
-            
-            // Get user memberships for admin Prisma client
+
+            const page = Math.max(1, parseInt(url.searchParams.get('page') || String(DEFAULT_PAGE), 10));
+            const perPage = Math.min(MAX_PER_PAGE, Math.max(1, parseInt(url.searchParams.get('per_page') || String(DEFAULT_PER_PAGE), 10)));
+            const search = (url.searchParams.get('search') || '').trim();
+            const sortField = url.searchParams.get('sort_field') || 'name';
+            const sortOrder = (url.searchParams.get('sort_order') || 'asc') as 'asc' | 'desc';
+
             const userMemberships = await prisma.accountMembership.findMany({
                 where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
                 include: {
-                    account: {
-                        select: { id: true, name: true, slug: true }
-                    }
+                    account: { select: { id: true, name: true, slug: true } }
                 }
             });
 
-            // Create admin Prisma client
             const adminPrisma = getAdminPrismaFromAuth(auth!, userMemberships);
 
             try {
-                // Get the current account info
                 const currentAccount = await adminPrisma.account.findUnique({
                     where: { id: accountId },
-                    select: {
-                        id: true,
-                        name: true,
-                        slug: true
-                    }
+                    select: { id: true, name: true, slug: true }
                 });
 
                 if (!currentAccount) {
                     throw error(404, 'Account not found');
                 }
 
-                // Get users who are members of the current account - using enhanced client with admin context
-                const accountMembers = await adminPrisma.accountMembership.findMany({
-                    where: { 
-                        accountId: accountId,
-                        userId: {
-                            not: auth!.user.id // Exclude the current user from the list
-                        },
-                        role: { not: 'SYSTEM' }
-                    },
-                    select: {
-                        id: true,
-                        role: true,
-                        createdAt: true,
-                        user: {
-                            select: {
-                                id: true,
-                                email: true,
-                                name: true,
-                                systemRole: true,
-                                status: true,
-                                createdAt: true,
-                                updatedAt: true,
-                                _count: {
-                                    select: {
-                                        sessions: true
-                                    }
+                const where: {
+                    accountId: string;
+                    userId: { not: string };
+                    role: { not: string };
+                    user?: { OR: Array<{ name?: { contains: string; mode: 'insensitive' }; email?: { contains: string; mode: 'insensitive' } }> };
+                } = {
+                    accountId,
+                    userId: { not: auth!.user.id },
+                    role: { not: 'SYSTEM' }
+                };
+
+                if (search) {
+                    where.user = {
+                        OR: [
+                            { name: { contains: search, mode: 'insensitive' } },
+                            { email: { contains: search, mode: 'insensitive' } }
+                        ]
+                    };
+                }
+
+                const validSortFields = ['name', 'email', 'createdAt', 'status', 'role'];
+                const orderByField = validSortFields.includes(sortField) ? sortField : 'name';
+                const skip = (page - 1) * perPage;
+
+                type OrderByClause = { createdAt?: 'asc' | 'desc'; user?: { name?: 'asc' | 'desc'; email?: 'asc' | 'desc'; status?: 'asc' | 'desc' }; role?: 'asc' | 'desc' };
+                let orderBy: OrderByClause = { createdAt: 'desc' };
+                if (orderByField === 'createdAt') orderBy = { createdAt: sortOrder };
+                else if (orderByField === 'name') orderBy = { user: { name: sortOrder } };
+                else if (orderByField === 'email') orderBy = { user: { email: sortOrder } };
+                else if (orderByField === 'status') orderBy = { user: { status: sortOrder } };
+                else if (orderByField === 'role') orderBy = { role: sortOrder };
+
+                const [accountMembers, total] = await Promise.all([
+                    adminPrisma.accountMembership.findMany({
+                        where,
+                        select: {
+                            id: true,
+                            role: true,
+                            createdAt: true,
+                            user: {
+                                select: {
+                                    id: true,
+                                    email: true,
+                                    name: true,
+                                    systemRole: true,
+                                    status: true,
+                                    createdAt: true,
+                                    updatedAt: true,
+                                    _count: { select: { sessions: true } }
                                 }
                             }
-                        }
-                    },
-                    orderBy: [
-                        { role: 'asc' },
-                        { createdAt: 'desc' }
-                    ]
-                });
+                        },
+                        orderBy,
+                        skip,
+                        take: perPage
+                    }),
+                    adminPrisma.accountMembership.count({ where })
+                ]);
 
-                // Transform the data for the frontend
                 const usersWithSessions = accountMembers.map(membership => ({
                     id: membership.user.id,
                     email: membership.user.email,
@@ -95,16 +121,23 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
                     joinedAt: membership.createdAt
                 }));
 
-                const result = {
+                const totalPages = Math.ceil(total / perPage);
+
+                return {
                     users: usersWithSessions,
                     currentAccount: {
                         id: currentAccount.id,
                         name: currentAccount.name,
                         userRole: accountMembership.role
-                    }
+                    },
+                    meta: {
+                        totalItems: total,
+                        itemsPerPage: perPage,
+                        totalPages,
+                        currentPage: page
+                    },
+                    sort: { field: orderByField, order: sortOrder }
                 };
-
-                return result;
             } catch (err) {
                 console.error('Error loading users:', err);
                 throw error(500, 'Failed to load users');
@@ -113,10 +146,105 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
         ['ADMIN', 'OWNER', 'MEMBER']
     );
 
-    return await loadHandler({ locals, cookies } as any);
+    return await loadHandler({ locals, cookies, url } as any);
 };
 
 export const actions: Actions = {
+    create: async ({ request, locals, cookies }) => {
+        const actionHandler = restrictAccountRole(
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
+                const { accountId } = accountMembership;
+                const userMemberships = await prisma.accountMembership.findMany({
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
+                    include: { account: { select: { id: true, name: true, slug: true } } }
+                });
+                const adminPrisma = getAdminPrismaFromAuth(auth!, userMemberships);
+                const enhancedPrisma = getEnhancedPrisma(auth!.user);
+
+                const formData = await request.formData();
+                const name = (formData.get('name') as string)?.trim();
+                const email = ((formData.get('email') || formData.get('contactEmail')) as string)?.trim();
+                const accountRole = (formData.get('accountRole') as string) || 'MEMBER';
+                const status = (formData.get('status') as string) || 'ACTIVE';
+                const password = (formData.get('password') as string) || '';
+
+                const parsed = createUserSchema.safeParse({
+                    name: name || '',
+                    email: email || '',
+                    accountRole: ['MEMBER', 'ADMIN'].includes(accountRole) ? accountRole : 'MEMBER',
+                    status: ['ACTIVE', 'INACTIVE'].includes(status) ? status : 'ACTIVE',
+                    password
+                });
+
+                if (!parsed.success) {
+                    const first = parsed.error.flatten().fieldErrors;
+                    const msg = first.name?.[0] || first.email?.[0] || first.password?.[0] || 'Validation failed';
+                    return fail(400, { error: msg, createError: true });
+                }
+
+                try {
+                    await checkUserLimit(accountId);
+                } catch (e) {
+                    if (e instanceof LimitExceededError) {
+                        return fail(403, { error: `User limit reached (${e.current}/${e.max}). Upgrade your plan to add more users.`, createError: true });
+                    }
+                    throw e;
+                }
+
+                const passwordValidation = await validatePassword(parsed.data.password);
+                if (!passwordValidation.valid) {
+                    return fail(400, { error: passwordValidation.error || 'Password does not meet requirements', createError: true });
+                }
+
+                const existingUser = await enhancedPrisma.user.findUnique({ where: { email: parsed.data.email } });
+                if (existingUser) {
+                    return fail(400, { error: 'A user with this email already exists', createError: true });
+                }
+
+                const hashedPassword = await hash(parsed.data.password);
+                const newUser = await enhancedPrisma.user.create({
+                    data: {
+                        email: parsed.data.email,
+                        name: parsed.data.name,
+                        systemRole: 'USER',
+                        status: parsed.data.status,
+                        password: hashedPassword
+                    },
+                    select: { id: true, email: true, name: true, systemRole: true, status: true, createdAt: true }
+                });
+
+                const membership = await adminPrisma.accountMembership.create({
+                    data: { userId: newUser.id, accountId, role: parsed.data.accountRole }
+                });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'User',
+                    recordId: newUser.id,
+                    oldData: null,
+                    newData: newUser,
+                    userId: auth!.user.id,
+                    ipAddress: locals.requestContext?.ip,
+                    prisma: adminPrisma
+                });
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'AccountMembership',
+                    recordId: membership.id,
+                    oldData: null,
+                    newData: membership,
+                    userId: auth!.user.id,
+                    ipAddress: locals.requestContext?.ip,
+                    prisma: adminPrisma
+                });
+
+                return { type: 'success', message: 'Member added successfully' };
+            },
+            ['ADMIN', 'OWNER']
+        );
+        return await actionHandler({ request, locals, cookies } as any);
+    },
+
     updateUserStatus: async ({ request, locals, cookies }) => {
         const actionHandler = restrictAccountRole(
             async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
@@ -337,6 +465,108 @@ export const actions: Actions = {
                 } catch (err) {
                     console.error('Error updating user role:', err);
                     return fail(500, { message: 'Failed to update user role' });
+                }
+            },
+            ['ADMIN', 'OWNER']
+        );
+
+        return await actionHandler({ request, locals, cookies } as any);
+    },
+
+    /**
+     * Update member profile (name, email, role, status) from listing Edit modal.
+     */
+    updateMember: async ({ request, locals, cookies }) => {
+        const actionHandler = restrictAccountRole(
+            async ({ auth, accountMembership, locals }: AccountAuthenticatedEvent) => {
+                const { accountId } = accountMembership;
+
+                const userMemberships = await prisma.accountMembership.findMany({
+                    where: { userId: auth!.user.id, role: { not: 'SYSTEM' } },
+                    include: {
+                        account: { select: { id: true, name: true, slug: true } }
+                    }
+                });
+
+                const adminPrisma = getAdminPrismaFromAuth(auth!, userMemberships);
+
+                try {
+                    const data = await request.formData();
+                    const userId = (data.get('userId') as string)?.trim();
+                    const name = (data.get('name') as string)?.trim();
+                    const email = (data.get('email') as string)?.trim().toLowerCase();
+                    const accountRole = (data.get('accountRole') as string) || 'MEMBER';
+                    const status = (data.get('status') as string) || 'ACTIVE';
+                    const newPassword = (data.get('password') as string)?.trim();
+
+                    if (!userId || !name || !email) {
+                        return fail(400, { message: 'User ID, name and email are required' });
+                    }
+
+                    const validRoles = ['OWNER', 'ADMIN', 'MEMBER'];
+                    if (!validRoles.includes(accountRole.toUpperCase())) {
+                        return fail(400, { message: 'Invalid role' });
+                    }
+
+                    const validStatuses = ['ACTIVE', 'INACTIVE'];
+                    if (!validStatuses.includes(status.toUpperCase())) {
+                        return fail(400, { message: 'Invalid status' });
+                    }
+
+                    if (newPassword) {
+                        const passwordValidation = await validatePassword(newPassword);
+                        if (!passwordValidation.valid) {
+                            return fail(400, { message: passwordValidation.error || 'Password does not meet requirements' });
+                        }
+                    }
+
+                    const targetMembership = await adminPrisma.accountMembership.findFirst({
+                        where: {
+                            accountId,
+                            userId,
+                            role: { not: 'SYSTEM' }
+                        },
+                        include: { user: { select: { id: true, name: true, email: true, status: true } } }
+                    });
+
+                    if (!targetMembership) {
+                        return fail(404, { message: 'User not found in current account' });
+                    }
+
+                    const userUpdateData: { name: string; email: string; status: UserStatus; password?: string } = {
+                        name,
+                        email,
+                        status: status.toUpperCase() as UserStatus
+                    };
+                    if (newPassword) {
+                        userUpdateData.password = await hash(newPassword);
+                    }
+
+                    await adminPrisma.user.update({
+                        where: { id: userId },
+                        data: userUpdateData
+                    });
+
+                    await adminPrisma.accountMembership.updateMany({
+                        where: { accountId, userId, role: { not: 'SYSTEM' } },
+                        data: { role: accountRole.toUpperCase() }
+                    });
+
+                    await logAudit({
+                        actionType: AuditActionType.UPDATE,
+                        tableName: 'User',
+                        recordId: userId,
+                        oldData: targetMembership.user,
+                        newData: { name, email, status: status.toUpperCase() },
+                        userId: auth!.user.id,
+                        ipAddress: locals.requestContext?.ip,
+                        prisma: adminPrisma
+                    });
+
+                    return { type: 'success', message: 'Member updated successfully' };
+                } catch (err) {
+                    logger.error('Error updating member:', { error: err });
+                    return fail(500, { message: 'Failed to update member' });
                 }
             },
             ['ADMIN', 'OWNER']

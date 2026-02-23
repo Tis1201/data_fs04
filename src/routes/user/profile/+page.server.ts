@@ -1,223 +1,471 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { superValidate, message } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { logger } from '$lib/server/logger';
-import { validatePassword } from '$lib/server/auth/password-validation';
-import { hash, verify } from '@node-rs/argon2';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import prisma from '$lib/server/prisma';
+import { restrictAccountRole, type AccountAuthenticatedEvent } from '$lib/server/security/guards';
 
-// Schema for profile editing
+// Schema for profile editing (Account info)
 const profileEditSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
-  currentPassword: z.string().optional(),
-  newPassword: z.string().optional(),
-  confirmPassword: z.string().optional()
-}).refine(
-  (data) => {
-    // If any password field is filled, require current password
-    if (data.newPassword || data.confirmPassword) {
-      return data.currentPassword && data.currentPassword.length > 0;
-    }
-    return true;
-  },
-  {
-    message: "Current password is required to change password",
-    path: ["currentPassword"]
-  }
-).refine(
-  (data) => {
-    // If new password is provided, require confirmation
-    if (data.newPassword) {
-      return data.confirmPassword === data.newPassword;
-    }
-    return true;
-  },
-  {
-    message: "Passwords do not match",
-    path: ["confirmPassword"]
-  }
-);
+    name: z.string().min(1, 'Account name is required').max(100, 'Name is too long'),
+    description: z.string().optional()
+});
 
-export const load: PageServerLoad = async ({ locals }) => {
-  try {
-    // Get authenticated user
-    const auth = await locals.auth.validate();
-    if (!auth?.user) {
-      throw redirect(302, '/auth/login');
-    }
+// Organization row type
+interface OrganizationRow {
+    id: string;
+    name: string;
+    contactEmail: string | null;
+    totalDevices: number;
+    address: string | null;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+    description: string | null;
+    contactPhone: string | null;
+}
 
-    // Get user data from database
-    const user = await locals.prisma.user.findUnique({
-      where: { id: auth.user.id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        systemRole: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
+/**
+ * Load profile data including account info and organizations
+ */
+export const load = restrictAccountRole(
+    async ({ url, locals, accountMembership }: AccountAuthenticatedEvent) => {
+        const { accountId } = accountMembership;
+        const userId = locals.user?.id;
 
-    if (!user) {
-      throw error(404, 'User not found');
-    }
+        try {
+            // Get user data
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    systemRole: true,
+                    status: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
 
-    // Initialize the form with current user data
-    const form = await superValidate(zod(profileEditSchema), {
-      id: 'profile-edit-form',
-      defaults: {
-        email: user.email,
-        name: user.name || '',
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: ''
-      }
-    });
+            if (!user) {
+                throw error(404, 'User not found');
+            }
 
-    return { 
-      form,
-      user
-    };
-  } catch (err) {
-    if (err instanceof Response) {
-      throw err; // Re-throw redirects and HTTP errors
-    }
-    logger.error(`Error loading profile: ${err}`);
-    throw error(500, 'Failed to load profile');
-  }
-};
+            // Get account details
+            const account = await prisma.account.findUnique({
+                where: { id: accountId },
+                select: {
+                    id: true,
+                    name: true,
+                    slug: true,
+                    description: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
+
+            if (!account) {
+                throw error(404, 'Account not found');
+            }
+
+            // Parse query params for organizations
+            const search = url.searchParams.get('search') || '';
+            const page = parseInt(url.searchParams.get('page') || '1');
+            const perPage = parseInt(url.searchParams.get('per_page') || '10');
+            const sortField = url.searchParams.get('sort_field') || 'name';
+            const sortOrder = (url.searchParams.get('sort_order') || 'asc') as 'asc' | 'desc';
+
+            const skip = (page - 1) * perPage;
+            const take = perPage;
+
+            // Build where clause for organizations
+            const where: any = { accountId };
+
+            if (search) {
+                where.OR = [
+                    { name: { contains: search, mode: 'insensitive' } },
+                    { contactEmail: { contains: search, mode: 'insensitive' } },
+                    { address: { contains: search, mode: 'insensitive' } }
+                ];
+            }
+
+            // Fetch organizations
+            const [organizations, totalOrganizations] = await Promise.all([
+                prisma.company.findMany({
+                    where,
+                    orderBy: { [sortField]: sortOrder },
+                    skip,
+                    take,
+                    select: {
+                        id: true,
+                        name: true,
+                        contactEmail: true,
+                        contactPhone: true,
+                        address: true,
+                        description: true,
+                        status: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        _count: {
+                            select: { devices: true }
+                        }
+                    }
+                }),
+                prisma.company.count({ where })
+            ]);
+
+            const totalPages = Math.ceil(totalOrganizations / perPage);
+
+            // Transform to OrganizationRow
+            const rows: OrganizationRow[] = organizations.map(org => ({
+                id: org.id,
+                name: org.name,
+                contactEmail: org.contactEmail,
+                totalDevices: org._count.devices,
+                address: org.address,
+                status: org.status,
+                createdAt: org.createdAt.toISOString(),
+                updatedAt: org.updatedAt.toISOString(),
+                description: org.description,
+                contactPhone: org.contactPhone
+            }));
+
+            // Initialize the profile edit form
+            const form = await superValidate(zod(profileEditSchema), {
+                id: 'profile-edit-form',
+                defaults: {
+                    name: account.name || '',
+                    description: account.description || ''
+                }
+            });
+
+            return {
+                user,
+                account,
+                form,
+                organizations: rows,
+                meta: {
+                    totalItems: totalOrganizations,
+                    itemsPerPage: perPage,
+                    totalPages,
+                    currentPage: page
+                },
+                sort: {
+                    field: sortField,
+                    order: sortOrder
+                }
+            };
+        } catch (err) {
+            if (err instanceof Response) {
+                throw err;
+            }
+            logger.error(`Error loading profile: ${err}`);
+            throw error(500, 'Failed to load profile');
+        }
+    },
+    ['ADMIN', 'OWNER', 'MEMBER']
+) satisfies PageServerLoad;
 
 export const actions: Actions = {
-  update: async ({ request, locals }: { request: Request; locals: any }) => {
-    const form = await superValidate(request, zod(profileEditSchema));
-    
-    try {
-      // Get authenticated user
-      const auth = await locals.auth.validate();
-      if (!auth?.user) {
-        throw redirect(302, '/auth/login');
-      }
-      
-      // Perform additional custom validations
-      let hasValidationErrors = !form.valid;
-      
-      // Check if email already exists (only if it's different from current)
-      if (form.data.email && form.data.email !== auth.user.email) {
-        const existingUser = await locals.prisma.user.findUnique({
-          where: { email: form.data.email }
-        });
-        
-        if (existingUser) {
-          form.errors.email = ['A user with this email already exists'];
-          hasValidationErrors = true;
-        }
-      }
-      
-      // Validate new password if provided
-      if (form.data.newPassword) {
-        const passwordValidation = await validatePassword(form.data.newPassword);
-        
-        if (!passwordValidation.valid) {
-          form.errors.newPassword = [passwordValidation.error || 'Password does not meet security requirements'];
-          hasValidationErrors = true;
-        }
-      }
-      
-      // Validate current password if password change is requested
-      const currentUser = await locals.prisma.user.findUnique({
-        where: { id: auth.user.id }
-      });
-      if (form.data.newPassword && form.data.currentPassword) {
-        if (!currentUser || !currentUser.password) {
-          form.errors.currentPassword = ['Unable to verify current password'];
-          hasValidationErrors = true;
-        } else {
-          const isCurrentPasswordValid = await verify(currentUser.password, form.data.currentPassword);
-          
-          if (!isCurrentPasswordValid) {
-            form.errors.currentPassword = ['Current password is incorrect'];
-            hasValidationErrors = true;
-          }
-        }
-      }
-      
-      // Return all validation errors at once
-      if (hasValidationErrors) {
-        return fail(400, { form });
-      }
+    /**
+     * Update account profile (name, description)
+     */
+    updateProfile: restrictAccountRole(
+        async ({ request, locals, accountMembership }: AccountAuthenticatedEvent) => {
+            const { accountId } = accountMembership;
+            const userId = locals.user?.id;
 
-      // Prepare update data
-      const updateData: any = {
-        email: form.data.email,
-        name: form.data.name
-      };
+            const form = await superValidate(request, zod(profileEditSchema));
 
-      // Add password hash if new password is provided
-      if (form.data.newPassword) {
-        updateData.password = await hash(form.data.newPassword);
-      }
+            if (!form.valid) {
+                return fail(400, { form });
+            }
 
-      // Update user in database
-      const updatedUser = await locals.prisma.user.update({
-        where: { id: auth.user.id },
-        data: updateData
-      });
+            try {
+                // Get current account for audit
+                const currentAccount = await prisma.account.findUnique({
+                    where: { id: accountId }
+                });
 
-      logger.info(`User profile updated: ${updatedUser.id}`);
+                if (!currentAccount) {
+                    return fail(404, { form, error: 'Account not found' });
+                }
 
-      await logAudit({
-        actionType: AuditActionType.UPDATE,
-        tableName: 'User',
-        recordId: auth.user.id,
-        oldData: currentUser,
-        newData: updatedUser,
-        userId: locals.user.id,
-        ipAddress: locals.ipAddress,
-        prisma: locals.prisma
-      })
+                // Update account
+                const updatedAccount = await prisma.account.update({
+                    where: { id: accountId },
+                    data: {
+                        name: form.data.name,
+                        description: form.data.description || null
+                    }
+                });
 
-      // Clear password fields after successful update
-      form.data.currentPassword = '';
-      form.data.newPassword = '';
-      form.data.confirmPassword = '';
+                logger.info(`Account profile updated: ${accountId}`, { userId, accountId });
 
-      return message(form, {
-        type: 'success',
-        text: 'Profile updated successfully',
-        details: 'Your profile information has been saved.'
-      });
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Account',
+                    recordId: accountId,
+                    oldData: currentAccount,
+                    newData: updatedAccount,
+                    userId: userId || 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
+                    prisma
+                });
 
-    } catch (err) {
-      if (err instanceof Response) {
-        throw err; // Re-throw redirects
-      }
-      
-      logger.error(`Error updating profile: ${err}`);
-      
-      let errorMessage = {
-        type: 'error' as const,
-        text: 'Unable to update profile',
-        details: 'An unexpected error occurred while updating your profile.'
-      };
-      
-      // Handle specific error types
-      if (err && typeof err === 'object' && 'code' in err) {
-        if (err.code === 'P2002') {
-          errorMessage.text = 'Email already exists';
-          errorMessage.details = 'A user with this email already exists.';
-        } else if (err.code === 'P2025') {
-          errorMessage.text = 'User not found';
-          errorMessage.details = 'Your user account could not be found.';
-        }
-      }
-      
-      return message(form, errorMessage, { status: 400 });
-    }
-  }
+                return message(form, {
+                    type: 'success',
+                    text: 'Profile updated successfully!'
+                });
+            } catch (err) {
+                logger.error(`Error updating profile: ${err}`);
+                return message(form, {
+                    type: 'error',
+                    text: 'Failed to update profile'
+                }, { status: 400 });
+            }
+        },
+        ['ADMIN', 'OWNER']
+    ),
+
+    /**
+     * Create a new organization
+     */
+    createOrganization: restrictAccountRole(
+        async ({ request, locals, accountMembership }: AccountAuthenticatedEvent) => {
+            const { accountId } = accountMembership;
+            const userId = locals.user?.id;
+
+            const formData = await request.formData();
+            const name = (formData.get('name') as string)?.trim();
+            const contactEmail = (formData.get('contactEmail') as string)?.trim();
+            const contactPhone = (formData.get('contactPhone') as string)?.trim() || null;
+            const address = (formData.get('address') as string)?.trim() || null;
+            const description = (formData.get('description') as string)?.trim() || null;
+
+            if (!name) {
+                return fail(400, { error: 'Organization name is required' });
+            }
+            if (!contactEmail) {
+                return fail(400, { error: 'Contact email is required' });
+            }
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(contactEmail)) {
+                return fail(400, { error: 'Invalid email format' });
+            }
+
+            try {
+                const organization = await prisma.company.create({
+                    data: {
+                        name,
+                        contactEmail,
+                        contactPhone,
+                        address,
+                        description,
+                        status: 'ACTIVE',
+                        accountId
+                    }
+                });
+
+                logger.info(`Organization created: ${organization.id}`, {
+                    userId,
+                    accountId,
+                    organizationId: organization.id
+                });
+
+                await logAudit({
+                    actionType: AuditActionType.INSERT,
+                    tableName: 'Company',
+                    recordId: organization.id,
+                    oldData: null,
+                    newData: organization,
+                    userId: userId || 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
+                    prisma
+                });
+
+                return { type: 'success', message: 'Organization added successfully!' };
+            } catch (err) {
+                logger.error('Error creating organization:', err as Record<string, any>);
+                return fail(500, { error: 'Failed to create organization' });
+            }
+        },
+        ['ADMIN', 'OWNER']
+    ),
+
+    /**
+     * Update an existing organization
+     */
+    updateOrganization: restrictAccountRole(
+        async ({ request, locals, accountMembership }: AccountAuthenticatedEvent) => {
+            const { accountId } = accountMembership;
+            const userId = locals.user?.id;
+
+            const formData = await request.formData();
+            const id = formData.get('id') as string;
+            const name = (formData.get('name') as string)?.trim();
+            const contactEmail = (formData.get('contactEmail') as string)?.trim();
+            const contactPhone = (formData.get('contactPhone') as string)?.trim() || null;
+            const address = (formData.get('address') as string)?.trim() || null;
+            const description = (formData.get('description') as string)?.trim() || null;
+
+            if (!id) {
+                return fail(400, { error: 'Organization ID is required' });
+            }
+            if (!name) {
+                return fail(400, { error: 'Organization name is required' });
+            }
+            if (!contactEmail) {
+                return fail(400, { error: 'Contact email is required' });
+            }
+
+            try {
+                const existing = await prisma.company.findFirst({
+                    where: { id, accountId }
+                });
+
+                if (!existing) {
+                    return fail(404, { error: 'Organization not found' });
+                }
+
+                const updated = await prisma.company.update({
+                    where: { id },
+                    data: {
+                        name,
+                        contactEmail,
+                        contactPhone,
+                        address,
+                        description
+                    }
+                });
+
+                logger.info(`Organization updated: ${id}`, { userId, accountId });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Company',
+                    recordId: id,
+                    oldData: existing,
+                    newData: updated,
+                    userId: userId || 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
+                    prisma
+                });
+
+                return { type: 'success', message: 'Organization updated successfully!' };
+            } catch (err) {
+                logger.error('Error updating organization:', err as Record<string, any>);
+                return fail(500, { error: 'Failed to update organization' });
+            }
+        },
+        ['ADMIN', 'OWNER']
+    ),
+
+    /**
+     * Toggle organization status
+     */
+    toggleOrganizationStatus: restrictAccountRole(
+        async ({ request, locals, accountMembership }: AccountAuthenticatedEvent) => {
+            const { accountId } = accountMembership;
+            const userId = locals.user?.id;
+
+            const formData = await request.formData();
+            const id = formData.get('id') as string;
+            const newStatus = formData.get('status') as string;
+
+            if (!id || !newStatus) {
+                return fail(400, { error: 'Organization ID and status are required' });
+            }
+
+            try {
+                const existing = await prisma.company.findFirst({
+                    where: { id, accountId }
+                });
+
+                if (!existing) {
+                    return fail(404, { error: 'Organization not found' });
+                }
+
+                const updated = await prisma.company.update({
+                    where: { id },
+                    data: { status: newStatus }
+                });
+
+                const action = newStatus === 'ACTIVE' ? 'reactivated' : 'deactivated';
+                logger.info(`Organization ${action}: ${id}`, { userId, accountId });
+
+                await logAudit({
+                    actionType: AuditActionType.UPDATE,
+                    tableName: 'Company',
+                    recordId: id,
+                    oldData: existing,
+                    newData: updated,
+                    userId: userId || 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
+                    prisma,
+                    changeSummary: `Organization ${action}`
+                });
+
+                return { type: 'success', message: `Organization ${action} successfully!` };
+            } catch (err) {
+                logger.error('Error toggling organization status:', err as Record<string, any>);
+                return fail(500, { error: 'Failed to update organization status' });
+            }
+        },
+        ['ADMIN', 'OWNER']
+    ),
+
+    /**
+     * Delete an organization
+     */
+    deleteOrganization: restrictAccountRole(
+        async ({ request, locals, accountMembership }: AccountAuthenticatedEvent) => {
+            const { accountId } = accountMembership;
+            const userId = locals.user?.id;
+
+            const formData = await request.formData();
+            const id = formData.get('id') as string;
+
+            if (!id) {
+                return fail(400, { error: 'Organization ID is required' });
+            }
+
+            try {
+                const existing = await prisma.company.findFirst({
+                    where: { id, accountId }
+                });
+
+                if (!existing) {
+                    return fail(404, { error: 'Organization not found' });
+                }
+
+                await prisma.company.delete({ where: { id } });
+
+                logger.info(`Organization deleted: ${id}`, { userId, accountId });
+
+                await logAudit({
+                    actionType: AuditActionType.DELETE,
+                    tableName: 'Company',
+                    recordId: id,
+                    oldData: existing,
+                    newData: null,
+                    userId: userId || 'unknown',
+                    ipAddress: locals.requestContext?.ip ?? 'unknown',
+                    prisma
+                });
+
+                return { type: 'success', message: 'Organization deleted successfully!' };
+            } catch (err) {
+                logger.error('Error deleting organization:', err as Record<string, any>);
+                return fail(500, { error: 'Failed to delete organization' });
+            }
+        },
+        ['ADMIN', 'OWNER']
+    )
 };

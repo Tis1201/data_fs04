@@ -1,7 +1,5 @@
-import { json, fail } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { json } from '@sveltejs/kit';
 import { generateId } from 'lucia';
-import { z } from 'zod';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { createSuccessResponse, createErrorResponse } from '$lib/server/types/api';
@@ -10,12 +8,7 @@ import { handleApiError } from '$lib/server/errors/errorHandlers';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { deleteEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
-
-// Define the API key schema
-const apiKeySchema = z.object({
-    name: z.string().min(1, 'Name is required'),
-    description: z.string().optional()
-});
+import { logger } from '$lib/server/logger';
 
 // List API keys
 export const GET = restrict(
@@ -24,26 +17,20 @@ export const GET = restrict(
             if (!auth?.user?.id) {
                 throw new Error('User not authenticated');
             }
-            
+
             const userId = auth.user.id;
-            
-            // Get current account ID for filtering
+
             const currentAccountId =
                 locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
-            
-            // Log the user ID for debugging
-            console.log(`Fetching API keys for user: ${userId}, account: ${currentAccountId || 'all'}`);
-            
-            // Build where clause - filter by user and optionally by account
+
             const whereClause: any = { userId };
             if (currentAccountId) {
-                // When account is selected, show only keys for that account or keys without account
                 whereClause.OR = [
                     { accountId: currentAccountId },
                     { accountId: null }
                 ];
             }
-            
+
             const apiKeys = await locals.prisma.apiKey.findMany({
                 where: whereClause,
                 select: {
@@ -60,12 +47,9 @@ export const GET = restrict(
                 orderBy: { createdAt: 'desc' }
             });
 
-            console.log(`Found ${apiKeys.length} API keys for user ${userId}`);
-
-            // Mask the API keys for security (show first 4 and last 4 characters)
             const maskedApiKeys = apiKeys.map((key: any) => ({
                 ...key,
-                key: key.key.length > 8 
+                key: key.key.length > 8
                     ? `${key.key.substring(0, 4)}${'•'.repeat(key.key.length - 8)}${key.key.substring(key.key.length - 4)}`
                     : key.key
             }));
@@ -88,10 +72,14 @@ export const GET = restrict(
 export const POST = restrict(
     async ({ request, locals, auth, cookies }: any) => {
         try {
-            // Parse the request body directly
+            const contentType = request.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                return json(createErrorResponse(new Error('This endpoint expects JSON.'), {
+                    code: 'INVALID_CONTENT_TYPE'
+                }), { status: 415 });
+            }
             const data = await request.json();
-            
-            // Basic validation
+
             if (!data.name) {
                 return json(createErrorResponse(new Error('Name is required'), {
                     code: 'VALIDATION_ERROR'
@@ -101,11 +89,9 @@ export const POST = restrict(
             const userId = auth.user.id;
             const { name, description = '' } = data;
 
-            // Get current account ID (optional for profile API keys)
             const currentAccountId =
                 locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
 
-            // Check if user already has 10 or more API keys
             const existingKeysCount = await locals.prisma.apiKey.count({
                 where: { userId }
             });
@@ -116,10 +102,8 @@ export const POST = restrict(
                 }), { status: 400 });
             }
 
-            // Generate a new API key
             const apiKey = generateId(32);
-           
-            // Store the API key in the database (associate with current account if available)
+
             const newKey = await locals.prisma.apiKey.create({
                 data: {
                     name,
@@ -127,7 +111,7 @@ export const POST = restrict(
                     key: apiKey,
                     userId,
                     accountId: currentAccountId || null,
-                    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000) // 1 year from now
+                    expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
                 },
                 select: {
                     id: true,
@@ -147,19 +131,19 @@ export const POST = restrict(
                 userId: locals.user.id,
                 ipAddress: locals.ipAddress,
                 prisma: locals.prisma
-            })
+            });
 
             return json(createSuccessResponse(newKey, {
                 message: 'API key created successfully'
             }));
-        } catch (error:any) {
+        } catch (error: any) {
             return handleApiError({
                 error,
                 prisma: locals.prisma,
                 defaultMessage: 'Failed to process request',
                 action: 'processing data',
-                status: 500 // Optional HTTP status code
-              });
+                status: 500
+            });
         }
     },
     [SystemRole.USER, SystemRole.ADMIN, SystemRole.SUPER_ADMIN]
@@ -169,27 +153,29 @@ export const POST = restrict(
 export const DELETE = restrict(
     async ({ request, locals, auth, cookies }: any) => {
         try {
-            // Parse the request body to get the API key ID
+            const contentType = request.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                return json(createErrorResponse(new Error('This endpoint expects JSON.'), {
+                    code: 'INVALID_CONTENT_TYPE'
+                }), { status: 415 });
+            }
             const data = await request.json();
-            
+
             if (!data.id) {
                 throw new Error('API key ID is required');
             }
 
             const userId = auth.user.id;
             const { id } = data;
-            
-            // Get current account ID for filtering
+
             const currentAccountId =
                 locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
 
-            // Check if the API key exists and belongs to the user
-            // Also verify it belongs to current account or has no account
             const apiKey = await locals.prisma.apiKey.findFirst({
-                where: { 
-                    id, 
+                where: {
+                    id,
                     userId,
-                    OR: currentAccountId 
+                    OR: currentAccountId
                         ? [{ accountId: currentAccountId }, { accountId: null }]
                         : [{ accountId: null }]
                 }
@@ -202,7 +188,6 @@ export const DELETE = restrict(
                 throw error;
             }
 
-            // Delete the associated expiration cronjob first
             try {
                 await deleteEntityExpirationCronjob(locals.prisma, 'apiKey', id);
                 logger.info(`Deleted expiration cronjob for API key: ${id}`);
@@ -210,7 +195,6 @@ export const DELETE = restrict(
                 logger.warn(`Failed to delete cronjob for API key ${id}:`, cronError);
             }
 
-            // Delete the API key (ownership already verified)
             await locals.prisma.apiKey.delete({
                 where: { id }
             });
@@ -224,7 +208,7 @@ export const DELETE = restrict(
                 userId: locals.user.id,
                 ipAddress: locals.ipAddress,
                 prisma: locals.prisma
-            })
+            });
 
             return json(createSuccessResponse(null, {
                 message: 'API key deleted successfully'
@@ -235,8 +219,8 @@ export const DELETE = restrict(
                 prisma: locals.prisma,
                 defaultMessage: 'Failed to process request',
                 action: 'processing data',
-                status: 400 // Optional HTTP status code
-              });
+                status: 400
+            });
         }
     },
     [SystemRole.USER, SystemRole.ADMIN, SystemRole.SUPER_ADMIN]
