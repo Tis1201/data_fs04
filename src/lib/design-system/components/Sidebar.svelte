@@ -345,7 +345,7 @@
 	</nav>
 	
 	<!-- Footer Navigation -->
-	<div class="sidebar-footer">
+	<!-- <div class="sidebar-footer">
 		<div class="footer-divider" class:collapsed={!expanded}></div>
 		<ul class="nav-list footer-nav">
 			{#each footerNavItems as item (item.id + '-' + currentPath + '-' + expanded)}
@@ -374,7 +374,7 @@
 				</li>
 			{/each}
 		</ul>
-	</div>
+	</div> -->
 </aside>
 
 <!-- Flyout Menu (collapsed mode) -->
