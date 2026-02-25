@@ -1135,7 +1135,7 @@
                 <!-- Row 1: Deployment Name, Status, Target OS, Version -->
                 <div class="overview-field">
                     <p class="overview-label">Deployment Name</p>
-                    <p class="overview-value">{bundle.name || 'Unnamed Bundle'}</p>
+                    <p class="overview-value" title={bundle.name || 'Unnamed Bundle'}>{bundle.name || 'Unnamed Bundle'}</p>
                 </div>
                 <div class="overview-field">
                     <p class="overview-label">Status</p>
@@ -1166,7 +1166,7 @@
                 <!-- Row 3: Description (full width) -->
                 <div class="overview-field overview-field-full-width">
                     <p class="overview-label">Description</p>
-                    <p class="overview-value">{bundle.description || '—'}</p>
+                    <p class="overview-value overview-value-wrap">{bundle.description || '—'}</p>
                 </div>
                 <!-- Row 4: Reboot Device, Force Update, (empty), (empty) -->
                 <div class="overview-field">
@@ -2245,6 +2245,15 @@
         line-height: 24px;
         color: var(--ds-color-neutral-true-900);
         margin: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+
+    .overview-value-wrap {
+        white-space: normal;
+        word-break: break-word;
     }
 
     .overview-muted {

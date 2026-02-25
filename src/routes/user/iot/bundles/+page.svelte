@@ -466,12 +466,11 @@
             accessor: (row: Bundle) => row.name || row.id,
             type: 'custom',
             sortable: true,
-            width: '449px',
-            minWidth: '240px',
+            minWidth: '200px',
             render: (value: unknown, row: Bundle) => {
                 const label = escapeHtml(row.name || row.id || 'Unnamed');
                 const href = `${basePath}/${row.id}`;
-                return `<a href="${escapeHtml(href)}" class="ds-deployment-name ds-deployment-name-link">${label}</a>`;
+                return `<a href="${escapeHtml(href)}" class="ds-deployment-name ds-deployment-name-link" title="${label}">${label}</a>`;
             }
         },
         {
@@ -488,15 +487,15 @@
             accessor: (row: Bundle) => formatStartOn(row),
             type: 'text',
             sortable: true,
-            width: '200px'
+            width: '180px'
         },
         {
             id: 'endOn',
             header: 'End On',
             accessor: (row: Bundle) => formatEndOn(row as Bundle & { activePeriodDays?: number }),
             type: 'text',
-            sortable: false,
-            width: '200px'
+            sortable: true,
+            width: '180px'
         },
         {
             id: 'status',
@@ -513,6 +512,7 @@
             header: 'Actions',
             type: 'moreMenu',
             width: '85px',
+            maxWidth: '85px',
             getMenuActions: (row: Bundle) => getMenuActions(row)
         }
     ];
@@ -702,17 +702,15 @@
         overflow-y: visible;
         flex: none;
     }
-    /* Prevent table from shrinking so horizontal scroll appears when viewport is narrow */
     .table-container :global(.ds-datatable) {
         border: none;
         border-radius: 0;
         box-shadow: none;
-        min-width: min-content;
     }
-    /* Table min-width = sum of column widths (449+100+200+200+140+85) so horizontal scroll works */
     .table-container :global(.ds-datatable table) {
         border-radius: 0;
-        min-width: 1174px;
+        width: 100%;
+        table-layout: fixed;
     }
     /* Figma Table cell: padding 16px, min-height 52px, border-bottom Gray/200 */
     .table-container :global(.ds-datatable tbody td) {
@@ -767,6 +765,11 @@
         font-size: var(--ds-text-sm);
         font-weight: var(--ds-font-medium);
         color: var(--ds-text-primary);
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 400px;
     }
     :global(.ds-deployment-name-link) {
         color: var(--ds-color-blue-light-600, #2563EB);

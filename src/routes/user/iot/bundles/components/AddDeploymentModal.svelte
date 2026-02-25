@@ -23,10 +23,10 @@
 
     // Form state
     let name = '';
-    let os = 'ANDROID';
+    let os = '';
     let version = '1.0.0';
-    let waveSize = 500;
-    let schedule: 'none' | 'future' = 'none';
+    let waveSize = 0;
+    let schedule: '' | 'none' | 'future' = '';
     let startDate = '';
     let startTime = '09:00';
     let description = '';
@@ -35,6 +35,9 @@
 
     // Validation
     let nameError = '';
+    let osError = '';
+    let batchSizeError = '';
+    let scheduleError = '';
     let startDateError = '';
 
     function pad2(n: number): string {
@@ -54,7 +57,7 @@
     $: minStartTime = startDate === minStartDate ? nowTimeInputValue() : undefined;
 
     // Check if form is valid for enabling Save as Draft button
-    $: isFormValid = name.trim().length > 0 && os && waveSize > 0 &&
+    $: isFormValid = name.trim().length > 0 && !!os && waveSize > 0 && !!schedule &&
         (schedule !== 'future' || !!startDate);
 
     const OS_OPTIONS_DS: DropdownOption[] = OS_OPTIONS.map((o) => ({ id: o.value, label: o.label }));
@@ -63,16 +66,15 @@
         ...BATCH_PRESETS.map((n) => ({ id: String(n), label: String(n) })),
         { id: 'custom', label: 'Custom' }
     ];
-    let batchSizeSelect: string = '500';
+    let batchSizeSelect: string = '';
     const SCHEDULE_OPTIONS: DropdownOption[] = [
         { id: 'none', label: 'None' },
-        // { id: 'immediately', label: 'Immediately' },
         { id: 'future', label: 'Future' }
     ];
 
     $: showScheduleFields = schedule === 'future';
 
-    $: if (schedule === 'none') {
+    $: if (schedule === 'none' || schedule === '') {
         startDate = '';
         startTime = '09:00';
         startDateError = '';
@@ -80,13 +82,24 @@
 
     function validate(): boolean {
         nameError = '';
+        osError = '';
+        batchSizeError = '';
+        scheduleError = '';
         startDateError = '';
         if (!name.trim()) {
             nameError = 'Name is required';
         }
+        if (!os) {
+            osError = 'Target OS is required';
+        }
+        if (!waveSize || waveSize <= 0) {
+            batchSizeError = 'Batch Size is required';
+        }
+        if (!schedule) {
+            scheduleError = 'Schedule is required';
+        }
         if (schedule === 'future') {
             if (!startDate.trim()) startDateError = 'Start date is required';
-            // Disallow scheduling in the past (local time)
             if (!startDateError && startDate) {
                 const start = new Date(`${startDate}T${startTime || '00:00'}`);
                 const now = new Date();
@@ -97,7 +110,7 @@
                 }
             }
         }
-        return !nameError && !startDateError;
+        return !nameError && !osError && !batchSizeError && !scheduleError && !startDateError;
     }
 
     function buildFormData(): FormData {
@@ -195,31 +208,41 @@
     }
 
     function handleScheduleChange(e: CustomEvent<string | string[]>) {
-        const v = (Array.isArray(e.detail) ? e.detail[0] : e.detail) || 'none';
-        schedule = v as 'none' | 'future';
+        const v = (Array.isArray(e.detail) ? e.detail[0] : e.detail) || '';
+        schedule = v as '' | 'none' | 'future';
+        if (scheduleError && schedule) scheduleError = '';
     }
 
     function handleOsChange(e: CustomEvent<string | string[]>) {
-        os = Array.isArray(e.detail) ? e.detail[0] : e.detail || 'ANDROID';
+        os = Array.isArray(e.detail) ? e.detail[0] : e.detail || '';
+        if (osError && os) osError = '';
     }
 
     function handleWaveSizeChange(e: CustomEvent<string | string[]>) {
-        const val = Array.isArray(e.detail) ? e.detail[0] : e.detail || '500';
+        const val = Array.isArray(e.detail) ? e.detail[0] : e.detail || '';
         if (val === 'custom') {
             batchSizeSelect = 'custom';
-        } else {
+            waveSize = 0;
+        } else if (val) {
             batchSizeSelect = String(val);
-            waveSize = parseInt(val, 10) || 500;
+            waveSize = parseInt(val, 10) || 0;
         }
+        if (batchSizeError && waveSize > 0) batchSizeError = '';
     }
 
     function switchToPreset() {
-        batchSizeSelect = '500';
-        waveSize = 500;
+        batchSizeSelect = '';
+        waveSize = 0;
+    }
+
+    function handleCustomBatchSizeInput(e: Event) {
+        const target = e.currentTarget as HTMLInputElement;
+        waveSize = parseInt(target?.value || '0', 10) || 0;
     }
 
     function handleCustomBatchSizeBlur() {
         waveSize = Math.max(1, Math.min(999999, Math.floor(Number(waveSize)) || 1));
+        if (batchSizeError && waveSize > 0) batchSizeError = '';
     }
 </script>
 
@@ -269,9 +292,12 @@
                                 label="Batch Size"
                                 placeholder="Enter number"
                                 min={1}
-                                bind:value={waveSize}
+                                value={waveSize ? String(waveSize) : ''}
+                                on:input={handleCustomBatchSizeInput}
                                 on:blur={handleCustomBatchSizeBlur}
                                 required={true}
+                                state={batchSizeError ? 'error' : 'default'}
+                                helperText={batchSizeError}
                             />
                             <button type="button" class="batch-size-preset-link" on:click={switchToPreset}>Use preset</button>
                         {:else}
@@ -281,6 +307,8 @@
                                 options={BATCH_OPTIONS}
                                 value={batchSizeSelect}
                                 required={true}
+                                error={!!batchSizeError}
+                                errorMessage={batchSizeError}
                                 on:change={handleWaveSizeChange}
                             />
                         {/if}
@@ -295,6 +323,8 @@
                         options={OS_OPTIONS_DS}
                         value={os}
                         required={true}
+                        error={!!osError}
+                        errorMessage={osError}
                         on:change={handleOsChange}
                     />
                 </div>
@@ -305,6 +335,8 @@
                         options={SCHEDULE_OPTIONS}
                         value={schedule}
                         required={true}
+                        error={!!scheduleError}
+                        errorMessage={scheduleError}
                         on:change={handleScheduleChange}
                     />
                 </div>

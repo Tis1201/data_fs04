@@ -6,7 +6,7 @@ import type { TableDataOptions } from '$lib/components/ui_components_sveltekit/t
  */
 const baseBundleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
   modelName: 'bundle',
-  searchableFields: ['name', 'description', 'version', 'os'],
+  searchableFields: ['name', 'id', 'description', 'version', 'os'],
   allowedFilters: ['status', 'os'],
   defaultSortField: 'createdAt',
   defaultSortOrder: 'desc' as const,
@@ -14,6 +14,9 @@ const baseBundleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
   filterMappings: {
     status: { field: 'status', operator: 'equals' },
     os: { field: 'os', operator: 'equals' }
+  },
+  sortFieldMappings: {
+    endOn: 'scheduledAt'
   }
 };
 
