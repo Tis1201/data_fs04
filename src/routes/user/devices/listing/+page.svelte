@@ -92,6 +92,12 @@
     let showEditDeviceModal = false;
     let editDevice: DeviceRow | null = null;
 
+    // Assign Tag bulk action
+    let showAssignTagModal = false;
+    let assignTagSearch = '';
+    let assignTagSelected: string[] = [];
+    let assignTagLoading = false;
+
     // Filter modal selections
     let filterOsVersions: string[] = ['__all__'];
     let filterConnection: Array<'Online' | 'Offline' | '__all__'> = ['__all__'];
@@ -285,10 +291,6 @@
         activeFilters = event.detail;
         pagination.page = 1;
         reloadData();
-    }
-
-    function handleSelectionChange(event: CustomEvent<DeviceRow[]>) {
-        selectedRows = event.detail;
     }
 
     async function handleView(event: CustomEvent<DeviceRow>) {
@@ -502,10 +504,65 @@
         ];
     })();
 
+    $: assignTagFilteredOptions = availableTags.filter(
+        (t) => !assignTagSearch || t.name.toLowerCase().includes(assignTagSearch.toLowerCase())
+    );
+
     function handleBulkAction(event: CustomEvent<{ id: string }>) {
         const actionId = event.detail.id;
-        // TODO: Implement bulk actions
+        if (actionId === 'assign-tag') {
+            assignTagSearch = '';
+            assignTagSelected = [];
+            showAssignTagModal = true;
+            return;
+        }
         toast.info(`Bulk action: ${actionId} - Coming soon`);
+    }
+
+    function toggleAssignTag(tagId: string) {
+        if (assignTagSelected.includes(tagId)) {
+            assignTagSelected = assignTagSelected.filter(id => id !== tagId);
+        } else {
+            assignTagSelected = [...assignTagSelected, tagId];
+        }
+    }
+
+    async function confirmAssignTag() {
+        if (assignTagSelected.length === 0) {
+            toast.error('Please select at least one tag');
+            return;
+        }
+        assignTagLoading = true;
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const device of selectedRows) {
+            try {
+                const fd = new FormData();
+                fd.set('id', device.id);
+                fd.set('tagIds', JSON.stringify(assignTagSelected));
+                const res = await fetch('?/assignTags', { method: 'POST', body: fd });
+                if (res.ok) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch {
+                failCount++;
+            }
+        }
+
+        assignTagLoading = false;
+        showAssignTagModal = false;
+
+        if (failCount === 0) {
+            toast.success(`Tags assigned to ${successCount} device${successCount !== 1 ? 's' : ''} successfully!`);
+        } else {
+            toast.error(`Assigned to ${successCount} device(s), failed for ${failCount} device(s).`);
+        }
+
+        selectedRows = [];
+        await invalidate('app:allDevices');
     }
 
     function handleClearSelection() {
@@ -844,7 +901,6 @@
                 on:sort={handleSort}
                 on:pageChange={handlePageChange}
                 on:filter={handleFilter}
-                on:selectionChange={handleSelectionChange}
                 on:view={handleView}
                 on:edit={handleEdit}
                 on:toggleStatus={handleToggleStatus}
@@ -992,6 +1048,66 @@
     on:close={cancelDeleteModal}
     on:confirm={confirmDelete}
 />
+
+<!-- Assign Tag Bulk Action Modal -->
+<Modal
+    open={showAssignTagModal}
+    title="Assign Tag"
+    size="sm"
+    on:close={() => showAssignTagModal = false}
+>
+    <div class="assign-tag-body">
+        <p class="assign-tag-info">
+            Assign tags to {selectedRows.length} selected device{selectedRows.length !== 1 ? 's' : ''}.
+        </p>
+        <InputField
+            placeholder="Search tags..."
+            bind:value={assignTagSearch}
+            prefixIcon={true}
+        >
+            <Search slot="prefix-icon" size={20} />
+        </InputField>
+        <div class="assign-tag-list">
+            {#if assignTagFilteredOptions.length === 0}
+                <p class="assign-tag-empty">No tags found</p>
+            {:else}
+                {#each assignTagFilteredOptions as tag (tag.id)}
+                    <button
+                        type="button"
+                        class="assign-tag-item"
+                        role="option"
+                        aria-selected={assignTagSelected.includes(tag.id)}
+                        on:click={() => toggleAssignTag(tag.id)}
+                    >
+                        <div class="assign-tag-check" class:is-checked={assignTagSelected.includes(tag.id)}>
+                            {#if assignTagSelected.includes(tag.id)}
+                                <svg width="14" height="14" viewBox="0 0 12 12" fill="none">
+                                    <path d="M10 3L4.5 8.5L2 6" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            {/if}
+                        </div>
+                        <span class="assign-tag-name">{tag.name}</span>
+                    </button>
+                {/each}
+            {/if}
+        </div>
+    </div>
+    <svelte:fragment slot="footer">
+        <Button variant="outline" color="gray" size="lg" on:click={() => showAssignTagModal = false}>
+            Cancel
+        </Button>
+        <Button
+            variant="filled"
+            color="primary"
+            size="lg"
+            loading={assignTagLoading}
+            disabled={assignTagSelected.length === 0}
+            on:click={confirmAssignTag}
+        >
+            Assign ({assignTagSelected.length})
+        </Button>
+    </svelte:fragment>
+</Modal>
 
 <!-- Edit Device Modal -->
 {#if editDevice}
@@ -1181,5 +1297,81 @@
         display: flex;
         flex-direction: column;
         gap: var(--ds-space-4);
+    }
+
+    /* Assign Tag Modal */
+    .assign-tag-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--ds-space-4);
+    }
+
+    .assign-tag-info {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-text-secondary);
+        margin: 0;
+    }
+
+    .assign-tag-list {
+        display: flex;
+        flex-direction: column;
+        max-height: 280px;
+        overflow-y: auto;
+        border: 1px solid var(--ds-border-default);
+        border-radius: var(--ds-radius-lg);
+    }
+
+    .assign-tag-item {
+        display: flex;
+        align-items: center;
+        gap: var(--ds-space-3);
+        padding: var(--ds-space-2-5) var(--ds-space-3);
+        cursor: pointer;
+        transition: background-color 0.15s;
+        width: 100%;
+        border: none;
+        background: transparent;
+        text-align: left;
+    }
+
+    .assign-tag-item:hover {
+        background: var(--ds-bg-secondary);
+    }
+
+    .assign-tag-check {
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
+        border: 1px solid #D6D6D6;
+        background: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: all 0.15s ease;
+    }
+
+    .assign-tag-check.is-checked {
+        background: #141414;
+        border-color: #D6D6D6;
+    }
+
+    .assign-tag-name {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-text-primary);
+    }
+
+    .assign-tag-empty {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: var(--ds-text-tertiary);
+        text-align: center;
+        padding: var(--ds-space-6);
+        margin: 0;
     }
 </style>

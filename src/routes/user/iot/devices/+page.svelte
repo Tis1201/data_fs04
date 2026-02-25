@@ -1497,17 +1497,17 @@
                 on:mouseleave={() => assignTagDropdownInteracting = false}
             >
                 {#each assignTagFilteredOptions as tag (tag.id)}
-                    {@const isSelected = assignTagSelected.includes(tag.id)}
                     <button
                         type="button"
                         class="assign-tag-option"
                         on:mousedown|preventDefault={() => toggleAssignTag(tag.id)}
                     >
-                        <Checkbox
-                            checked={isSelected}
-                            size="sm"
-                            disabled={false}
-                        />
+                        <span class="assign-tag-checkbox-visual" style="pointer-events: none;">
+                            <Checkbox
+                                checked={assignTagSelected.includes(tag.id)}
+                                size="sm"
+                            />
+                        </span>
                         <span class="assign-tag-option-label">{tag.name}</span>
                     </button>
                 {/each}

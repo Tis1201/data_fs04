@@ -151,34 +151,14 @@
         return 'Healthy';
     }
 
-    // Filtered data (applies client-side filters like Usage health)
+    // Client-side filter only for Usage health (ClickHouse data, not filterable server-side).
+    // OS (deviceType) and connection status (connected) are filtered server-side via URL params.
     $: filteredData = data.filter(row => {
-        // Check Usage filter (client-side)
         const usageFilter = activeFilters['usage'];
         if (usageFilter && usageFilter.length > 0) {
             const healthStatus = getUsageHealthStatus(row);
             if (!usageFilter.includes(healthStatus)) return false;
         }
-        
-        // Check OS/Device Type filter (client-side for immediate feedback, server also filters)
-        const osFilter = activeFilters['deviceType'];
-        if (osFilter && osFilter.length > 0) {
-            const osMatch = osFilter.some(os => 
-                row.deviceType?.toLowerCase().includes(os.toLowerCase())
-            );
-            if (!osMatch) return false;
-        }
-        
-        // Check Status filter (client-side)
-        const statusFilter = activeFilters['connected'];
-        if (statusFilter && statusFilter.length > 0) {
-            const isOnline = row.connected;
-            const statusMatch = statusFilter.some(s => 
-                (s === 'Online' && isOnline) || (s === 'Offline' && !isOnline)
-            );
-            if (!statusMatch) return false;
-        }
-        
         return true;
     });
 
@@ -451,15 +431,11 @@
                                     {column.label}
                                 </span>
                                 
-                                <!-- Sort Icon: arrow-up (asc), arrow-down (desc), hidden (default/unsorted) -->
-                                <!-- Sort cycle: Default → ASC → DESC → Default → ... -->
                                 {#if column.sortable && sort.field === column.id}
                                     <span class="flex items-center justify-center" style="width: 16px; height: 16px;">
                                         {#if sort.order === "desc"}
-                                            <!-- arrow-down: sorted descending -->
                                             <ArrowDown size={16} strokeWidth={1.33} style="color: #475467;" />
                                         {:else}
-                                            <!-- arrow-up: sorted ascending -->
                                             <ArrowUp size={16} strokeWidth={1.33} style="color: #475467;" />
                                         {/if}
                                     </span>
@@ -585,12 +561,21 @@
                             <!-- Status: padding 12px 16px, gap 4px -->
                             {#if !hiddenSet.has('connected')}
                                 <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
-                                    <Badge
-                                        label={row.connected ? "Online" : "Offline"}
-                                        color={row.connected ? "success" : "gray"}
-                                        variant="filled"
-                                        size="sm"
-                                    />
+                                    {#if row.status === 'INACTIVE'}
+                                        <Badge
+                                            label="Deactivated"
+                                            color="warning"
+                                            variant="filled"
+                                            size="sm"
+                                        />
+                                    {:else}
+                                        <Badge
+                                            label={row.connected ? "Online" : "Offline"}
+                                            color={row.connected ? "success" : "gray"}
+                                            variant="filled"
+                                            size="sm"
+                                        />
+                                    {/if}
                                 </td>
                             {/if}
 
