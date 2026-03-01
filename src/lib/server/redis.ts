@@ -10,10 +10,11 @@ declare global {
     var redisClient: Redis | undefined;
 }
 
-// Create Redis client with error handling
-// Redis is used for MQTT queue, device presence, and other features
 function createRedisClient(): Redis | null {
-    // Use specific Redis configuration from .env if available
+    if (process.env.__BUILDING === '1') {
+        return null;
+    }
+
     const connectionUrl = process.env.REDIS_URL;
     const host = process.env.REDIS_HOST || 'localhost';
     const port = parseInt(process.env.REDIS_PORT || '6379', 10);

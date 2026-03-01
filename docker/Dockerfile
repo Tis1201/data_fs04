@@ -2,7 +2,7 @@
 FROM node:20.9.0-bookworm-slim AS build
 WORKDIR /app
 ENV ROLLUP_SKIP_NODE_NATIVE=1
-ENV NODE_OPTIONS=--max-old-space-size=5632
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 # Install build tools and native deps for node-canvas and prisma
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -46,8 +46,8 @@ RUN npx zenstack generate
 # Copy entrypoint into build stage so it's available for later stages
 COPY docker/entrypoint.sh ./entrypoint.sh
 
-# Build the application
-RUN npm run build
+# Build the application (__BUILDING=1 prevents Redis connection attempts during build)
+RUN __BUILDING=1 npm run build
 
 # Keep dev dependencies so prisma CLI and tsx are available at runtime
 # (Do NOT prune dev deps; entrypoint runs migrations/seed using prisma/tsx)

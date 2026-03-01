@@ -125,6 +125,16 @@ export class WebRTCClient {
     try { this.dataChannel.send(JSON.stringify({ type: 'mouse:click', button, x, y, timestamp: Date.now() })); } catch { }
   }
 
+  sendMouseDown(button: string, x: number, y: number) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') return;
+    try { this.dataChannel.send(JSON.stringify({ type: 'mouse:down', button, x, y, timestamp: Date.now() })); } catch { }
+  }
+
+  sendMouseUp(button: string, x: number, y: number) {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') return;
+    try { this.dataChannel.send(JSON.stringify({ type: 'mouse:up', button, x, y, timestamp: Date.now() })); } catch { }
+  }
+
   sendMouseScroll(direction: string, amount: number) {
     if (!this.dataChannel || this.dataChannel.readyState !== 'open') return;
     try { this.dataChannel.send(JSON.stringify({ type: 'mouse:scroll', direction, amount, timestamp: Date.now() })); } catch { }

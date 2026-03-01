@@ -3,6 +3,11 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
+	build: {
+		rollupOptions: {
+			maxParallelFileOps: 4
+		}
+	},
 	server: {
 		host: true,
 		port: 5173,

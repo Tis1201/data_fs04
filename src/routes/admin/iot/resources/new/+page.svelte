@@ -13,7 +13,7 @@
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { fileProxy } from 'sveltekit-superforms/client';
     import { browser } from '$app/environment';
-    import { parseZipFile, parseApkFile, parseApkFileClient, parseApkByPath, parseDebByPath, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
+    import { parseZipFile, parseApkFile, parseApkFileClient, parseApkByPath, parseDebByPath, parseExeFromFilename, generatePackageName, extractDisplayName, extractVersion } from '$lib/utils/clientZipParser';
 
     export let data: PageData;
     const title = "Add IoT Application & Resource";
@@ -113,11 +113,12 @@
         
         // Parse file if it's a supported format
         const fileName = file.name.toLowerCase();
-        const isSupportedFile = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb');
+        const isSupportedFile = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb') || fileName.endsWith('.exe');
         isApk = fileName.endsWith('.apk');
         const isCpk = fileName.endsWith('.cpk');
         const isZip = fileName.endsWith('.zip');
         const isDeb = fileName.endsWith('.deb');
+        const isExe = fileName.endsWith('.exe');
 
         // Reset auto-extraction flag
         isAutoExtracted = false;
@@ -240,6 +241,21 @@
                         isAutoExtracted = false;
                         isApkOrCpk = false;
                     }
+                } else if (isExe) {
+                    const exeResult = parseExeFromFilename(file.name);
+                    if (exeResult.success && exeResult.data) {
+                        $form.packageName = exeResult.data.packageName;
+                        if (exeResult.data.version) $form.version = exeResult.data.version;
+                        $form.name = $form.name || exeResult.data.packageName;
+                        isAutoExtracted = true;
+                        isApkOrCpk = true;
+                        zipParseSuccess = '✓ Successfully parsed EXE file';
+                    } else {
+                        zipParseError = exeResult.error || 'Failed to parse EXE file';
+                        uploadError = `EXE parsing failed: ${zipParseError}`;
+                        isAutoExtracted = false;
+                        isApkOrCpk = false;
+                    }
                 } else {
                     // For ZIP/CPK/DEB (local), use the existing logic
                     const result = await parseZipFile(file);
@@ -248,47 +264,23 @@
                     if (result.success && result.appData) {
                         console.log('[File Upload] appData:', result.appData);
 
-                        // Auto-populate package name
                         const packageName = generatePackageName(result.appData);
-                        console.log('[File Upload] Extracted packageName:', packageName);
-                        if (packageName) {
-                            $form.packageName = packageName;
-                            console.log('[File Upload] Set $form.packageName to:', $form.packageName);
-                        }
+                        if (packageName) $form.packageName = packageName;
 
-                        // Auto-populate version
                         const version = extractVersion(result.appData);
-                        console.log('[File Upload] Extracted version:', version);
-                        if (version) {
-                            $form.version = version;
-                            console.log('[File Upload] Set $form.version to:', $form.version);
-                        }
+                        if (version) $form.version = version;
 
-                        // Auto-populate display name (resource name)
                         const displayName = extractDisplayName(result.appData);
-                        console.log('[File Upload] Extracted displayName:', displayName);
-                        if (displayName) {
-                            $form.name = displayName;
-                            console.log('[File Upload] Set $form.name to:', $form.name);
-                        }
+                        if (displayName) $form.name = displayName;
 
-                        console.log('[File Upload] After parsing - Form values:', {
-                            name: $form.name,
-                            packageName: $form.packageName,
-                            version: $form.version
-                        });
-
-                        // Mark as auto-extracted and disable fields for ZIP/CPK/DEB
                         isAutoExtracted = true;
-                        isApkOrCpk = true; // Make fields read-only for successfully parsed ZIP/CPK/DEB files
+                        isApkOrCpk = true;
 
                         const fileType = fileName.endsWith('.cpk') ? 'CPK' : fileName.endsWith('.deb') ? 'DEB' : 'ZIP';
                         zipParseSuccess = `✓ Successfully parsed ${fileType} file`;
                     } else {
                         zipParseError = result.error || 'Failed to parse file';
                         uploadError = `File parsing failed: ${zipParseError}`;
-                        console.log('[File Upload] Parse failed:', { zipParseError, uploadError });
-                        // If parsing failed, allow manual entry
                         isAutoExtracted = false;
                         isApkOrCpk = false;
                     }
@@ -572,7 +564,7 @@
                                     bind:this={fileUploadRef}
                                     id="file"
                                     name="file"
-                                    accept=".zip,.cpk,.apk,.deb"
+                                    accept=".zip,.cpk,.apk,.deb,.exe"
                                     bind:value={uploadedFiles}
                                     error={uploadError}
                                     disabled={formLocked}
@@ -589,7 +581,7 @@
                                     autoUpload={false}
                             />
                             <p class="text-xs text-muted-foreground mt-1">
-                                Only .zip, .cpk, .apk, and .deb files are allowed. Upload a file by dragging and dropping.
+                                Only .zip, .cpk, .apk, .deb, and .exe files are allowed. Upload a file by dragging and dropping.
                             </p>
                             <!-- ZIP Parsing Status -->
                             {#if zipParsing}

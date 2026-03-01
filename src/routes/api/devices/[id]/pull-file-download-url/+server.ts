@@ -131,6 +131,20 @@ export const GET: RequestHandler = restrict(
                 }, { status: 400 });
             }
 
+            // Only return download URL when upload has completed successfully.
+            // objectPath is stored at initiation, but the file does not exist in GCS until the device finishes uploading.
+            // Returning early here prevents the polling loop from triggering download at ~15% (incomplete file).
+            if (actionLog.status !== 'success') {
+                return json({
+                    success: false,
+                    error: {
+                        code: 'UPLOAD_IN_PROGRESS',
+                        message: 'File upload not yet complete. Please wait for the device to finish uploading.',
+                        details: `Action status is '${actionLog.status}'; download URL is only available when status is 'success'`
+                    }
+                }, { status: 400 });
+            }
+
             // Extract objectPath from action log metadata
             const metadata = actionLog.metadata as any;
             let objectPath = metadata?.objectPath;

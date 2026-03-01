@@ -4,7 +4,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import type { z } from 'zod';
 import { logger } from '$lib/server/logger';
-import { getLatestDeviceInformation, getLatestDeviceInformationByDeviceId } from '$lib/server/clickhouse/client';
+import { getLatestDeviceInformationByDeviceId } from '$lib/server/clickhouse/client';
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
 import { loadDeviceProfileWithForm } from '$lib/server/device/deviceProfileLoader';
 
@@ -196,15 +196,10 @@ export async function loadDeviceDetail(
             }
         });
 
-        // Fetch device information from ClickHouse (optional - may not be configured)
-        // Try by MAC first; if none, try by device_id (e.g. Node emulator uses synthetic mac_lan)
+        // Fetch device information from ClickHouse by device_id only (optional - may not be configured)
         let deviceInformation = null;
         try {
-            const macToTry = device.lanMac || device.wifiMac || device.macAddress;
-            deviceInformation = await getLatestDeviceInformation(macToTry);
-            if (!deviceInformation) {
-                deviceInformation = await getLatestDeviceInformationByDeviceId(deviceId);
-            }
+            deviceInformation = await getLatestDeviceInformationByDeviceId(deviceId);
         } catch (clickhouseError) {
             // ClickHouse may not be configured - this is optional data
             logger.warn('[DeviceDetail] ClickHouse query failed (optional)', { 

@@ -52,8 +52,7 @@ export const resourceSchema = z.object({
             if (val === null) return true;
             if (!(val instanceof File)) return false;
             
-            // Validate file extension - only allow .zip, .cpk, .apk, .deb
-            const allowedExtensions = ['.zip', '.cpk', '.apk', '.deb'];
+            const allowedExtensions = ['.zip', '.cpk', '.apk', '.deb', '.exe'];
             const fileName = val.name.toLowerCase();
             const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
             
@@ -63,7 +62,7 @@ export const resourceSchema = z.object({
             
             return true;
         },
-        { message: 'Only .zip, .cpk, .apk, and .deb files are allowed' }
+        { message: 'Only .zip, .cpk, .apk, .deb, and .exe files are allowed' }
     )
     .optional()
     .nullable()

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+
   export let videoStream: MediaStream | null = null;
   export let connected: boolean = false;
   export let connecting: boolean = false;
@@ -9,6 +11,8 @@
 
   // Input handlers passed from parent
   export let onMouseClick: (e: MouseEvent) => void = () => {};
+  export let onMouseDown: (e: MouseEvent) => void = () => {};
+  export let onMouseUp: (e: MouseEvent) => void = () => {};
   export let onMouseMove: (e: MouseEvent) => void = () => {};
   export let onRightClick: (e: MouseEvent) => void = () => {};
   export let onKeyDown: (e: KeyboardEvent) => void = () => {};
@@ -22,6 +26,110 @@
   let isVideoPaused = true;
   let currentVideoStreamId: string | null = null;
   let frameCount = 0;
+
+  // Phase 1: Wheel with passive:false so preventDefault works (stops page scroll)
+  let wheelHandlerRef: ((e: WheelEvent) => void) | null = null;
+  let touchHandlerRef: { start: (e: TouchEvent) => void; move: (e: TouchEvent) => void; end: (e: TouchEvent) => void } | null = null;
+
+  let docMouseUpRef: ((e: MouseEvent) => void) | null = null;
+
+  function startDragCapture(downEvent: MouseEvent) {
+    if (docMouseUpRef) return;
+    const media = getMediaElement();
+    if (!media) return;
+    const button = downEvent.button;
+    const docMouseUp = (e: MouseEvent) => {
+      const synth = { clientX: e.clientX, clientY: e.clientY, button, currentTarget: media } as unknown as MouseEvent;
+      onMouseUp(synth);
+      document.removeEventListener('mouseup', docMouseUp, true);
+      docMouseUpRef = null;
+    };
+    docMouseUpRef = docMouseUp;
+    document.addEventListener('mouseup', docMouseUp, true);
+  }
+
+  function endDragCapture() {
+    if (docMouseUpRef) {
+      document.removeEventListener('mouseup', docMouseUpRef, true);
+      docMouseUpRef = null;
+    }
+  }
+
+  function wrappedMouseDown(e: MouseEvent) {
+    startDragCapture(e);
+    onMouseDown(e);
+  }
+
+  function wrappedMouseUp(_e: MouseEvent) {
+    endDragCapture();
+  }
+
+  function getMediaElement(): HTMLVideoElement | HTMLImageElement | null {
+    if (useMqttFrames && imageElement) return imageElement;
+    return videoElement || null;
+  }
+
+  onMount(() => {
+    const wheelHandler = (e: WheelEvent) => {
+      onMouseWheel(e);
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    wheelHandlerRef = wheelHandler;
+    videoContainer?.addEventListener('wheel', wheelHandler, { passive: false });
+
+    // Phase 3: Touch events for swipe - map to mouse down/move/up
+    const touchStart = (e: TouchEvent) => {
+      if (e.touches.length === 0) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const media = getMediaElement();
+      if (media) {
+        const synth = { clientX: touch.clientX, clientY: touch.clientY, button: 0, currentTarget: media } as unknown as MouseEvent;
+        onMouseDown(synth);
+      }
+    };
+    const touchMove = (e: TouchEvent) => {
+      if (e.touches.length === 0) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const media = getMediaElement();
+      if (media) {
+        const synth = { clientX: touch.clientX, clientY: touch.clientY, currentTarget: media } as unknown as MouseEvent;
+        onMouseMove(synth);
+      }
+    };
+    const touchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.changedTouches[0] || e.touches[0];
+      if (!touch) return;
+      const media = getMediaElement();
+      if (media) {
+        const synth = { clientX: touch.clientX, clientY: touch.clientY, button: 0, currentTarget: media } as unknown as MouseEvent;
+        onMouseUp(synth);
+      }
+    };
+    touchHandlerRef = { start: touchStart, move: touchMove, end: touchEnd };
+    videoContainer?.addEventListener('touchstart', touchStart, { passive: false, capture: true });
+    videoContainer?.addEventListener('touchmove', touchMove, { passive: false, capture: true });
+    videoContainer?.addEventListener('touchend', touchEnd, { passive: false, capture: true });
+    videoContainer?.addEventListener('touchcancel', touchEnd, { passive: false, capture: true });
+  });
+
+  onDestroy(() => {
+    if (wheelHandlerRef && videoContainer) {
+      videoContainer.removeEventListener('wheel', wheelHandlerRef);
+      wheelHandlerRef = null;
+    }
+    if (touchHandlerRef && videoContainer) {
+      videoContainer.removeEventListener('touchstart', touchHandlerRef.start, { capture: true });
+      videoContainer.removeEventListener('touchmove', touchHandlerRef.move, { capture: true });
+      videoContainer.removeEventListener('touchend', touchHandlerRef.end, { capture: true });
+      videoContainer.removeEventListener('touchcancel', touchHandlerRef.end, { capture: true });
+      touchHandlerRef = null;
+    }
+    endDragCapture(); // Clean up document mouseup listener if still active
+  });
   
   // Determine if we should use MQTT frames (when WebRTC has no dimensions)
   $: useMqttFrames = videoStream && videoElement && videoElement.videoWidth === 0 && videoElement.videoHeight === 0 && mqttFrame;
@@ -110,7 +218,7 @@
   }
 </script>
 
-<div class={"w-full aspect-video bg-muted rounded-lg overflow-hidden " + className} bind:this={videoContainer}>
+<div class={"w-full aspect-video bg-muted rounded-lg overflow-hidden " + className} bind:this={videoContainer} style="touch-action: none;">
   <div class="relative w-full h-full">
     <!-- WebRTC Video Stream -->
     <video
@@ -164,11 +272,12 @@
         // Video stalled
       }}
             on:click={onMouseClick}
+            on:mousedown={wrappedMouseDown}
+            on:mouseup={wrappedMouseUp}
             on:mousemove={onMouseMove}
             on:contextmenu|preventDefault={onRightClick}
             on:keydown={onKeyDown}
             on:keyup={onKeyUp}
-            on:wheel={onMouseWheel}
     ></video>
 
     <!-- MQTT Frame Display (fallback when WebRTC has no dimensions) -->
@@ -180,11 +289,12 @@
         alt="RDP Frame"
         tabindex="0"
         on:click={onMouseClick}
+        on:mousedown={wrappedMouseDown}
+        on:mouseup={wrappedMouseUp}
         on:mousemove={onMouseMove}
         on:contextmenu|preventDefault={onRightClick}
         on:keydown={onKeyDown}
         on:keyup={onKeyUp}
-        on:wheel={onMouseWheel}
       />
     {/if}
 

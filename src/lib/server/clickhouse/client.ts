@@ -131,6 +131,8 @@ export type DeviceInformation = {
   cpu_usage: number | null;
   ram_usage: number | null;
   disk_usage: number | null;
+  manufacturer?: string | null;
+  hardware_id?: string | null;
 };
 
 export async function getLatestDeviceInformation(macAddress: string | null): Promise<DeviceInformation | null> {
@@ -164,7 +166,9 @@ export async function getLatestDeviceInformation(macAddress: string | null): Pro
         created_at,
         cpu_usage,
         ram_usage,
-        disk_usage
+        disk_usage,
+        manufacturer,
+        hardware_id
       FROM mv_device_information
       WHERE mac_lan = {macAddress: String}
          OR mac_wifi = {macAddress: String}
@@ -223,7 +227,9 @@ export async function getLatestDeviceInformationByDeviceId(deviceId: string | nu
         created_at,
         cpu_usage,
         ram_usage,
-        disk_usage
+        disk_usage,
+        manufacturer,
+        hardware_id
       FROM mv_device_information
       WHERE device_id = {deviceId: String}
       ORDER BY created_at DESC
@@ -270,7 +276,9 @@ export async function getBulkDeviceInformationByDeviceIds(deviceIds: string[]): 
         created_at,
         cpu_usage,
         ram_usage,
-        disk_usage
+        disk_usage,
+        manufacturer,
+        hardware_id
       FROM (
         SELECT 
           *,
@@ -335,7 +343,9 @@ export async function getMultipleDeviceInformation(macAddresses: string[]): Prom
         created_at,
         cpu_usage,
         ram_usage,
-        disk_usage
+        disk_usage,
+        manufacturer,
+        hardware_id
       FROM (
         SELECT 
           *,

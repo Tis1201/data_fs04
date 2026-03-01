@@ -1122,7 +1122,10 @@
             }, { timeoutMs: 30000 });
 
             addAlert('success', result.message || 'Device refresh command sent successfully!');
-            // Reload only after device reports success (MQTT device:statusUpdate handler, debounced)
+            // Reload device information (CPU, MEM, DSK, uptime, etc.) so metrics reflect latest from ClickHouse
+            await invalidate('app:device');
+            // Give device time to upload new metrics, then reload again
+            setTimeout(() => invalidate('app:device'), 3000);
         } catch (error) {
             console.error('Refresh failed:', error);
             addAlert('error', error instanceof Error ? error.message : 'Unable to refresh device. Please try again!');
@@ -1591,11 +1594,11 @@
                 </div>
                 <div class="info-row">
                     <span class="info-label">LAN MAC</span>
-                    <span class="info-value-text">{deviceInfo?.mac_lan || device?.lanMac || 'N/A'}</span>
+                    <span class="info-value-text">{deviceInfo != null ? (deviceInfo.mac_lan || 'N/A') : (device?.lanMac || 'N/A')}</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">Wi-Fi MAC</span>
-                    <span class="info-value-text">{deviceInfo?.mac_wifi || device?.wifiMac || 'N/A'}</span>
+                    <span class="info-value-text">{deviceInfo != null ? (deviceInfo.mac_wifi || 'N/A') : (device?.wifiMac || 'N/A')}</span>
                 </div>
             </div>
         </Card>
@@ -1697,11 +1700,11 @@
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Manufacturer</span>
-                                <span class="value">{device?.manufacturer || '-'}</span>
+                                <span class="value">{device?.manufacturer || deviceInfo?.manufacturer || '-'}</span>
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Hardware ID</span>
-                                <span class="value">{device?.hardwareId || '-'}</span>
+                                <span class="value">{device?.hardwareId || deviceInfo?.hardware_id || '-'}</span>
                             </div>
                         </div>
                     </Card>
@@ -1756,11 +1759,11 @@
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">LAN MAC</span>
-                                <span class="value">{deviceInfo?.mac_lan || device?.lanMac || 'N/A'}</span>
+                                <span class="value">{deviceInfo != null ? (deviceInfo.mac_lan || 'N/A') : (device?.lanMac || 'N/A')}</span>
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Wi-Fi MAC</span>
-                                <span class="value">{deviceInfo?.mac_wifi || device?.wifiMac || 'N/A'}</span>
+                                <span class="value">{deviceInfo != null ? (deviceInfo.mac_wifi || 'N/A') : (device?.wifiMac || 'N/A')}</span>
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Primary MAC</span>
