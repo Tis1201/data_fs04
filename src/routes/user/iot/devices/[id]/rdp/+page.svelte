@@ -227,24 +227,25 @@
 	let lastMouseMoveTime = 0;
 
 	function getVideoCoordinates(event: MouseEvent) {
-		const target = event.currentTarget as HTMLVideoElement;
+		const target = event.currentTarget as HTMLVideoElement | HTMLImageElement;
 		if (!target) return { x: 0, y: 0 };
 		const rect = target.getBoundingClientRect();
-		const scaleX = target.videoWidth / rect.width;
-		const scaleY = target.videoHeight / rect.height;
-
+		if (!rect.width || !rect.height) return { x: 0, y: 0 };
+		// Use actual video dimensions when available; otherwise assume RDP stream 1280x720
+		let w = "videoWidth" in target ? target.videoWidth : (target as HTMLImageElement).naturalWidth;
+		let h = "videoHeight" in target ? target.videoHeight : (target as HTMLImageElement).naturalHeight;
+		if (!w || !h) {
+			w = 1280;
+			h = 720;
+		}
+		const scaleX = w / rect.width;
+		const scaleY = h / rect.height;
 		const x = Math.round((event.clientX - rect.left) * scaleX);
 		const y = Math.round((event.clientY - rect.top) * scaleY);
-
-		// Mouse coordinates calculated
 		return { x, y };
 	}
 
 	function handleMouseClick(event: MouseEvent) {
-		if (!connected || !webrtcClient) return;
-
-		const { x, y } = getVideoCoordinates(event);
-		webrtcClient.sendMouseClick("left", x, y);
 		(event.currentTarget as HTMLVideoElement)?.focus();
 	}
 
@@ -255,11 +256,33 @@
 		webrtcClient.sendMouseClick("right", x, y);
 	}
 
+	function buttonFromEvent(e: MouseEvent): string {
+		if (e.button === 0) return "left";
+		if (e.button === 1) return "middle";
+		if (e.button === 2) return "right";
+		return "left";
+	}
+
+	function handleMouseDown(event: MouseEvent) {
+		(event.currentTarget as HTMLElement)?.focus();
+		if (!connected || !webrtcClient) return;
+
+		const { x, y } = getVideoCoordinates(event);
+		webrtcClient.sendMouseDown(buttonFromEvent(event), x, y);
+	}
+
+	function handleMouseUp(event: MouseEvent) {
+		if (!connected || !webrtcClient) return;
+
+		const { x, y } = getVideoCoordinates(event);
+		webrtcClient.sendMouseUp(buttonFromEvent(event), x, y);
+	}
+
 	function handleMouseMove(event: MouseEvent) {
 		if (!connected || !webrtcClient) return;
 
-		// Throttle mouse move events to avoid flooding
-		if (Date.now() - lastMouseMoveTime < 50) return; // 20 FPS max
+		// Throttle mouse move events (60 FPS for responsive cursor)
+		if (Date.now() - lastMouseMoveTime < 16) return; // ~60 FPS
 		lastMouseMoveTime = Date.now();
 
 		const { x, y } = getVideoCoordinates(event);
@@ -420,6 +443,8 @@
 				{connecting}
 				mqttFrame={null}
 				onMouseClick={handleMouseClick}
+				onMouseDown={handleMouseDown}
+				onMouseUp={handleMouseUp}
 				onMouseMove={handleMouseMove}
 				onRightClick={handleRightClick}
 				onKeyDown={handleKeyDown}

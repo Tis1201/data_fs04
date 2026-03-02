@@ -2,6 +2,6 @@ services:
   job-worker:
     build:
       context: ../..
-      dockerfile: docker/job-worker/Dockerfile
+      dockerfile: docker/job_worker/Dockerfile
     image: fs04-web-job-worker:${TAG:-latest}
     platform: linux/amd64

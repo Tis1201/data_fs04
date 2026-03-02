@@ -96,6 +96,20 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		);
 	}
 
+	// Only return download URL when upload has completed successfully.
+	// objectPath is stored at initiation, but the file does not exist in GCS until the device finishes uploading.
+	// Returning early here prevents the polling loop from triggering download at ~15% (incomplete file).
+	if (actionLog.status !== 'success') {
+		throw Object.assign(
+			new Error('File upload not yet complete. Please wait for the device to finish uploading.'),
+			{
+				status: 400,
+				code: 'UPLOAD_IN_PROGRESS',
+				details: `Action status is '${actionLog.status}'; download URL is only available when status is 'success'`
+			}
+		);
+	}
+
 	// Extract objectPath from action log metadata
 	const metadata = actionLog.metadata as any;
 	const objectPath = metadata?.objectPath;

@@ -18,6 +18,9 @@
         parseApkByPath,
         parseDebFile,
         parseDebByPath,
+        parseExeFile,
+        parseExeByPath,
+        parseExeFromFilename,
         generatePackageName,
         extractDisplayName,
         extractVersion
@@ -27,7 +30,7 @@
     function inferTypeAndFormatFromFileName(fileName: string): { type: string; format: string } {
         const format = fileName?.includes('.') ? fileName.split('.').pop()!.toLowerCase() : '';
         const type =
-            format === 'apk' || format === 'deb' ? 'application' :
+            format === 'apk' || format === 'deb' || format === 'exe' ? 'application' :
             format === 'zip' ? 'archive' :
             format === 'cpk' ? 'package' : 'file';
         return { type, format };
@@ -69,8 +72,8 @@
     ];
 
     const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file';
-    const FILE_HELPER = 'Maximum file size 50 MB, and allowed file types: .zip, .cpk, .deb, .apk.';
-    const FILE_ACCEPT = '.zip,.cpk,.deb,.apk';
+    const FILE_HELPER = 'Maximum file size 50 MB, and allowed file types: .zip, .cpk, .deb, .apk, .exe.';
+    const FILE_ACCEPT = '.zip,.cpk,.deb,.apk,.exe';
 
     let submitting = false;
     let errorMessage: string | null = null;
@@ -218,9 +221,10 @@
         uploadedCloudPath = null;
 
         const fileName = file.name.toLowerCase();
-        const isSupported = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb');
+        const isSupported = fileName.endsWith('.zip') || fileName.endsWith('.apk') || fileName.endsWith('.cpk') || fileName.endsWith('.deb') || fileName.endsWith('.exe');
         isApk = fileName.endsWith('.apk');
         const isDeb = fileName.endsWith('.deb');
+        const isExe = fileName.endsWith('.exe');
         const isCloudMode = storageConfig?.mode === 'LOCAL_CLOUD' || storageConfig?.mode === 'GCLOUD';
 
         if (isSupported) {
@@ -322,6 +326,17 @@
                         zipParseSuccess = '✓ Successfully parsed DEB file ';
                     } else {
                         zipParseError = debResult.error || 'Failed to parse DEB file';
+                    }
+                } else if (isExe) {
+                    const exeResult = parseExeFromFilename(file.name);
+                    if (exeResult.success && exeResult.data) {
+                        packageName = exeResult.data.packageName;
+                        if (exeResult.data.version) version = exeResult.data.version;
+                        name = name || exeResult.data.packageName;
+                        isApkOrCpk = true;
+                        zipParseSuccess = '✓ Successfully parsed EXE file';
+                    } else {
+                        zipParseError = exeResult.error || 'Failed to parse EXE file';
                     }
                 } else {
                     if (isDeb) {
@@ -445,7 +460,7 @@
         const dataStr = typeof o.data === 'string' ? o.data : '';
         if (dataStr.includes('Invalid file format') || dataStr.includes('Only .zip')) {
             const detailsMatch = dataStr.match(/Only [^"]+files are allowed/);
-            return detailsMatch ? detailsMatch[0].trim() : 'Invalid file format. Only .zip, .cpk, .deb and .apk files are allowed.';
+            return detailsMatch ? detailsMatch[0].trim() : 'Invalid file format. Only .zip, .cpk, .deb, .apk, and .exe files are allowed.';
         }
         // Fallback: data may be devalue string; extract message containing "already exists"
         if (dataStr.includes('already exists')) {

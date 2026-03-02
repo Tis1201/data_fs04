@@ -51,7 +51,7 @@ export const MIME_EXT_MAP: Record<string, string> = {
 
 /**
  * Infer resource type and format from the uploaded file.
- * Supports .zip, .cpk, .apk, and .deb files.
+ * Supports .zip, .cpk, .apk, .deb, and .exe files.
  */
 export function inferTypeAndFormatFromFile(file: File): { type: string; format: string } {
     const mime = file.type || '';
@@ -70,12 +70,13 @@ export function inferTypeAndFormatFromFile(file: File): { type: string; format: 
         type = 'application';
     } else if (format === 'deb') {
         type = 'application';
+    } else if (format === 'exe') {
+        type = 'application';
     } else if (format === 'zip') {
         type = 'archive';
     } else if (format === 'cpk') {
         type = 'package';
     } else {
-        // Fallback for unsupported types (should not happen due to validation)
         type = 'file';
     }
 

@@ -1,10 +1,10 @@
-# Build stage
+# Build stage — Docker Desktop needs at least 8 GB memory for this build
 FROM node:20.9.0-bookworm-slim AS build
 WORKDIR /app
 ARG PUBLIC_VANNA_API_URL
 ENV PUBLIC_VANNA_API_URL=$PUBLIC_VANNA_API_URL
 ENV ROLLUP_SKIP_NODE_NATIVE=1
-ENV NODE_OPTIONS=--max-old-space-size=5632
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 # Install build tools and native deps for node-canvas and prisma
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,16 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   openssl \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy package files
+# Copy package files (keep lockfile for deterministic, lower-memory installs)
 COPY package*.json ./
 
-# Fix duplicate keys in package.json if any (legacy issue helper)
-COPY package.json ./package.json.original
-RUN grep -v '"preview": "vite preview",' ./package.json.original | grep -v '"start": "NODE_ENV=production node build",' > ./package.json
-
-# Install dependencies
-# Remove Mac-specific lockfile issues if any, ensuring clean linux resolution
-RUN rm -f package-lock.json && npm install --legacy-peer-deps
+# Install dependencies using lockfile
+RUN npm ci --legacy-peer-deps
 
 # Copy source files
 COPY src ./src
@@ -45,8 +40,8 @@ RUN mkdir -p .svelte-kit && echo '{"compilerOptions":{}}' > .svelte-kit/tsconfig
 RUN npx prisma generate
 RUN npx zenstack generate
 
-# Build the application
-RUN npm run build
+# Build the application (__BUILDING=1 prevents Redis connection attempts during build)
+RUN __BUILDING=1 npm run build
 
 # Production stage
 FROM node:20.9.0-bookworm-slim
@@ -64,16 +59,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   tar \
   && rm -rf /var/lib/apt/lists/*
 
-# Copy built artifacts and dependencies
+# Copy built app and necessary files from build stage
 COPY --from=build /app/build ./build
 COPY --from=build /app/static ./static
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/schema.zmodel ./
 COPY --from=build /app/prodServer.js ./prodServer.js
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/scripts/processes ./scripts/processes
+
+# Copy Prisma schema, migrations, and seed
+COPY --from=build /app/prisma/schema.prisma ./prisma/
+COPY --from=build /app/prisma/migrations ./prisma/migrations
+COPY --from=build /app/prisma/seed.ts ./prisma/seed.ts
+
 COPY --from=build /app/entrypoint.sh ./entrypoint.sh
 
+# Copy node_modules (includes devDeps needed at runtime: prisma CLI, tsx)
+COPY --from=build /app/node_modules ./node_modules
 
 # Make entrypoint executable
 RUN chmod +x ./entrypoint.sh

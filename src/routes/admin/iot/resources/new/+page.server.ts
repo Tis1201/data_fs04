@@ -67,7 +67,7 @@ export const actions: Actions = {
                 // Only validate file extension for local uploads
                 if (rawFile instanceof File && !isCloudUpload) {
                     // Validate file extension first
-                    const allowedExtensions = ['.zip', '.cpk', '.apk', '.deb'];
+                    const allowedExtensions = ['.zip', '.cpk', '.apk', '.deb', '.exe'];
                     const fileName = rawFile.name.toLowerCase();
                     const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
                     
@@ -81,7 +81,7 @@ export const actions: Actions = {
                             createErrorResponse(
                                 'Invalid file format',
                                 'VALIDATION_ERROR',
-                                { details: 'Only .zip, .cpk, .deb and .apk files are allowed' }
+                                { details: 'Only .zip, .cpk, .deb, .apk, and .exe files are allowed' }
                             )
                         );
                     }

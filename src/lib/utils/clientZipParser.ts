@@ -45,6 +45,17 @@ export interface DebParseResult {
   error?: string;
 }
 
+export interface ExeParseResult {
+  success: boolean;
+  data?: {
+    packageName: string;
+    version: string;
+    description: string;
+    architecture?: string | null;
+  };
+  error?: string;
+}
+
 /**
  * Parse an APK file via server (FormData to v2 endpoint).
  * Prefer parseApkFileClient or upload-to-GCS then parseApkByPath when possible.
@@ -259,6 +270,106 @@ export async function parseDebByPath(objectPath: string, bucket?: string): Promi
       error: 'Failed to parse .deb file: ' + (error instanceof Error ? error.message : String(error))
     };
   }
+}
+
+/**
+ * Parse a Windows .exe file via server (FormData to v2 endpoint).
+ * Metadata is derived from the filename (no binary parsing needed).
+ */
+export async function parseExeFile(file: File): Promise<ExeParseResult> {
+  console.log('[EXE Parser] Parsing EXE via v2 (FormData):', { fileName: file.name, fileSize: file.size });
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/api/v2/resources/parse-exe', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        success: false,
+        error: errorData?.error?.message || errorData?.error || 'Failed to parse .exe file'
+      };
+    }
+
+    const result = await response.json();
+    console.log('[EXE Parser] Successfully parsed EXE:', result.data);
+    return result;
+  } catch (error) {
+    console.error('[EXE Parser] EXE parsing error:', error);
+    return {
+      success: false,
+      error: 'Failed to parse .exe file: ' + (error instanceof Error ? error.message : String(error))
+    };
+  }
+}
+
+/**
+ * Parse a .exe already in GCS by object path.
+ * No file download — metadata is derived from the filename in the path.
+ */
+export async function parseExeByPath(objectPath: string, bucket?: string): Promise<ExeParseResult> {
+  console.log('[EXE Parser] Parsing EXE from GCS path:', { objectPath, bucket });
+
+  try {
+    const response = await fetch('/api/v2/resources/parse-exe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objectPath, bucket })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        success: false,
+        error: errorData?.error?.message || errorData?.error || 'Failed to parse .exe file'
+      };
+    }
+
+    const result = await response.json();
+    console.log('[EXE Parser] Successfully parsed EXE from path:', result.data);
+    return result;
+  } catch (error) {
+    console.error('[EXE Parser] EXE parse-by-path error:', error);
+    return {
+      success: false,
+      error: 'Failed to parse .exe file: ' + (error instanceof Error ? error.message : String(error))
+    };
+  }
+}
+
+/**
+ * Client-side EXE filename parser (no server round-trip).
+ * Extracts packageName, version, architecture from filename conventions.
+ */
+export function parseExeFromFilename(filename: string): ExeParseResult {
+  const base = filename.replace(/\.exe$/i, '');
+  const KNOWN_ARCHS = new Set(['amd64', 'x86_64', 'x64', 'arm64', 'aarch64', 'x86', 'i386', 'i686', '386']);
+
+  const norm = (s: string) => s.replace(/[\s_]+/g, '-').toLowerCase();
+
+  // name_version_windows_arch
+  let m = base.match(/^(.+?)[-_](\d+\.\d+(?:\.\d+)?)[-_]windows[-_](\w+)$/i);
+  if (m) return { success: true, data: { packageName: norm(m[1]), version: m[2], description: `Windows application ${norm(m[1])}`, architecture: m[3].toLowerCase() } };
+
+  // name_version_arch
+  m = base.match(/^(.+?)[-_](\d+\.\d+(?:\.\d+)?)[-_](\w+)$/i);
+  if (m && KNOWN_ARCHS.has(m[3].toLowerCase())) return { success: true, data: { packageName: norm(m[1]), version: m[2], description: `Windows application ${norm(m[1])}`, architecture: m[3].toLowerCase() } };
+
+  // name_version
+  m = base.match(/^(.+?)[-_](\d+\.\d+(?:\.\d+)?)$/);
+  if (m) return { success: true, data: { packageName: norm(m[1]), version: m[2], description: `Windows application ${norm(m[1])}` } };
+
+  // name-windows-arch
+  m = base.match(/^(.+?)[-_]windows[-_](\w+)$/i);
+  if (m) return { success: true, data: { packageName: norm(m[1]), version: '', description: `Windows application ${norm(m[1])}`, architecture: m[2].toLowerCase() } };
+
+  // fallback
+  return { success: true, data: { packageName: norm(base), version: '', description: `Windows application ${norm(base)}` } };
 }
 
 /**

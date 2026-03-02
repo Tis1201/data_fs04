@@ -29,7 +29,9 @@ CREATE TABLE IF NOT EXISTS device_information (
     timezone String DEFAULT '',
     last_connected_at DateTime64(3) DEFAULT now(),
     last_status_at DateTime64(3) DEFAULT now(),
-    created_at DateTime64(3) DEFAULT now()
+    created_at DateTime64(3) DEFAULT now(),
+    manufacturer String DEFAULT '',
+    hardware_id String DEFAULT ''
 ) ENGINE = MergeTree()
 ORDER BY (mac_lan, created_at)
 TTL created_at + INTERVAL 30 DAY;
@@ -59,7 +61,9 @@ AS SELECT
     timezone,
     last_connected_at,
     last_status_at,
-    created_at
+    created_at,
+    manufacturer,
+    hardware_id
 FROM device_information;
 
 -- Create bundle_events table for deployment tracking
