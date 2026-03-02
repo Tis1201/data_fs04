@@ -40,18 +40,24 @@ export const load = restrict(
         const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
         const perPage = Math.min(100, Math.max(10, parseInt(url.searchParams.get('per_page') || '10', 10)));
         const search = (url.searchParams.get('search') || '').trim();
-        const sortField = url.searchParams.get('sort') || 'createdAt';
-        const sortOrder = (url.searchParams.get('order') || 'desc') as 'asc' | 'desc';
+        const explicitUnsort = url.searchParams.has('sort_default');
+        const sortField = explicitUnsort ? null : (url.searchParams.get('sort') || 'createdAt');
+        const sortOrder = explicitUnsort
+            ? null
+            : ((url.searchParams.get('order') || 'desc') as 'asc' | 'desc');
 
         const accountId = getCurrentAccountId(cookies, locals);
         const userId = locals.user?.id;
+
+        const toClientField = (f: string | null) =>
+            f === null ? null : f === 'createdAt' ? 'createdOn' : f === 'lastUsedAt' ? 'lastUsedOn' : f;
 
         if (!accountId || !userId) {
             return {
                 apiKeys: [],
                 meta: {
                     pagination: { page: 1, per_page: perPage, total_records: 0, total_pages: 1 },
-                    sort: { field: sortField, order: sortOrder },
+                    sort: { field: toClientField(sortField), order: sortOrder },
                     filters: { search }
                 }
             };
@@ -71,10 +77,13 @@ export const load = restrict(
             ];
         }
 
-        // Map sort field to database column
-        const dbSortField = sortField === 'createdOn' ? 'createdAt' : sortField === 'lastUsedOn' ? 'lastUsedAt' : sortField;
+        // Map sort field to database column (use createdAt when unsorted to keep stable order)
+        const effectiveSortField = sortField ?? 'createdAt';
+        const dbSortField =
+            effectiveSortField === 'createdOn' ? 'createdAt' : effectiveSortField === 'lastUsedOn' ? 'lastUsedAt' : effectiveSortField;
         const validSortFields = ['name', 'createdAt', 'lastUsedAt'];
         const orderByField = validSortFields.includes(dbSortField) ? dbSortField : 'createdAt';
+        const effectiveSortOrder = sortOrder ?? 'desc';
 
         // Count total records
         const totalRecords = await prisma.apiKey.count({ where });
@@ -83,7 +92,7 @@ export const load = restrict(
         // Fetch API keys
         const dbApiKeys = await prisma.apiKey.findMany({
             where,
-            orderBy: { [orderByField]: sortOrder },
+            orderBy: { [orderByField]: effectiveSortOrder },
             skip: (page - 1) * perPage,
             take: perPage,
             select: {
@@ -109,11 +118,13 @@ export const load = restrict(
             active: k.active
         }));
 
+        const clientSortField = toClientField(sortField);
+
         return {
             apiKeys,
             meta: {
                 pagination: { page, per_page: perPage, total_records: totalRecords, total_pages: totalPages },
-                sort: { field: sortField, order: sortOrder },
+                sort: { field: clientSortField, order: sortOrder },
                 filters: { search }
             }
         };

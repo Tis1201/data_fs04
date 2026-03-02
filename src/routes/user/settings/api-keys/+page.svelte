@@ -80,8 +80,9 @@
 
     let sort: SortState = { field: 'createdOn', direction: 'desc' };
     $: sort = {
-        field: serverSort?.field || 'createdOn',
-        direction: (serverSort?.order as 'asc' | 'desc') || 'desc'
+        field: serverSort?.field === null ? null : (serverSort?.field || 'createdOn'),
+        direction:
+            serverSort?.order === null ? null : ((serverSort?.order as 'asc' | 'desc') || 'desc')
     };
 
     const permissionOptions = API_KEY_PERMISSIONS.map(p => ({ id: p.id, label: p.label }));
@@ -92,9 +93,11 @@
         if (next.field && next.direction) {
             url.searchParams.set('sort', next.field);
             url.searchParams.set('order', next.direction);
+            url.searchParams.delete('sort_default');
         } else {
             url.searchParams.delete('sort');
             url.searchParams.delete('order');
+            url.searchParams.set('sort_default', '1'); // Explicit unsort: show dual arrows on all columns
         }
         url.searchParams.set('page', '1');
         goto(url.pathname + url.search, { noScroll: true });
@@ -362,7 +365,16 @@ console.log(data);`;
             header: 'Permission',
             accessor: (row) => row.permission || '—',
             type: 'text',
-            width: '14%'
+            width: '12%'
+        },
+        {
+            id: 'status',
+            header: 'Status',
+            accessor: (row) => (row.active ? 'Active' : 'Inactive'),
+            type: 'badge',
+            statusColor: (_value, row) => (row.active ? 'success' : 'error'),
+            showDot: () => true,
+            width: '10%'
         },
         {
             id: 'createdOn',

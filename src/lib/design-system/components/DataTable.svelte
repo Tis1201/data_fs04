@@ -444,7 +444,7 @@
                                     </button>
                                 {/if}
                                 
-                                <!-- Sort direction arrows: only when column is sortable and sorted -->
+                                <!-- Sort direction arrows: only when sorted (unsort = no icon per new design) -->
                                 {#if sortable && column.sortable && isSorted}
                                     {#if sort.direction === 'desc'}
                                         <ArrowDown class="w-4 h-4 flex-shrink-0 {iconColor}" stroke-width={1.33} />
