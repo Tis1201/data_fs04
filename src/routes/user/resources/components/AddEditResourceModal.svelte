@@ -1,5 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
+    import { deserialize } from '$app/forms';
     import {
         Modal,
         Button,
@@ -73,6 +74,8 @@
 
     let submitting = false;
     let errorMessage: string | null = null;
+    /** True when error comes from server (fetch) – shown via toast only, not inline */
+    let errorFromServer = false;
     let wasOpen = false;
 
     let name = '';
@@ -128,6 +131,7 @@
     $: if (open) {
         if (!wasOpen) {
             errorMessage = null;
+            errorFromServer = false;
             zipParseSuccess = '';
             zipParseError = '';
             isApkOrCpk = false;
@@ -371,15 +375,70 @@
         uploadProgress = null;
     }
 
+    /** Recursively find first string that looks like an error message (e.g. contains "already exists") */
+    function findErrorMessageInObject(obj: unknown): string | null {
+        if (typeof obj === 'string') {
+            if (obj.includes('already exists')) {
+                const m = obj.match(/"([^"]*already exists[^"]*)"/);
+                return m ? m[1] : (obj.length < 500 ? obj : null);
+            }
+            if (obj.length > 10 && obj.length < 300) return obj;
+            return null;
+        }
+        if (!obj || typeof obj !== 'object') return null;
+        if (Array.isArray(obj)) {
+            for (const item of obj) {
+                const found = findErrorMessageInObject(item);
+                if (found) return found;
+            }
+            return null;
+        }
+        const o = obj as Record<string, unknown>;
+        const order = ['message', 'error', 'details', 'data', 'form'];
+        for (const key of order) {
+            const val = o[key];
+            if (typeof val === 'string' && (val.includes('already exists') || val.includes('Invalid') || val.length > 20)) return val;
+            if (val && typeof val === 'object') {
+                const nested = key === 'error' && (val as Record<string, unknown>).message
+                    ? (val as { message: string }).message
+                    : findErrorMessageInObject(val);
+                if (nested) return nested;
+            }
+        }
+        for (const v of Object.values(o)) {
+            const found = findErrorMessageInObject(v);
+            if (found) return found;
+        }
+        return null;
+    }
+
     function toErrorMessage(v: unknown): string {
         if (typeof v === 'string') return v;
+        // SvelteKit form action: success has result.form, failure has result.data (object or devalue string)
+        if (v && typeof v === 'object') {
+            const o = v as Record<string, unknown>;
+            let form = (o.data as Record<string, unknown>)?.form ?? o.form;
+            if (!form && typeof o.data === 'string') {
+                try {
+                    const parsed = deserialize(o.data) as Record<string, unknown>;
+                    form = parsed?.form;
+                } catch {
+                    /* ignore */
+                }
+            }
+            const formObj = form as Record<string, unknown> | undefined;
+            const msg = formObj?.message as Record<string, unknown> | undefined;
+            const err = msg?.error as Record<string, unknown> | undefined;
+            if (typeof err?.message === 'string' && err.message.trim()) return err.message;
+        }
+        const found = findErrorMessageInObject(v);
+        if (found) return found;
         if (!v || typeof v !== 'object') return 'Unable to add resource. Please try again!';
         const o = v as Record<string, unknown>;
         const err = o.error as Record<string, unknown> | undefined;
         if (err && typeof err.message === 'string' && err.message.trim()) return err.message;
         if (err && typeof err.details === 'string' && err.details.trim()) return err.details;
         if (typeof o.message === 'string' && o.message.trim()) return o.message;
-        if (typeof o.details === 'string' && o.details.trim()) return o.details;
         if (Array.isArray(o.errors) && o.errors[0] && typeof (o.errors[0] as Record<string, unknown>).message === 'string') {
             return (o.errors[0] as { message: string }).message;
         }
@@ -388,11 +447,18 @@
             const detailsMatch = dataStr.match(/Only [^"]+files are allowed/);
             return detailsMatch ? detailsMatch[0].trim() : 'Invalid file format. Only .zip, .cpk, .deb and .apk files are allowed.';
         }
+        // Fallback: data may be devalue string; extract message containing "already exists"
+        if (dataStr.includes('already exists')) {
+            const match = dataStr.match(/"([^"]*already exists[^"]*)"/);
+            if (match) return match[1];
+        }
         return 'Unable to add resource. Please try again!';
     }
 
     async function handleSubmit() {
+        if (mode === 'add' && zipParseError) return;
         errorMessage = null;
+        errorFromServer = false;
         if (!name?.trim()) {
             errorMessage = RESOURCE_NAME_REQUIRED;
             return;
@@ -433,18 +499,33 @@
                     body: fd,
                     credentials: 'same-origin'
                 });
-                const result = await res.json().catch(() => ({}));
+                const raw = await res.text();
+                let result: Record<string, unknown> = {};
+                try {
+                    result = (typeof raw === 'string' && raw.trim() ? deserialize(raw) : {}) as Record<string, unknown>;
+                } catch {
+                    result = {};
+                }
+                const form = (result?.data as Record<string, unknown>)?.form ?? result?.form;
+                const formMsg = form && typeof form === 'object' ? (form as Record<string, unknown>).message as Record<string, unknown> | undefined : undefined;
+                const msgData = formMsg?.data as Record<string, unknown> | undefined;
                 const isSuccess =
-                    result.success === true ||
                     result.type === 'success' ||
-                    result.data?.resourceId ||
-                    (typeof result.data === 'string' &&
-                        (result.data.includes('Resource created successfully') || result.data.includes('"resourceId"')));
+                    (form && typeof form === 'object' && (form as Record<string, unknown>).valid === true) ||
+                    (formMsg?.success === true && (msgData?.resourceId ?? msgData?.accountId));
                 if (isSuccess) {
                     dispatch('success');
                 } else {
-                    const msg = toErrorMessage(result) || 'Unable to add resource. Please try again!';
-                    errorMessage = msg;
+                    let msg = toErrorMessage(result);
+                    if (!msg || msg === 'Unable to add resource. Please try again!') {
+                        const fromRaw = raw?.includes?.('already exists')
+                            ? (raw.match(/"([^"]*already exists[^"]*)"/)?.[1] ?? msg)
+                            : null;
+                        if (fromRaw) msg = fromRaw;
+                    }
+                    msg = msg || 'Unable to add resource. Please try again!';
+                    errorFromServer = true;
+                    errorMessage = null;
                     if (uploadedFiles.length > 0 && isFileRelatedError(msg)) {
                         uploadedFiles = uploadedFiles.map((f) => ({ ...f, state: 'failed' as const, errorMessage: msg }));
                     }
@@ -469,17 +550,25 @@
                     body: fd,
                     credentials: 'same-origin'
                 });
-                const result = await res.json().catch(() => ({}));
-                if (result.type === 'success' || result.data) {
+                const raw = await res.text();
+                const result = typeof raw === 'string' && raw.trim() ? (deserialize(raw) as Record<string, unknown>) : {};
+                const form = (result?.data as Record<string, unknown>)?.form ?? result?.form;
+                const formValid = form && typeof form === 'object' && (form as Record<string, unknown>).valid === true;
+                const formMsg = form && typeof form === 'object' ? (form as Record<string, unknown>).message as Record<string, unknown> | undefined : undefined;
+                if (result.type === 'success' || formValid || formMsg?.success === true) {
                     dispatch('success');
                 } else {
-                    errorMessage = toErrorMessage(result) || 'Unable to update resource. Please try again!';
-                    dispatch('error', errorMessage);
+                    const updateMsg = toErrorMessage(result) || 'Unable to update resource. Please try again!';
+                    errorFromServer = true;
+                    errorMessage = null;
+                    dispatch('error', updateMsg);
                 }
             }
         } catch (e) {
-            errorMessage = toErrorMessage(e) || 'Unable to add resource. Please try again!';
-            dispatch('error', errorMessage);
+            const msg = toErrorMessage(e) || 'Unable to add resource. Please try again!';
+            errorFromServer = true;
+            errorMessage = null;
+            dispatch('error', msg);
         } finally {
             submitting = false;
         }
@@ -498,7 +587,7 @@
     on:close={handleClose}
 >
     <form on:submit|preventDefault={handleSubmit} class="resource-modal-form">
-        {#if errorMessage && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && !serverFileError}
+        {#if errorMessage && !errorFromServer && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && !serverFileError}
             <p class="resource-form-error">{errorMessage}</p>
         {/if}
 
@@ -519,8 +608,7 @@
                     showDropZone={uploadedFiles.length === 0}
                     on:drop={handleFileDrop}
                     on:remove={() => {
-                        uploadedFiles = [];
-                        selectedFile = null;
+                        handleFileRemove();
                         errorMessage = null;
                     }}
                 />
@@ -570,7 +658,7 @@
                 label="Package Name"
                 placeholder="Enter"
                 bind:value={packageName}
-                disabled={true}
+                disabled={false}
             />
         </div>
         <div class="resource-row">
@@ -580,7 +668,7 @@
                     label="Version"
                     placeholder="Enter"
                     bind:value={version}
-                    disabled={true}
+                    disabled={false}
                 />
             </div>
             <div class="resource-field">
@@ -667,7 +755,7 @@
                 color="primary"
                 size="lg"
                 loading={submitting}
-                disabled={submitting || zipParsing || (uploadProgress != null && uploadProgress < 100)}
+                disabled={submitting || zipParsing || (uploadProgress != null && uploadProgress < 100) || (mode === 'add' && !!zipParseError)}
             >
                 {mode === 'add' ? 'Add' : 'Save'}
             </Button>

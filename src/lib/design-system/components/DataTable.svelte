@@ -38,6 +38,8 @@
         accessor?: keyof T | ((row: T) => any);
         type?: CellType;
         sortable?: boolean;
+        /** When 'toggle', sort only cycles asc↔desc (no clear). Default: 'default' (asc→desc→null). */
+        sortCycle?: 'default' | 'toggle';
         disabled?: boolean; // Disabled header state
         helpTooltip?: string; // Help icon tooltip
         /** When true, shows column filter icon (chevrons-up-down) in header. Only show when filter UI is configured. */
@@ -232,13 +234,14 @@
         if (!sortable || !column.sortable) return;
         
         const field = column.id;
+        const useToggle = column.sortCycle === 'toggle';
         let direction: SortDirection = 'asc';
         
         if (sort.field === field) {
             if (sort.direction === 'asc') {
                 direction = 'desc';
             } else if (sort.direction === 'desc') {
-                direction = null;
+                direction = useToggle ? 'asc' : null; // Toggle columns cycle asc↔desc, never clear
             }
         }
         

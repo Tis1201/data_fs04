@@ -129,9 +129,10 @@
         }
     }
 
+    let searchInputWrapper: HTMLElement | null = null;
     $: if (browser && typeof searchValue !== 'undefined') {
         clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
+        searchTimeout = setTimeout(async () => {
             const currentSearch = $page.url.searchParams.get('search') || '';
             const newSearch = searchValue.trim();
             if (newSearch === currentSearch) return;
@@ -142,7 +143,7 @@
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true });
+            await goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         }, 500);
     }
 
@@ -154,8 +155,8 @@
     };
 
     $: sort = {
-        field: serverSort.field || 'createdAt',
-        direction: (serverSort.order as 'asc' | 'desc') || 'desc'
+        field: serverSort.field === null ? null : (serverSort.field || 'createdAt'),
+        direction: (serverSort.order === null ? null : ((serverSort.order as 'asc' | 'desc') || 'desc')) as 'asc' | 'desc' | null
     };
 
     const basePath = '/user/resources';
@@ -163,15 +164,19 @@
     function handleSort(event: CustomEvent<SortState>) {
         const next = event.detail;
         const url = new URL($page.url);
-        if (next.field && next.direction) {
-            url.searchParams.set('sort_field', next.field);
-            url.searchParams.set('sort_order', next.direction);
+        const sortField = next.field;
+        const sortOrder = next.direction;
+        if (sortField && sortOrder) {
+            url.searchParams.set('sort_field', sortField);
+            url.searchParams.set('sort_order', sortOrder);
+            url.searchParams.delete('sort');
         } else {
             url.searchParams.delete('sort_field');
             url.searchParams.delete('sort_order');
+            url.searchParams.set('sort', 'default'); // Signal explicit unsort so server does not redirect
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, invalidateAll: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
@@ -306,7 +311,7 @@
 
 <div class="flex flex-col items-start w-full" style="padding: var(--ds-space-6); gap: var(--ds-space-4);">
     <div class="flex flex-row items-center w-full" style="gap: var(--ds-space-4); height: 48px;">
-        <div style="width: 500px; height: 48px;">
+        <div style="width: 500px; height: 48px;" bind:this={searchInputWrapper}>
             <InputField
                 type="search"
                 placeholder="Search by Name, Type or Package Name"

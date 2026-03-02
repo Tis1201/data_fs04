@@ -472,12 +472,14 @@
         position: relative;
     }
 
-    /* Label */
+    /* Label - align with InputField label (min-height 24px = line-height 20px + padding 2px*2) */
     .dropdown-label {
         display: flex;
         flex-direction: row;
         align-items: center;
         gap: 2px;
+        min-height: 24px;
+        padding: 2px 0;
     }
 
     .label-text {

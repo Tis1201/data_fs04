@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect, isRedirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -11,6 +11,17 @@ export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
         const { url, locals, cookies } = event;
         try {
+            // Sync URL: redirect to add default sort params when missing (but not when user explicitly unsorted)
+            const hasSortParams = url.searchParams.has('sort_field') && url.searchParams.has('sort_order');
+            const explicitUnsort = url.searchParams.get('sort') === 'default';
+            if (!hasSortParams && !explicitUnsort) {
+                const target = new URL(url.href);
+                target.searchParams.set('sort_field', 'createdAt');
+                target.searchParams.set('sort_order', 'desc');
+                if (!target.searchParams.has('page')) target.searchParams.set('page', '1');
+                throw redirect(302, target.pathname + target.search);
+            }
+
             // Scope to current account only (switch-account aware)
             const currentAccountId =
                 (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
@@ -34,8 +45,8 @@ export const load = restrict(
             const search = url.searchParams.get('search') || '';
             const page = parseInt(url.searchParams.get('page') || '1');
             const perPage = parseInt(url.searchParams.get('per_page') || '10');
-            const sortField = url.searchParams.get('sort_field') || 'createdAt';
-            const sortOrder = url.searchParams.get('sort_order') || 'desc';
+            const sortField = explicitUnsort ? null : (url.searchParams.get('sort_field') || 'createdAt');
+            const sortOrder = explicitUnsort ? null : (url.searchParams.get('sort_order') || 'desc');
             const types = url.searchParams.get('types')?.split(',').filter(Boolean) || [];
 
             // Calculate pagination values
@@ -47,14 +58,16 @@ export const load = restrict(
                 accountId: currentAccountId
             };
 
-            // Add search filter if provided
+            // Add search filter if provided (Name, Type, PackageName, path, id - case-insensitive)
             if (search) {
                 const searchLower = search.toLowerCase();
+                const insensitive = { contains: searchLower, mode: 'insensitive' as const };
                 where.OR = [
-                    { name: { contains: searchLower } },
+                    { name: insensitive },
                     { id: { contains: searchLower } },
-                    { path: { contains: searchLower } },
-                    { packageName: { contains: searchLower } }
+                    { type: insensitive },
+                    { path: insensitive },
+                    { packageName: insensitive }
                 ];
             }
 
@@ -63,12 +76,15 @@ export const load = restrict(
                 where.type = { in: types };
             }
 
+            const effectiveSortField = sortField || 'createdAt';
+            const effectiveSortOrder = sortOrder || 'desc';
+
             // Query resources with filtering, sorting, and pagination (scoped to current account)
             const [resources, totalResources] = await Promise.all([
                 locals.prisma.resource.findMany({
                     where,
                     orderBy: {
-                        [sortField]: sortOrder
+                        [effectiveSortField]: effectiveSortOrder
                     },
                     skip,
                     take,
@@ -121,7 +137,7 @@ export const load = restrict(
             return {
                 resources,
                 accounts,
-                resourceTypes: resourceTypes.map((rt) => rt.type),
+                resourceTypes,
                 storageConfig,
                 meta: {
                     pagination: {
@@ -131,8 +147,8 @@ export const load = restrict(
                         total_pages: totalPages
                     },
                     sort: {
-                        field: sortField,
-                        order: sortOrder
+                        field: sortField ?? null,
+                        order: (explicitUnsort ? null : (sortOrder ?? 'desc')) as string | null
                     }
                 },
                 filters: {
@@ -140,7 +156,8 @@ export const load = restrict(
                 }
             };
         } catch (err) {
-            logger.error(`Error loading resources:, ${err}` );
+            if (isRedirect(err)) throw err;
+            logger.error(`Error loading resources: ${err instanceof Error ? err.message : String(err)}`);
             throw error(500, 'Failed to load resources');
         }
     },

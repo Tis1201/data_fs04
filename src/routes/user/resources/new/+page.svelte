@@ -75,7 +75,7 @@
     
     // Reactive clear of errors
     $: if ($form.name) nameError = '';
-    $: formDisabled = formLocked || zipParsing || (uploadProgress != null && uploadProgress < 100);
+    $: formDisabled = formLocked || zipParsing || (uploadProgress != null && uploadProgress < 100) || !!zipParseError;
 
     /** Upload file to presigned URL with progress (XHR for real %). */
     function uploadToPresignedUrlWithProgress(
@@ -453,6 +453,7 @@
 
     async function submitForm() {
         console.log('[NewResource] submitForm called');
+        if (zipParseError) return;
         console.log('[NewResource] Form data:', { name: $form.name, path: $form.path, file: $form.file });
         
         nameError = $form.name ? '' : 'Resource name is required.';

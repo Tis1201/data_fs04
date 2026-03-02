@@ -224,11 +224,37 @@ export const actions: Actions = {
                     };
 
                     logger.debug(`Creating enhanced Prisma client with user context`);
-                
+
                     // Create a new enhanced Prisma client with the proper user context
                     // Enable query logging for debugging
                     const enhancedPrisma = getEnhancedPrisma(userContext, { logPrismaQuery: true });
-                    
+
+                    // Duplicate check: same packageName + version within account
+                    const packageName = form.data.packageName?.trim();
+                    const versionToUse = form.data.version?.trim() || '1.0.0';
+                    if (packageName) {
+                        const existing = await enhancedPrisma.resource.findFirst({
+                            where: {
+                                accountId,
+                                packageName,
+                                version: versionToUse
+                            }
+                        });
+                        if (existing) {
+                            return message(
+                                form,
+                                createErrorResponse(
+                                    'A resource with this package name and version already exists in this account.',
+                                    'VALIDATION_ERROR',
+                                    {
+                                        details: 'Please use a different package name or version.'
+                                    }
+                                ),
+                                { status: 400 }
+                            );
+                        }
+                    }
+
                     // Create the resource using the enhanced Prisma client
                     const resource = await enhancedPrisma.resource.create({
                         data: {

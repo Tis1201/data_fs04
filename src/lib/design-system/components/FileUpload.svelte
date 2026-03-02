@@ -167,17 +167,19 @@
             <div class="drop-zone-content">
                 <span class="drop-zone-text">Drag and drop your file here or</span>
                 <!-- Browse Button - uses Button component from design-system -->
-                <!-- Note: Clicking this button or the drop-zone both open the file picker -->
-                <Button
-                    type="button"
-                    variant="text"
-                    size="md"
-                    color="primary"
-                    disabled={disabled}
-                    on:click={handleBrowseButtonClick}
-                >
-                    Browse files
-                </Button>
+                <!-- Wrapper span stops propagation so drop-zone's on:click is not triggered (prevents file picker opening twice) -->
+                <span role="presentation" on:click|stopPropagation={() => {}}>
+                    <Button
+                        type="button"
+                        variant="text"
+                        size="md"
+                        color="primary"
+                        disabled={disabled}
+                        on:click={handleBrowseButtonClick}
+                    >
+                        Browse files
+                    </Button>
+                </span>
             </div>
         </div>
     {/if}
