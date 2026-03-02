@@ -183,20 +183,24 @@
     let editProfileLoading = false;
     let profileName = '';
     let profileDescription = '';
+    let profileNameError = '';
 
     function openEditProfileModal() {
         profileName = account?.name || '';
         profileDescription = account?.description || '';
+        profileNameError = '';
         showEditProfileModal = true;
     }
 
     function closeEditProfileModal() {
         showEditProfileModal = false;
+        profileNameError = '';
     }
 
     async function handleEditProfile() {
+        profileNameError = '';
         if (!profileName.trim()) {
-            toast.error('Account name is required');
+            profileNameError = 'Account name is required';
             return;
         }
 
@@ -214,7 +218,7 @@
                 closeEditProfileModal();
                 goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
             } else {
-                toast.error(result.data?.error || 'Unable to update profile. Please try again!');
+                toast.error(getActionError(result, 'Unable to update profile. Please try again!'));
             }
         } catch (err) {
             toast.error('Unable to update profile. Please try again!');
@@ -238,17 +242,28 @@
     let orgAddress = '';
     let orgDescription = '';
 
+    // Inline field errors (show under field, not toast)
+    let orgNameError = '';
+    let orgEmailError = '';
+
+    function clearOrgFieldErrors() {
+        orgNameError = '';
+        orgEmailError = '';
+    }
+
     function openAddOrgModal() {
         orgName = '';
         orgEmail = '';
         orgPhone = '';
         orgAddress = '';
         orgDescription = '';
+        clearOrgFieldErrors();
         showAddOrgModal = true;
     }
 
     function closeAddOrgModal() {
         showAddOrgModal = false;
+        clearOrgFieldErrors();
     }
 
     function openEditOrgModal(org: OrganizationRow) {
@@ -258,23 +273,52 @@
         orgPhone = org.contactPhone || '';
         orgAddress = org.address || '';
         orgDescription = org.description || '';
+        clearOrgFieldErrors();
         showEditOrgModal = true;
     }
 
     function closeEditOrgModal() {
         showEditOrgModal = false;
         editingOrg = null;
+        clearOrgFieldErrors();
+    }
+
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    /** Extract error message from action failure (handles { data: object }, { data: string }, JSON-string data) */
+    function getActionError(result: { data?: unknown }, fallback: string): string {
+        const d = result.data;
+        if (typeof d === 'string') {
+            try {
+                const parsed = JSON.parse(d) as unknown;
+                if (Array.isArray(parsed) && typeof parsed[1] === 'string') return parsed[1];
+                if (parsed && typeof (parsed as Record<string, unknown>).error === 'string')
+                    return (parsed as Record<string, string>).error;
+            } catch {
+                return d || fallback;
+            }
+        }
+        if (d && typeof d === 'object' && typeof (d as Record<string, unknown>).error === 'string') {
+            return (d as Record<string, string>).error;
+        }
+        return fallback;
     }
 
     async function handleAddOrg() {
+        clearOrgFieldErrors();
+        let hasError = false;
         if (!orgName.trim()) {
-            toast.error('Organization name is required');
-            return;
+            orgNameError = 'Organization name is required';
+            hasError = true;
         }
         if (!orgEmail.trim()) {
-            toast.error('Contact email is required');
-            return;
+            orgEmailError = 'Contact email is required';
+            hasError = true;
+        } else if (!EMAIL_REGEX.test(orgEmail)) {
+            orgEmailError = 'Please enter a valid email address (e.g. name@example.com)';
+            hasError = true;
         }
+        if (hasError) return;
 
         orgFormLoading = true;
         try {
@@ -293,7 +337,14 @@
                 closeAddOrgModal();
                 goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
             } else {
-                toast.error(result.data?.error || 'Unable to add Organization. Please try again!');
+                const err = getActionError(result, 'Unable to add Organization. Please try again!');
+                if (err.includes('name already exists')) {
+                    orgNameError = err;
+                } else if (err.includes('contact email already exists') || err.includes('Invalid email format')) {
+                    orgEmailError = err;
+                } else {
+                    toast.error(err);
+                }
             }
         } catch (err) {
             toast.error('Unable to add Organization. Please try again!');
@@ -304,14 +355,20 @@
 
     async function handleEditOrg() {
         if (!editingOrg) return;
+        clearOrgFieldErrors();
+        let hasError = false;
         if (!orgName.trim()) {
-            toast.error('Organization name is required');
-            return;
+            orgNameError = 'Organization name is required';
+            hasError = true;
         }
         if (!orgEmail.trim()) {
-            toast.error('Contact email is required');
-            return;
+            orgEmailError = 'Contact email is required';
+            hasError = true;
+        } else if (!EMAIL_REGEX.test(orgEmail)) {
+            orgEmailError = 'Please enter a valid email address (e.g. name@example.com)';
+            hasError = true;
         }
+        if (hasError) return;
 
         orgFormLoading = true;
         try {
@@ -331,7 +388,14 @@
                 closeEditOrgModal();
                 goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
             } else {
-                toast.error(result.data?.error || 'Unable to update Organization. Please try again!');
+                const err = getActionError(result, 'Unable to update Organization. Please try again!');
+                if (err.includes('name already exists')) {
+                    orgNameError = err;
+                } else if (err.includes('contact email already exists') || err.includes('Invalid email format')) {
+                    orgEmailError = err;
+                } else {
+                    toast.error(err);
+                }
             }
         } catch (err) {
             toast.error('Unable to update Organization. Please try again!');
@@ -377,7 +441,7 @@
                 closeToggleStatusModal();
                 goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
             } else {
-                toast.error(result.data?.error || `Unable to ${action.slice(0, -1)} Organization. Please try again!`);
+                toast.error(getActionError(result, `Unable to ${action.slice(0, -1)} Organization. Please try again!`));
             }
         } catch (err) {
             toast.error(`Unable to ${action.slice(0, -1)} Organization. Please try again!`);
@@ -419,7 +483,7 @@
                 closeDeleteModal();
                 goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
             } else {
-                toast.error(result.data?.error || 'Unable to delete Organization. Please try again!');
+                toast.error(getActionError(result, 'Unable to delete Organization. Please try again!'));
             }
         } catch (err) {
             toast.error('Unable to delete Organization. Please try again!');
@@ -554,6 +618,9 @@
                 placeholder="Enter account name"
                 bind:value={profileName}
                 required={true}
+                state={profileNameError ? 'error' : 'default'}
+                helperText={profileNameError}
+                on:input={() => (profileNameError = '')}
             />
             <InputField
                 label="Account Slug"
@@ -592,6 +659,9 @@
                 placeholder="Enter"
                 bind:value={orgName}
                 required={true}
+                state={orgNameError ? 'error' : 'default'}
+                helperText={orgNameError}
+                on:input={() => (orgNameError = '')}
             />
             <div class="dropdown-field">
                 <span class="field-label">Account</span>
@@ -609,6 +679,9 @@
                 type="email"
                 bind:value={orgEmail}
                 required={true}
+                state={orgEmailError ? 'error' : 'default'}
+                helperText={orgEmailError}
+                on:input={() => (orgEmailError = '')}
             />
             <PhoneInput
                 label="Contact Phone Number"
@@ -652,6 +725,9 @@
                 placeholder="Enter"
                 bind:value={orgName}
                 required={true}
+                state={orgNameError ? 'error' : 'default'}
+                helperText={orgNameError}
+                on:input={() => (orgNameError = '')}
             />
             <div class="dropdown-field">
                 <span class="field-label">Account</span>
@@ -669,6 +745,9 @@
                 type="email"
                 bind:value={orgEmail}
                 required={true}
+                state={orgEmailError ? 'error' : 'default'}
+                helperText={orgEmailError}
+                on:input={() => (orgEmailError = '')}
             />
             <PhoneInput
                 label="Contact Phone Number"

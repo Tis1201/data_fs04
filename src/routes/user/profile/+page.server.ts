@@ -260,6 +260,22 @@ export const actions: Actions = {
                 return fail(400, { error: 'Invalid email format' });
             }
 
+            // Prevent duplicate organization name (per account)
+            const existingByName = await prisma.company.findFirst({
+                where: { accountId, name: { equals: name, mode: 'insensitive' } }
+            });
+            if (existingByName) {
+                return fail(400, { error: 'An organization with this name already exists in this account.' });
+            }
+
+            // Prevent duplicate contact email (per account)
+            const existingByEmail = await prisma.company.findFirst({
+                where: { accountId, contactEmail: { equals: contactEmail, mode: 'insensitive' } }
+            });
+            if (existingByEmail) {
+                return fail(400, { error: 'An organization with this contact email already exists in this account.' });
+            }
+
             try {
                 const organization = await prisma.company.create({
                     data: {
@@ -325,15 +341,39 @@ export const actions: Actions = {
                 return fail(400, { error: 'Contact email is required' });
             }
 
-            try {
-                const existing = await prisma.company.findFirst({
-                    where: { id, accountId }
-                });
+            const existing = await prisma.company.findFirst({
+                where: { id, accountId }
+            });
 
-                if (!existing) {
-                    return fail(404, { error: 'Organization not found' });
+            if (!existing) {
+                return fail(404, { error: 'Organization not found' });
+            }
+
+            // Prevent duplicate name by another org (same account, exclude current)
+            const duplicateName = await prisma.company.findFirst({
+                where: {
+                    accountId,
+                    id: { not: id },
+                    name: { equals: name, mode: 'insensitive' }
                 }
+            });
+            if (duplicateName) {
+                return fail(400, { error: 'Another organization with this name already exists in this account.' });
+            }
 
+            // Prevent duplicate contact email by another org (same account, exclude current)
+            const duplicateEmail = await prisma.company.findFirst({
+                where: {
+                    accountId,
+                    id: { not: id },
+                    contactEmail: { equals: contactEmail, mode: 'insensitive' }
+                }
+            });
+            if (duplicateEmail) {
+                return fail(400, { error: 'Another organization with this contact email already exists in this account.' });
+            }
+
+            try {
                 const updated = await prisma.company.update({
                     where: { id },
                     data: {

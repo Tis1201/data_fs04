@@ -292,10 +292,11 @@
 		padding: 16px;
 	}
 
-	/* Overlay */
+	/* Overlay - pointer-events: none so clicks pass through to modal content or backdrop */
 	.modal-overlay {
 		position: absolute;
 		inset: 0;
+		pointer-events: none;
 		/* default overridden via inline styles */
 		background: rgba(0, 78, 235, 0.03);
 		backdrop-filter: blur(12px);
