@@ -50,17 +50,18 @@
 	function checkPathActive(href: string | undefined, path: string): boolean {
 		if (!href) return false;
 		
-		// Strip query string from href for comparison
-		const hrefPath = href.split('?')[0];
+		// Strip query string and normalize trailing slash for comparison
+		const hrefPath = href.split('?')[0].replace(/\/$/, '') || '/';
+		const normPath = path.replace(/\/$/, '') || '/';
 		
 		// Exact match
-		if (path === hrefPath) return true;
+		if (normPath === hrefPath) return true;
 		
 		// Check if current path starts with href (for nested routes)
-		if (hrefPath !== '/' && path.startsWith(hrefPath + '/')) return true;
+		if (hrefPath !== '/' && normPath.startsWith(hrefPath + '/')) return true;
 		
-		// Also check if href starts with currentPath for parent routes
-		if (hrefPath !== '/' && path.startsWith(hrefPath)) return true;
+		// Also check if path starts with hrefPath
+		if (hrefPath !== '/' && normPath.startsWith(hrefPath)) return true;
 		
 		return false;
 	}

@@ -1,8 +1,9 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
+    import { deserialize } from '$app/forms';
     import { page } from '$app/stores';
     import { Pencil, Info, HardDrive, Trash2, Plus, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
-    import { toast } from 'svelte-sonner';
+    import { toast } from '$lib/stores/alertToast';
     import { api_delete } from '$lib/utils/ApiUtils';
     import { Button, Card, InputField, Badge, ActionMenu, ConfirmModal } from '$lib/design-system/components';
     import AddDeviceToTagModal from "$lib/components/ui_components_sveltekit/device_tags/AddDeviceToTagModal.svelte";
@@ -29,12 +30,70 @@
         showEditTagModal = true;
     }
 
+    let editTagError = '';
+
     function closeEditTagModal() {
         showEditTagModal = false;
+        editTagError = '';
+    }
+
+    /** Extract error message from action failure. Handles superforms devalue structure. */
+    function getFormActionError(result: { data?: unknown }, fallback: string): string {
+        const d = result.data;
+        if (d && typeof d === 'object') {
+            const o = d as Record<string, unknown>;
+            // Superforms: data.form.message = errorResponse { error: { message } }
+            const form = o.form as Record<string, unknown> | undefined;
+            const msg = form?.message as Record<string, unknown> | undefined;
+            const errMsg = msg?.error as { message?: string } | undefined;
+            if (typeof errMsg?.message === 'string') return errMsg.message;
+            // Direct: data.message.error.message
+            const topMsg = o.message as { error?: { message?: string } } | undefined;
+            if (typeof topMsg?.error?.message === 'string') return topMsg.error.message;
+            // Direct: data.error.message
+            if (typeof o.error === 'string') return o.error;
+            const err = o.error as { message?: string } | undefined;
+            if (err && typeof err.message === 'string') return err.message;
+            if (typeof o.message === 'string') return o.message;
+            // Fallback: recursively find error.message in nested structure
+            const found = findErrorMessage(o);
+            if (found) return found;
+        }
+        return fallback;
+    }
+
+    function findErrorMessage(obj: unknown): string | null {
+        if (!obj || typeof obj !== 'object') return null;
+        const r = obj as Record<string, unknown>;
+        if (typeof r.message === 'string' && (r.error || r.code)) return r.message;
+        if (r.error && typeof r.error === 'object') {
+            const m = (r.error as { message?: string }).message;
+            if (typeof m === 'string') return m;
+        }
+        for (const v of Object.values(r)) {
+            const found = findErrorMessage(v);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    /** Fallback: extract known error message from devalue string when structure is opaque */
+    function extractErrorFromDevalueString(text: string): string | null {
+        const known = [
+            'Device tag with this name already exists',
+            'Device tag not found',
+            'You do not have permission',
+            'No current account selected'
+        ];
+        for (const msg of known) {
+            if (text.includes(msg)) return msg;
+        }
+        return null;
     }
 
     async function handleEditTag(event: CustomEvent<{ id: string; name: string; description: string; accountId: string }>) {
         const { name, description } = event.detail;
+        editTagError = '';
         editTagLoading = true;
 
         try {
@@ -43,22 +102,34 @@
             fd.set('description', description);
 
             const res = await fetch('?/updateTag', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const text = await res.text();
+            let result: { type?: string; data?: unknown };
+            try {
+                result = deserialize(text) as { type: string; data?: unknown };
+            } catch {
+                result = JSON.parse(text) as { type?: string; data?: unknown };
+            }
 
-            if (result?.type === 'failure') {
-                toast.error(result?.data?.error || 'Unable to update Tag. Please try again!');
+            if (result?.type === 'failure' && 'data' in result) {
+                const err = getFormActionError(result, 'Unable to update Tag. Please try again!');
+                const displayErr = err === 'Unable to update Tag. Please try again!' ? (extractErrorFromDevalueString(text) || err) : err;
+                editTagError = displayErr;
+                toast.error(displayErr);
                 return;
             }
 
-            if (result?.type === 'success' || result?.data?.success) {
+            if (result?.type === 'success') {
                 toast.success('Tag updated successfully!');
                 closeEditTagModal();
                 await invalidate('app:deviceTag');
             } else {
-                toast.error('Unable to update Tag. Please try again!');
+                const fallback = extractErrorFromDevalueString(text);
+                editTagError = fallback || 'Unable to update Tag. Please try again!';
+                toast.error(editTagError);
             }
         } catch {
-            toast.error('Unable to update Tag. Please try again!');
+            editTagError = 'Unable to update Tag. Please try again!';
+            toast.error(editTagError);
         } finally {
             editTagLoading = false;
         }
@@ -232,11 +303,11 @@
                 <div class="overview-grid">
                     <div class="overview-field">
                         <span class="overview-label">Tag Name</span>
-                        <span class="overview-value">{deviceTag?.name || '—'}</span>
+                        <span class="overview-value overview-value-truncate" title={deviceTag?.name || undefined}>{deviceTag?.name || '—'}</span>
                     </div>
                     <div class="overview-field overview-field-desc">
                         <span class="overview-label">Description</span>
-                        <span class="overview-value">{deviceTag?.description || '—'}</span>
+                        <span class="overview-value overview-value-desc" title={deviceTag?.description || undefined}>{deviceTag?.description || '—'}</span>
                     </div>
                     <div class="overview-field">
                         <span class="overview-label">Account</span>
@@ -412,11 +483,15 @@
 
 <ConfirmModal
     open={showDeleteModal}
-    title="Delete Tag"
-    description="Are you sure you want to delete this tag? Once you delete this tag, it can not be reversed."
+    title={deviceTag?.devices?.length
+        ? `Delete Tag — Unassign from ${deviceTag.devices.length} Device(s)`
+        : "Delete Tag"}
+    description={deviceTag?.devices?.length
+        ? `This tag is assigned to ${deviceTag.devices.length} device(s). Removing it will unassign it from all devices. This action cannot be reversed.`
+        : "Are you sure you want to delete this tag? Once you delete this tag, it can not be reversed."}
     confirmText="Delete"
     cancelText="Cancel"
-    type="error"
+    type={deviceTag?.devices?.length ? 'warning' : 'error'}
     confirmLoading={deleteTagLoading}
     on:close={closeDeleteModal}
     on:confirm={handleDeleteConfirm}
@@ -427,8 +502,10 @@
     tag={editTagData}
     {accounts}
     loading={editTagLoading}
+    serverError={editTagError}
     on:close={closeEditTagModal}
     on:save={handleEditTag}
+    on:clearError={() => (editTagError = '')}
 />
 
 <style>
@@ -560,6 +637,7 @@
         flex-direction: column;
         gap: 4px;
         min-width: 0;
+        overflow: hidden;
     }
     .overview-field-desc {
         grid-column: 2 / -1;
@@ -593,6 +671,22 @@
         font-weight: 500;
         line-height: 24px;
         color: #141414;
+    }
+    /* TC-IOT-TG-0020: Truncate long tag name to prevent layout overflow */
+    .overview-value-truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+    }
+    /* TC-IOT-TG-0021: Limit description to 3 lines with ellipsis to prevent layout overflow */
+    .overview-value-desc {
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        word-break: break-word;
     }
     .devices-body {
         display: flex;

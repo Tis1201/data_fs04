@@ -170,20 +170,21 @@
                     {:else}
                         {#each props.records as row (row.id)}
                             <tr class="hover:bg-gray-50 transition-colors" style="height: 72px; border-bottom: 1px solid #EAECF0; background: #FFFFFF;">
-                                <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
+                                <td class="h-[72px] td-name" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
                                     <a
                                         href="/user/iot/device_tags/{row.id}"
-                                        class="block text-left font-medium"
+                                        class="block text-left font-medium tag-name-cell"
                                         style="font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); text-decoration: none;"
+                                        title={row.name}
                                     >
                                         {row.name}
                                     </a>
                                     {#if row.id}
-                                        <div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px;">{row.id}</div>
+                                        <div class="tag-id-cell" title={row.id} style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px;">{row.id}</div>
                                     {/if}
                                 </td>
-                                <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
-                                    <span style="font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.description || "—"}</span>
+                                <td class="h-[72px] td-desc" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
+                                    <span class="tag-desc-cell" style="font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);" title={row.description || undefined}>{row.description || "—"}</span>
                                 </td>
                                 <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
                                     <span style="font-family: var(--ds-font-family-primary); font-size: var(--ds-text-sm); color: var(--ds-color-gray-900);">{row._count?.devices ?? 0}</span>
@@ -325,5 +326,29 @@
     a[href].block:hover {
         text-decoration: underline;
         color: var(--ds-color-primary-800);
+    }
+    .td-name, .td-desc {
+        max-width: 0;
+    }
+    .tag-name-cell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+    .tag-id-cell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
+    }
+    .tag-desc-cell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        word-break: break-word;
     }
 </style>
