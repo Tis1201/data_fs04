@@ -1465,7 +1465,7 @@
             {#each alerts as alert (alert.id)}
                 <Alert
                     severity={alert.severity}
-                    variant="outline"
+                    variant="filled"
                     message={alert.message}
                     dismissible={true}
                     on:dismiss={() => dismissAlert(alert.id)}
@@ -2845,10 +2845,10 @@
         min-height: 100%;
     }
 
-    /* Alert notifications (push file error, etc.) - fixed top-right so they show above modals */
+    /* Alert notifications (push file error, etc.) - fixed bottom-right to match toast position */
     .page-alerts {
         position: fixed;
-        top: 24px;
+        bottom: 24px;
         right: 24px;
         z-index: 10000;
         display: flex;

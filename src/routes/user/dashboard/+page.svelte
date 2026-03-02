@@ -46,12 +46,11 @@
     let showYearDropdown1 = false;
     let showYearDropdown2 = false;
     
-    // Handle year selection
+    // Handle year selection - fetch chart data without full page reload (TC-IOT-DB-0012)
     async function handleYearChange(year: string) {
         showYearDropdown1 = false;
         showYearDropdown2 = false;
         
-        // Update URL with selected year and reload data
         const url = new URL(window.location.href);
         url.searchParams.set('year', year);
         await goto(url.toString(), { replaceState: true, invalidateAll: true });
@@ -470,6 +469,26 @@
             if (tooltipFleet) tooltipFleet.remove();
         };
     });
+
+    // Update chart data when year changes (invalidateAll re-runs load; charts need to reflect new data)
+    $: if (issuesCategoriesChart && dashboardStats?.issuesByCategory) {
+        const cat = dashboardStats.issuesByCategory;
+        issuesCategoriesChart.data.datasets[0].data = cat.offline || Array(12).fill(0);
+        issuesCategoriesChart.data.datasets[1].data = cat.updateFailed || Array(12).fill(0);
+        issuesCategoriesChart.data.datasets[2].data = cat.networkUnstable || Array(12).fill(0);
+        issuesCategoriesChart.data.datasets[3].data = cat.storageLow || Array(12).fill(0);
+        issuesCategoriesChart.data.datasets[4].data = cat.memoryCritical || Array(12).fill(0);
+        issuesCategoriesChart.data.datasets[5].data = cat.cpuOverload || Array(12).fill(0);
+        issuesCategoriesChart.update();
+    }
+    $: if (fleetHealthChart && dashboardStats?.fleetHealthTrends) {
+        const ft = dashboardStats.fleetHealthTrends;
+        fleetHealthChart.data.datasets[0].data = ft.cpuOverload || Array(12).fill(0);
+        fleetHealthChart.data.datasets[1].data = ft.networkUnstable || Array(12).fill(0);
+        fleetHealthChart.data.datasets[2].data = ft.updateFailed || Array(12).fill(0);
+        fleetHealthChart.data.datasets[3].data = ft.offline || Array(12).fill(0);
+        fleetHealthChart.update();
+    }
     
     // Metric card configurations
     $: metricCards = [
@@ -824,10 +843,11 @@
                     </div>
                 {/if}
             </div>
-                <button class="view-more-btn" on:click={() => goto('/user/logs')}>
+                <!-- TODO: View More - hidden temporarily until design is ready -->
+                <!-- <button class="view-more-btn" on:click={() => goto('/user/logs')}>
                     <span>View More</span>
                     <ArrowRight size={20} />
-                </button>
+                </button> -->
             </div>
         </div>
     </div>

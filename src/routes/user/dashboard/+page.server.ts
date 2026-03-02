@@ -166,8 +166,10 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
     failedActionsCount.forEach(item => {
         issuesByActionType[item.actionType] = item._count.id;
     });
-
-    // Calculate critical issues (failed actions are critical)
+    // Map unmapped action types (restart, screenshot, etc.) to CPU Load so total = sum(breakdown) (TC-IOT-DB-0004, TC-IOT-DB-0005)
+    const mappedSum = (issuesByActionType['status_check'] || 0) + (issuesByActionType['config_update'] || 0) +
+        (issuesByActionType['install'] || 0) + (issuesByActionType['ping'] || 0) + (issuesByActionType['firmware_update'] || 0);
+    const otherCount = Math.max(0, totalFailedActions - mappedSum);
     const criticalIssuesCount = totalFailedActions;
     
     // Warnings: devices that haven't been seen recently but are marked as connected
@@ -314,10 +316,11 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         status: event.status
     }));
 
-    // Calculate offline incidents in last 24 hours
+    // Calculate offline incidents in last 24 hours (devices currently offline that disconnected in last 24h)
+    // Ensures "Last 24 hrs" count is consistent with offline total (TC-IOT-DB-0009)
     const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const offlineIncidents = devicesWithStatus.filter(d => 
-        d.disconnectedAt && d.disconnectedAt >= last24Hours
+    const offlineIncidents = devicesWithStatus.filter(d =>
+        !d.connected && d.disconnectedAt && d.disconnectedAt >= last24Hours
     ).length;
 
     // Calculate health percentage trend (connected vs total)
@@ -330,7 +333,7 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         totalDevices,
         criticalIssues: {
             total: criticalIssuesCount,
-            cpuLoad: issuesByActionType['status_check'] || 0,
+            cpuLoad: (issuesByActionType['status_check'] || 0) + otherCount,
             memory: issuesByActionType['config_update'] || 0,
             storage: issuesByActionType['install'] || 0,
             network: issuesByActionType['ping'] || 0,
