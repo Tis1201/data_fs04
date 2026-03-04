@@ -46,6 +46,7 @@
 		"process:main": "dotenv -- tsx scripts/processes/main-process.ts",
 		"bundle:process": "dotenv -- tsx scripts/processes/bundle-process.ts",
 		"mqtt:worker": "dotenv -- tsx src/worker/mqtt/index.ts",
+		"mqtt:load": "dotenv -- tsx tests/mqtt/load-test.ts",
 		"job:worker": "dotenv -- tsx src/worker/jobs/index.ts",
 		"gcloud:cleanup": "dotenv -- tsx scripts/processes/gcloud-cleanup.ts",
 		"dev:all-processes": "concurrently \"npm run dev\" \"npm run bundle:process\" \"npm run gcloud:cleanup\""
@@ -141,6 +142,7 @@
 		"node-apk": "^1.2.1",
 		"node-cache": "^5.1.2",
 		"nodemailer": "^6.9.16",
+		"p-limit": "^7.3.0",
 		"pg": "^8.13.1",
 		"pino": "^9.6.0",
 		"prismjs": "^1.29.0",

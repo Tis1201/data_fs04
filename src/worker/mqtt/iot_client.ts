@@ -9,10 +9,14 @@ import { handleIncoming } from '$lib/server/mqtt/handlers';
 import { getWorkerSubscriptions } from '$lib/server/mqtt/core/subscriptions';
 import { mintIoTCoreCredentials } from '$lib/server/mqtt/utils/mint';
 import { PrismaClient } from '@prisma/client';
+import { MessageQueue } from './message-queue';
 
 // Use raw Prisma client for the worker (no Zenstack enhancement)
 // Zenstack codegen artifacts aren't available when running outside SvelteKit
 export const adminPrisma = new PrismaClient();
+
+// Message queue for concurrent processing with backpressure
+export const messageQueue = new MessageQueue();
 
 export let client: MqttClient | null = null;
 export let started = false;
@@ -254,7 +258,12 @@ export async function connectWorkerClient(): Promise<void> {
             // TEMP DEBUG: Log data topic messages to diagnose radar preview issue
             logger.info(`[MQTT Transport] [DEBUG] Received /data message on ${topic}, payload length=${payload.length}`);
         }
-        await handleIncoming(topic, payload, adminPrisma);
+        
+        // Enqueue message for concurrent processing with backpressure
+        await messageQueue.enqueue(
+            () => handleIncoming(topic, payload, adminPrisma),
+            { topic }
+        );
     });
 
     activeClient.on('error', (err) => {
