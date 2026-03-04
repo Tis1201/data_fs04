@@ -16,7 +16,8 @@ import { getAdminPrisma } from '$lib/server/prisma';
  */
 
 describe('Device MQTT mint E2E', () => {
-  const WEB_BASE_URL = process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
+  const WEB_BASE_URL =
+    process.env.E2E_BASE_URL_LOCAL ?? process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
   const DEVICE_MINT_URL = `${WEB_BASE_URL}/api/device/mqtt/mint`;
 
   const MQTT_DEFAULT_WS_PATH = '/mqtt';

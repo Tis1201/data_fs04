@@ -32,7 +32,8 @@ import { getAdminPrisma } from '$lib/server/prisma';
  */
 
 describe('Device claim E2E (user claims factory device over MQTT)', () => {
-  const WEB_BASE_URL = process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
+  const WEB_BASE_URL =
+    process.env.E2E_BASE_URL_LOCAL ?? process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
   const FACTORY_MINT_URL = `${WEB_BASE_URL}/api/device/mqtt/mint/factory`;
   const LOGIN_URL = `${WEB_BASE_URL}/auth/login?/login`;
   const USER_MINT_URL = `${WEB_BASE_URL}/api/user/mqtt/mint`;
@@ -147,7 +148,8 @@ describe('Device claim E2E (user claims factory device over MQTT)', () => {
       throw new Error(`Failed to parse login JSON (status=${res.status}): ${text.slice(0, 200)}`);
     }
 
-    if (res.status !== 200 || payload?.type !== 'success') {
+    // Handle both success and redirect responses (user may already be logged in)
+    if (res.status !== 200 || (payload?.type !== 'success' && payload?.type !== 'redirect')) {
       throw new Error(`Login failed: status=${res.status}, body=${JSON.stringify(payload).slice(0, 200)}`);
     }
 
@@ -209,11 +211,10 @@ describe('Device claim E2E (user claims factory device over MQTT)', () => {
     clientId: string;
     username: string;
   }> {
+    // Always get the most recent non-expired factory token from database
     const prisma = getAdminPrisma();
-
     const factoryToken = await prisma.factoryToken.findFirst({
       where: {
-        isUsed: false,
         expiresAt: {
           gt: new Date()
         }
@@ -224,13 +225,15 @@ describe('Device claim E2E (user claims factory device over MQTT)', () => {
     });
 
     if (!factoryToken) {
-      throw new Error('No active FactoryToken found. Create one via the admin UI before running this test.');
+      throw new Error('No non-expired FactoryToken found. Create one via the admin UI before running this test.');
     }
+
+    const factoryTokenJwt = factoryToken.token;
 
     const res = await fetch(FACTORY_MINT_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${factoryToken.token}`,
+        Authorization: `Bearer ${factoryTokenJwt}`,
         Accept: 'application/json'
       }
     });
