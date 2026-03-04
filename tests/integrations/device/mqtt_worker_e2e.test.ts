@@ -22,7 +22,8 @@ const prisma = getAdminPrisma();
  */
 
 describe('MQTT Worker E2E - Complete Auth & RPC Flow', () => {
-  const WEB_BASE_URL = process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
+  const WEB_BASE_URL =
+    process.env.E2E_BASE_URL_LOCAL ?? process.env.WEB_APP_BASE_URL ?? 'http://localhost:5173';
   const FACTORY_MINT_URL = `${WEB_BASE_URL}/api/device/mqtt/mint/factory`;
   const DEVICE_MINT_URL = `${WEB_BASE_URL}/api/device/mqtt/mint`;
   const MQTT_DEFAULT_WS_PATH = '/mqtt';
@@ -328,16 +329,16 @@ describe('MQTT Worker E2E - Complete Auth & RPC Flow', () => {
   }
 
   beforeAll(async () => {
+    // Always get the most recent non-expired factory token from database
     const factoryToken = await prisma.factoryToken.findFirst({
       where: {
-        isUsed: false,
         expiresAt: { gt: new Date() }
       },
       orderBy: { issuedAt: 'desc' }
     });
 
     if (!factoryToken) {
-      throw new Error('No active FactoryToken found. Create one via admin UI before running this test.');
+      throw new Error('No non-expired FactoryToken found. Create one via admin UI before running this test.');
     }
 
     factoryTokenJwt = factoryToken.token;
@@ -382,7 +383,7 @@ describe('MQTT Worker E2E - Complete Auth & RPC Flow', () => {
 
   it('Step 3: Claim device and get API key', async () => {
     const account = await prisma.account.findFirst({
-      where: { name: { not: null } },
+      where: { name: { not: '' } },
       orderBy: { createdAt: 'desc' }
     });
 
@@ -392,7 +393,7 @@ describe('MQTT Worker E2E - Complete Auth & RPC Flow', () => {
 
     const user = await prisma.user.findFirst({
       where: { 
-        accountMembers: { some: { accountId: account.id } }
+        accountMemberships: { some: { accountId: account.id } }
       }
     });
 
