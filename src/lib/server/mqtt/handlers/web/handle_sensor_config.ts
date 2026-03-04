@@ -131,44 +131,54 @@ export async function handleSensorConfigPush(
     // 2. Check device access
     const { deviceId } = await checkDeviceAccess({ prisma, sub, deviceId: sensor.controller.deviceId });
 
-
-    // 3. Get device reference (skip online check for dev/testing)
+    // 3. Device must be online (radar controller receives via MQTT)
     const device = sensor.controller.device;
+    if (!device.connected) {
+        await prisma.sensor.update({
+            where: { id: sensorId },
+            data: { syncStatus: 'FAILED', lastSyncError: 'Device is offline' }
+        });
+        return {
+            result: {
+                synced: false,
+                syncStatus: 'FAILED',
+                error: 'Device is offline'
+            }
+        };
+    }
 
-    // 4. Send as device:actionRequest so device can handle it
-    const { DeviceNotificationType } = await import('../../core/publish');
-    const { queueNotification } = await import('../../core/queue');
-    const crypto = await import('crypto');
-
-    const flowId = crypto.randomUUID();
     const controllerId = sensor.controller.id;
     const controllerType = sensor.controller.type;
 
-    // Get accountId from device
-    const accountId = device.accountId || sensor.controller.device?.accountId;
-    if (!accountId) {
-        throw new Error(`Device ${deviceId} has no accountId`);
-    }
+    logger.info(`[SensorConfig] Pushing config v${sensor.configVersion} to radar controller ${controllerType}:${controllerId} on device ${deviceId}`);
 
-    logger.info(`[SensorConfig] Pushing config v${sensor.configVersion} to device ${deviceId} for controller ${controllerType}:${controllerId}`);
+    // 4. Send via radar topic (device:<id>/controller/<type>:<cid>/notifications)
+    // Per CONTROLLER.md: config push goes to radar topic, not device action topic
+    const { createTicket } = await import('../../core/publish');
+    const { getMqttTransport } = await import('../../core/transport');
+    const flowId = crypto.randomUUID();
+    const recipient = `device:${deviceId}/controller/${controllerType}:${controllerId}`;
+    const notificationTopic = `device:${deviceId}/controller/${controllerType}:${controllerId}/notifications`;
 
-    // Queue notification as device:actionRequest so device can handle it
-    await queueNotification({
+    const ticket = await createTicket(
+        prisma,
         sub,
-        recipient: `device:${deviceId}`,
-        type: DeviceNotificationType.ActionRequest,
+        recipient,
+        'config.update',
         flowId,
-        params: {
-            action: 'updateSensorConfig',
-            deviceId,
+        {
             sensorId,
             controllerId,
             controllerType,
-            configVersion: sensor.configVersion
-            // Note: config is NOT included - device should re-fetch via API
+            configVersion: sensor.configVersion,
+            deviceId,
+            config: sensor.config as Record<string, unknown>
         },
-        expiresIn: '5m'
-    });
+        '5m'
+    );
+
+    const transport = getMqttTransport();
+    await transport.publish(notificationTopic, JSON.stringify({ ticket }), { qos: 1 });
 
     // 5. Mark as synced (optimistic - we don't wait for controller reply here)
     // In production, you might want to wait for a reply or use a callback pattern

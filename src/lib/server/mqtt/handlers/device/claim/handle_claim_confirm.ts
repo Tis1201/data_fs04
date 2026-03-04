@@ -21,6 +21,8 @@ interface DeviceClaimConfirmParams {
         senderId?: string | null;
         networkInfo?: {
             mac?: string | null;
+            wifiMac?: string | null;
+            lanMac?: string | null;
             hostname?: string | null;
             localIp?: string | null;
             publicIp?: string | null;
@@ -118,20 +120,26 @@ export async function handleClaimConfirm(
     const now = new Date();
     const preclaimDeviceId = ctx.params?.preclaimDeviceId as string | undefined;
 
-    // Extract MAC address from deviceInfo
-    const networkMac = deviceInfo?.networkInfo?.mac;
-    const macAddress = typeof networkMac === 'string' && networkMac ? networkMac : null;
-    // Use MAC as wifiMac if available (can be differentiated later if needed)
-    const wifiMac = macAddress;
+    // Extract MAC addresses from deviceInfo — do not override wifiMac with lanMac when wifi is null
+    const networkInfo = deviceInfo?.networkInfo;
+    const networkMac = networkInfo?.mac;
+    const rawWifiMac = typeof networkInfo?.wifiMac === 'string' ? networkInfo.wifiMac.trim() : null;
+    const rawLanMac = typeof networkInfo?.lanMac === 'string' ? networkInfo.lanMac.trim() : null;
+    const wifiMac = rawWifiMac && rawWifiMac.length > 0 ? rawWifiMac : null;
+    const lanMac = rawLanMac && rawLanMac.length > 0 ? rawLanMac : null;
+    // Primary MAC for identity/name/dedup: prefer lanMac, then wifiMac, then legacy networkInfo.mac
+    const macAddress = lanMac ?? wifiMac ?? (typeof networkMac === 'string' && networkMac ? networkMac : null);
 
     // Check if device with same MAC address is already claimed (following MQTT flow)
-    if (macAddress) {
+    const orConditions: Array<{ macAddress?: string; wifiMac?: string; lanMac?: string }> = [
+        ...(macAddress ? [{ macAddress }] : []),
+        ...(wifiMac ? [{ wifiMac }] : []),
+        ...(lanMac ? [{ lanMac }] : [])
+    ];
+    if (orConditions.length > 0) {
         const existingDevice = await prisma.device.findFirst({
             where: {
-                OR: [
-                    { macAddress: macAddress },
-                    { wifiMac: macAddress }
-                ],
+                OR: orConditions,
                 claimedAt: { not: null } // Only check claimed devices
             },
             select: {
@@ -176,6 +184,7 @@ export async function handleClaimConfirm(
                         : null,
                 macAddress: macAddress,
                 wifiMac: wifiMac,
+                lanMac: lanMac,
                 apiKey,
                 apiKeyCreatedAt: now,
                 claimedAt: now
