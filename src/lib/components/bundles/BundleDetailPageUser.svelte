@@ -523,19 +523,19 @@
     $: if (viewDeviceActiveTab === 'activity' && viewDeviceId() && !viewDeviceActivityLogsLoaded && !viewDeviceActivityLogsLoading) loadViewDeviceActivityLogs();
 
     const viewDeviceAppsColumns: ColumnDef<any>[] = [
-        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px', sortable: false },
-        { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px', sortable: false },
-        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px', sortable: false },
-        { id: 'size', header: 'Size', type: 'text', accessor: (row: any) => formatBytes(row.size_bytes), width: '80px', sortable: false },
-        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: any) => formatInstallDate(row.install_date || row.last_modified), width: '120px', sortable: false }
+        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px' },
+        { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px' },
+        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px' },
+        { id: 'size', header: 'Size', type: 'text', accessor: (row: any) => formatBytes(row.size_bytes), width: '80px' },
+        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: any) => formatInstallDate(row.install_date || row.last_modified), width: '120px' }
     ];
 
     const viewDeviceDeploymentColumns: ColumnDef<any>[] = [
-        { id: 'name', header: 'Deployment Name', type: 'text', accessor: 'name', minWidth: '200px', sortable: false },
-        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px', sortable: false },
-        { id: 'startedOn', header: 'Started On', type: 'text', accessor: (row: any) => formatDeploymentDate(row.startedOn), width: '160px', sortable: false },
-        { id: 'endedOn', header: 'Ended On', type: 'text', accessor: (row: any) => formatDeploymentDate(row.endedOn), width: '160px', sortable: false },
-        { id: 'status', header: 'Status', type: 'status', accessor: 'status', statusColor: (_v: any, row: any) => getDeploymentBadgeColor(row.status), width: '120px', sortable: false }
+        { id: 'name', header: 'Deployment Name', type: 'text', accessor: 'name', minWidth: '200px' },
+        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px' },
+        { id: 'startedOn', header: 'Started On', type: 'text', accessor: (row: any) => formatDeploymentDate(row.startedOn), width: '160px' },
+        { id: 'endedOn', header: 'Ended On', type: 'text', accessor: (row: any) => formatDeploymentDate(row.endedOn), width: '160px' },
+        { id: 'status', header: 'Status', type: 'status', accessor: 'status', statusColor: (_v: any, row: any) => getDeploymentBadgeColor(row.status), width: '120px' }
     ];
 
     function toggleViewDeviceActivityExpansion(logId: string) {
@@ -908,15 +908,13 @@
             header: 'Batch Name',
             accessor: 'name',
             type: 'custom',
-            render: (_, row) => `<a href="javascript:void(0)" class="batches-batch-name-link">${escapeHtml(row.name || '')}</a>`,
-            sortable: false
+            render: (_, row) => `<a href="javascript:void(0)" class="batches-batch-name-link">${escapeHtml(row.name || '')}</a>`
         },
         {
             id: 'devices',
             header: 'Devices',
             accessor: (row) => row.devicesTotal ?? 0,
             type: 'text',
-            sortable: false,
             align: 'right'
         },
         {
@@ -924,7 +922,6 @@
             header: 'Status',
             accessor: (row) => getBatchStatusLabel(row.status),
             type: 'badge',
-            sortable: false,
             statusColor: (_value, row) => getBatchStatusColor(row.status),
             showDot: () => true
         },
@@ -932,15 +929,13 @@
             id: 'startTime',
             header: 'Started On',
             accessor: 'startTime',
-            type: 'datetime',
-            sortable: false
+            type: 'datetime'
         },
         {
             id: 'endTime',
             header: 'End On',
             accessor: 'endTime',
-            type: 'datetime',
-            sortable: false
+            type: 'datetime'
         }
     ];
 
@@ -1900,7 +1895,7 @@
                                 columns={viewDeviceAppsColumns}
                                 data={viewDeviceApps}
                                 keyField="package_name"
-                                sortable={false}
+                                sortable={true}
                                 paginated={true}
                                 pagination={{ page: viewDeviceAppsPage, pageSize: viewDeviceAppsPageSize, totalItems: viewDeviceAppsTotalCount, totalPages: viewDeviceAppsTotalPages }}
                                 on:pageChange={(e) => { viewDeviceAppsPage = e.detail; loadViewDeviceApps(); }}
@@ -1934,7 +1929,7 @@
                                 columns={viewDeviceDeploymentColumns}
                                 data={viewDeviceDeployments}
                                 keyField="id"
-                                sortable={false}
+                                sortable={true}
                                 paginated={true}
                                 pagination={{ page: viewDeviceDeploymentsPage, pageSize: viewDeviceDeploymentsPageSize, totalItems: viewDeviceDeploymentsTotalCount, totalPages: viewDeviceDeploymentsTotalPages }}
                                 on:pageChange={(e) => { viewDeviceDeploymentsPage = e.detail; loadViewDeviceDeployments(); }}

@@ -26,6 +26,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
             const page = Math.max(1, parseInt(url.searchParams.get('page') || String(DEFAULT_PAGE), 10));
             const perPage = Math.min(MAX_PER_PAGE, Math.max(1, parseInt(url.searchParams.get('per_page') || String(DEFAULT_PER_PAGE), 10)));
             const search = (url.searchParams.get('search') || '').trim();
+            const hasExplicitSort = url.searchParams.has('sort_field') && url.searchParams.has('sort_order');
             const sortField = url.searchParams.get('sort_field') || 'name';
             const sortOrder = (url.searchParams.get('sort_order') || 'asc') as 'asc' | 'desc';
 
@@ -68,17 +69,22 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
                     };
                 }
 
-                const validSortFields = ['name', 'email', 'createdAt', 'status', 'role'];
+                const validSortFields = ['name', 'email', 'createdAt', 'status', 'role', 'session'];
                 const orderByField = validSortFields.includes(sortField) ? sortField : 'name';
                 const skip = (page - 1) * perPage;
 
-                type OrderByClause = { createdAt?: 'asc' | 'desc'; user?: { name?: 'asc' | 'desc'; email?: 'asc' | 'desc'; status?: 'asc' | 'desc' }; role?: 'asc' | 'desc' };
+                type OrderByClause = {
+                    createdAt?: 'asc' | 'desc';
+                    user?: { name?: 'asc' | 'desc'; email?: 'asc' | 'desc'; status?: 'asc' | 'desc'; sessions?: { _count: 'asc' | 'desc' } };
+                    role?: 'asc' | 'desc';
+                };
                 let orderBy: OrderByClause = { createdAt: 'desc' };
                 if (orderByField === 'createdAt') orderBy = { createdAt: sortOrder };
                 else if (orderByField === 'name') orderBy = { user: { name: sortOrder } };
                 else if (orderByField === 'email') orderBy = { user: { email: sortOrder } };
                 else if (orderByField === 'status') orderBy = { user: { status: sortOrder } };
                 else if (orderByField === 'role') orderBy = { role: sortOrder };
+                else if (orderByField === 'session') orderBy = { user: { sessions: { _count: sortOrder } } };
 
                 const [accountMembers, total] = await Promise.all([
                     adminPrisma.accountMembership.findMany({
@@ -136,7 +142,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
                         totalPages,
                         currentPage: page
                     },
-                    sort: { field: orderByField, order: sortOrder }
+                    sort: hasExplicitSort ? { field: orderByField, order: sortOrder } : { field: '', order: '' }
                 };
             } catch (err) {
                 console.error('Error loading users:', err);

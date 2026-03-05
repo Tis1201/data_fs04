@@ -45,11 +45,42 @@
     // Search state
     let searchTerm = '';
     
+    // Sort state (client-side: App column and others)
+    let sort: { field: string | null; direction: 'asc' | 'desc' | null } = { field: null, direction: null };
+    
     // Filter apps based on search
     $: filteredApps = displayApps.filter((a) => {
         if (!searchTerm) return true;
         return a.resource.name.toLowerCase().includes(searchTerm.toLowerCase());
     });
+    
+    // Apply sort to filtered apps
+    function getSortValue(row: AppWithResource, field: string): string | number | null {
+        switch (field) {
+            case 'order': return row.order ?? 0;
+            case 'name': return (row.resource?.name ?? '').toLowerCase();
+            case 'type': return 'Normal';
+            case 'version': return (row.resource?.version ?? '').toLowerCase();
+            case 'size': return row.resource?.size ?? 0;
+            case 'autoOpen': return row.autoOpen ? 1 : 0;
+            case 'createdAt': return row.createdAt ? new Date(row.createdAt).getTime() : 0;
+            default: return null;
+        }
+    }
+    $: sortedAndFilteredApps = (() => {
+        if (!sort.field || !sort.direction) return filteredApps;
+        const f = sort.field;
+        const asc = sort.direction === 'asc';
+        return [...filteredApps].sort((a, b) => {
+            const va = getSortValue(a, f);
+            const vb = getSortValue(b, f);
+            if (va === null && vb === null) return 0;
+            if (va === null) return asc ? 1 : -1;
+            if (vb === null) return asc ? -1 : 1;
+            const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+            return asc ? cmp : -cmp;
+        });
+    })();
     
     // Selection state
     let selectedRows: AppWithResource[] = [];
@@ -113,7 +144,7 @@
             header: 'Type',
             accessor: () => 'Normal',
             type: 'text',
-            sortable: false,
+            sortable: true,
             width: '100px'
         },
         {
@@ -121,7 +152,7 @@
             header: 'Version',
             accessor: (row) => row.resource?.version ?? '—',
             type: 'text',
-            sortable: false,
+            sortable: true,
             width: '100px'
         },
         {
@@ -129,7 +160,7 @@
             header: 'Size',
             accessor: (row) => row.resource?.size != null ? formatAppSize(row.resource.size) : '—',
             type: 'text',
-            sortable: false,
+            sortable: true,
             width: '100px'
         },
         {
@@ -367,12 +398,14 @@
 
     <!-- Apps DataTable (Figma: #, App, Type, Version, Size, Auto Open, Added On, Actions; no checkbox when hideHeader) -->
     <DataTable
-        data={filteredApps}
+        data={sortedAndFilteredApps}
         columns={displayColumns}
         keyField="id"
         selectable={!hideHeader && isEditable && showActionsColumn}
         bind:selectedRows
-        paginated={filteredApps.length > 10}
+        bind:sort
+        sortable={true}
+        paginated={sortedAndFilteredApps.length > 10}
         hoverable={true}
         striped={false}
         bordered={false}

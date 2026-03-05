@@ -38,9 +38,10 @@
     $: members = (data.users || []) as unknown as MemberRow[];
     $: currentAccount = data.currentAccount;
     $: meta = data.meta || {};
+    // Sort state from server meta. When server returns '', use null for unsort (no arrow).
     $: sort = {
-        field: data.sort?.field || 'name',
-        direction: (data.sort?.order || 'asc') as 'asc' | 'desc' | null
+        field: data.sort?.field && data.sort.field !== '' ? data.sort.field : null,
+        direction: data.sort?.order && data.sort.order !== '' ? (data.sort.order as 'asc' | 'desc') : null
     };
 
     let loading = false;
@@ -84,6 +85,7 @@
             id: 'session',
             header: 'Session',
             accessor: (row) => row.activeSessionsCount ?? 0,
+            sortable: true,
             width: '10%',
             align: 'left'
         },
@@ -154,10 +156,15 @@
 
     function handleSort(event: CustomEvent<{ field: string | null; direction: 'asc' | 'desc' | null }>) {
         const url = new URL($page.url);
-        const field = event.detail.field || 'name';
-        const direction = event.detail.direction || 'asc';
-        url.searchParams.set('sort_field', field);
-        url.searchParams.set('sort_order', direction);
+        const field = event.detail.field;
+        const direction = event.detail.direction;
+        if (field && direction) {
+            url.searchParams.set('sort_field', field);
+            url.searchParams.set('sort_order', direction);
+        } else {
+            url.searchParams.delete('sort_field');
+            url.searchParams.delete('sort_order');
+        }
         url.searchParams.set('page', '1');
         goto(url.pathname + url.search, { noScroll: true });
     }

@@ -283,13 +283,13 @@
         }));
     }
 
-    // DataTable columns for Deployments (design-system DataTable)
+    // DataTable columns for Deployments (design-system DataTable) - all data columns sortable; moreMenu (Action) non-sortable
     $: deploymentColumns = [
-        { id: 'name', header: 'Deployment Name', type: 'text', accessor: 'name', minWidth: '400px', sortable: false },
-        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '100px', sortable: false },
-        { id: 'startedOn', header: 'Started On', type: 'text', accessor: (row: Deployment) => formatDeploymentDate(row.startedOn), width: '200px', sortable: false },
-        { id: 'endedOn', header: 'Ended On', type: 'text', accessor: (row: Deployment) => formatDeploymentDate(row.endedOn), width: '200px', sortable: false },
-        { id: 'status', header: 'Status', type: 'status', accessor: 'status', statusColor: (_v: any, row: Deployment) => getDeploymentBadgeColor(row.status), width: '140px', sortable: false },
+        { id: 'name', header: 'Deployment Name', type: 'text', accessor: 'name', minWidth: '400px' },
+        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '100px' },
+        { id: 'startedOn', header: 'Started On', type: 'text', accessor: (row: Deployment) => formatDeploymentDate(row.startedOn), width: '200px' },
+        { id: 'endedOn', header: 'Ended On', type: 'text', accessor: (row: Deployment) => formatDeploymentDate(row.endedOn), width: '200px' },
+        { id: 'status', header: 'Status', type: 'status', accessor: 'status', statusColor: (_v: any, row: Deployment) => getDeploymentBadgeColor(row.status), width: '140px' },
         { id: 'action', header: 'Action', type: 'moreMenu', align: 'right', width: '85px', getMenuActions: (d: Deployment) => getDeploymentActions(d.status).map(a => ({ id: a.action, label: a.label, color: a.color === '#B42318' ? 'danger' : undefined, href: a.action === 'view' ? `/user/iot/bundles/${d.id}` : undefined, onClick: (row: Deployment) => handleDeploymentAction(row, a.action) })) }
     ] as ColumnDef<Deployment>[];
 
@@ -619,15 +619,14 @@
         ];
     }
 
-    // DataTable columns for Installed Apps (design-system DataTable)
-    // Pin column: icon only, no action on click (onPin commented out for now)
+    // DataTable columns for Installed Apps (design-system DataTable) - pin/moreMenu non-sortable by convention
     $: appsColumns = [
-        { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', /* onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), */ width: '48px', sortable: false },
-        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px', sortable: false },
-        { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px', sortable: false },
-        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px', sortable: false },
-        { id: 'size', header: 'Size', type: 'text', accessor: (row: DeviceApp) => formatBytes(row.size_bytes), width: '80px', sortable: false },
-        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => formatInstallDate(row.install_date || row.last_modified), width: '120px', sortable: false },
+        { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', /* onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), */ width: '48px' },
+        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px' },
+        { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px' },
+        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px' },
+        { id: 'size', header: 'Size', type: 'text', accessor: (row: DeviceApp) => formatBytes(row.size_bytes), width: '80px' },
+        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => formatInstallDate(row.install_date || row.last_modified), width: '120px' },
         { id: 'actions', header: 'Actions', type: 'moreMenu', align: 'right', width: '80px', getMenuActions: (row: DeviceApp) => [
             { id: 'restart', label: 'Restart App', onClick: (r: DeviceApp) => handleRestartApp(r) },
             { id: 'settings', label: 'App Settings', onClick: (r: DeviceApp) => handleAppSettings(r) },
@@ -2090,7 +2089,7 @@
                         columns={appsColumns}
                         data={apps}
                         keyField="package_name"
-                        sortable={false}
+                        sortable={true}
                         paginated={true}
                         pagination={{
                             page: appsCurrentPage,
@@ -2151,7 +2150,7 @@
                         columns={deploymentColumns}
                         data={deployments}
                         keyField="id"
-                        sortable={false}
+                        sortable={true}
                         paginated={true}
                         pagination={{
                             page: deploymentsCurrentPage,

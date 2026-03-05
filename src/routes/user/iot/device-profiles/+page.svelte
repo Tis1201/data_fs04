@@ -189,10 +189,10 @@
         totalPages: serverPagination.total_pages ?? 0
     };
 
-    // Sort state (server: sort.field, sort.order)
+    // Sort state (server: sort.field, sort.order). When server returns '', use null so third-click "clear" works.
     $: sort = {
-        field: serverSort.field || 'createdAt',
-        direction: (serverSort.order as 'asc' | 'desc') || 'desc'
+        field: serverSort.field && serverSort.field !== '' ? serverSort.field : null,
+        direction: serverSort.order && serverSort.order !== '' ? (serverSort.order as 'asc' | 'desc') : null
     };
 
     const basePath = '/user/iot';

@@ -2,7 +2,7 @@
     import { goto, invalidate } from '$app/navigation';
     import { deserialize } from '$app/forms';
     import { page } from '$app/stores';
-    import { Pencil, Info, HardDrive, Trash2, Plus, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
+    import { Pencil, Info, HardDrive, Trash2, Plus, ChevronDown, ChevronUp, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-svelte';
     import { toast } from '$lib/stores/alertToast';
     import { api_delete } from '$lib/utils/ApiUtils';
     import { Button, Card, InputField, Badge, ActionMenu, ConfirmModal } from '$lib/design-system/components';
@@ -190,6 +190,7 @@
     const DEVICES_PAGE_SIZE = 10;
     let devicesPage = 1;
     let deviceSearchTerm = '';
+    let devicesSort: { field: string | null; direction: 'asc' | 'desc' } = { field: null, direction: 'asc' };
     let openMoreMenuKey: string | null = null;
     let deviceToRemove: { id: string; name: string } | null = null;
     let confirmRemoveDeviceOpen = false;
@@ -203,12 +204,33 @@
         macAddress: d.macAddress || '—',
         lastUsedAt: d.lastUsedAt ?? null
     }));
-    $: filteredDeviceRows = deviceSearchTerm.trim()
-        ? deviceRows.filter((r: { name: string; macAddress: string }) =>
-            r.name.toLowerCase().includes(deviceSearchTerm.toLowerCase()) ||
-            r.macAddress.toLowerCase().includes(deviceSearchTerm.toLowerCase())
-        )
-        : deviceRows;
+    $: filteredDeviceRows = (() => {
+        const rows = deviceSearchTerm.trim()
+            ? deviceRows.filter((r: { name: string; macAddress: string }) =>
+                r.name.toLowerCase().includes(deviceSearchTerm.toLowerCase()) ||
+                r.macAddress.toLowerCase().includes(deviceSearchTerm.toLowerCase())
+            )
+            : deviceRows;
+        if (!devicesSort.field) return rows;
+        const f = devicesSort.field;
+        const asc = devicesSort.direction === 'asc';
+        return [...rows].sort((a: any, b: any) => {
+            let va: string | number | null, vb: string | number | null;
+            switch (f) {
+                case 'name': va = (a.name ?? '').toLowerCase(); vb = (b.name ?? '').toLowerCase(); break;
+                case 'macAddress': va = (a.macAddress ?? '').toLowerCase(); vb = (b.macAddress ?? '').toLowerCase(); break;
+                case 'deviceType': va = (a.deviceType ?? '').toLowerCase(); vb = (b.deviceType ?? '').toLowerCase(); break;
+                case 'status': va = (a.status ?? '').toLowerCase(); vb = (b.status ?? '').toLowerCase(); break;
+                case 'lastUsedAt': va = a.lastUsedAt ? new Date(a.lastUsedAt).getTime() : 0; vb = b.lastUsedAt ? new Date(b.lastUsedAt).getTime() : 0; break;
+                default: return 0;
+            }
+            if (va === null && vb === null) return 0;
+            if (va === null) return asc ? 1 : -1;
+            if (vb === null) return asc ? -1 : 1;
+            const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+            return asc ? cmp : -cmp;
+        });
+    })();
     $: devicesTotalItems = filteredDeviceRows.length;
     $: devicesTotalPages = Math.max(1, Math.ceil(devicesTotalItems / DEVICES_PAGE_SIZE));
     $: paginatedDeviceRows = filteredDeviceRows.slice(
@@ -218,6 +240,16 @@
     $: devicesRangeStart = devicesTotalItems === 0 ? 0 : (devicesPage - 1) * DEVICES_PAGE_SIZE + 1;
     $: devicesRangeEnd = Math.min(devicesPage * DEVICES_PAGE_SIZE, devicesTotalItems);
 
+    function handleDevicesSort(field: string) {
+        if (devicesSort.field === field) {
+            devicesSort = devicesSort.direction === 'asc'
+                ? { field, direction: 'desc' }
+                : { field: null, direction: 'asc' };
+        } else {
+            devicesSort = { field, direction: 'asc' };
+        }
+        devicesPage = 1;
+    }
     function devicesPrevPage() { if (devicesPage > 1) devicesPage -= 1; }
     function devicesNextPage() { if (devicesPage < devicesTotalPages) devicesPage += 1; }
     function devicesFirstPage() { devicesPage = 1; }
@@ -363,20 +395,50 @@
                 <table class="assigned-devices-table">
                     <thead>
                         <tr class="assigned-devices-thead-tr">
-                            <th class="assigned-devices-th assigned-devices-th-name">
-                                <span class="assigned-devices-th-inner">Device Name <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            <th
+                                class="assigned-devices-th assigned-devices-th-name cursor-pointer hover:bg-gray-100 select-none"
+                                role="button"
+                                tabindex="0"
+                                on:click={() => handleDevicesSort('name')}
+                                on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('name')}
+                            >
+                                <span class="assigned-devices-th-inner">Device Name {#if devicesSort.field === 'name'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                             </th>
-                            <th class="assigned-devices-th">
-                                <span class="assigned-devices-th-inner">MAC Address <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            <th
+                                class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                role="button"
+                                tabindex="0"
+                                on:click={() => handleDevicesSort('macAddress')}
+                                on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('macAddress')}
+                            >
+                                <span class="assigned-devices-th-inner">MAC Address {#if devicesSort.field === 'macAddress'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                             </th>
-                            <th class="assigned-devices-th">
-                                <span class="assigned-devices-th-inner">Operating System <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            <th
+                                class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                role="button"
+                                tabindex="0"
+                                on:click={() => handleDevicesSort('deviceType')}
+                                on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('deviceType')}
+                            >
+                                <span class="assigned-devices-th-inner">Operating System {#if devicesSort.field === 'deviceType'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                             </th>
-                            <th class="assigned-devices-th">
-                                <span class="assigned-devices-th-inner">Status <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            <th
+                                class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                role="button"
+                                tabindex="0"
+                                on:click={() => handleDevicesSort('status')}
+                                on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('status')}
+                            >
+                                <span class="assigned-devices-th-inner">Status {#if devicesSort.field === 'status'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                             </th>
-                            <th class="assigned-devices-th">
-                                <span class="assigned-devices-th-inner">Last Seen <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                            <th
+                                class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                role="button"
+                                tabindex="0"
+                                on:click={() => handleDevicesSort('lastUsedAt')}
+                                on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('lastUsedAt')}
+                            >
+                                <span class="assigned-devices-th-inner">Last Seen {#if devicesSort.field === 'lastUsedAt'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                             </th>
                             <th class="assigned-devices-th assigned-devices-th-actions">
                                 <span class="assigned-devices-th-inner">Actions</span>

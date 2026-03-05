@@ -51,8 +51,8 @@
     }
 
     const sessionColumns: ColumnDef<SessionRow>[] = [
-        { id: 'id', header: 'ID', accessor: (r) => r.id.length > 32 ? r.id.slice(0, 32) + '...' : r.id, width: '25%' },
-        { id: 'device', header: 'Device/Browser', accessor: () => '—', width: '20%' },
+        { id: 'id', header: 'ID', accessor: (r) => r.id.length > 32 ? r.id.slice(0, 32) + '...' : r.id, width: '25%', sortable: true },
+        { id: 'device', header: 'Device/Browser', accessor: () => '—', width: '20%', sortable: true },
         { id: 'createdAt', header: 'Created On', type: 'datetime', accessor: 'createdAt', sortable: true, width: '20%' },
         { id: 'expiresAt', header: 'Expired On', type: 'datetime', accessor: 'expiresAt', sortable: true, width: '20%' },
         {

@@ -152,8 +152,26 @@
                                 {/if}
                             </div>
                         </th>
-                        <th class="h-[44px] text-left" style="width: 15%; padding: 12px 16px; font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); color: var(--ds-color-gray-600);">
-                            Assigned Devices
+                        <th
+                            class="h-[44px] text-left cursor-pointer hover:bg-gray-100 select-none"
+                            style="width: 15%; padding: 12px 16px; font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); color: var(--ds-color-gray-600);"
+                            role="button"
+                            tabindex="0"
+                            on:click={() => handleSort('devicesCount')}
+                            on:keydown={(e) => e.key === 'Enter' && handleSort('devicesCount')}
+                        >
+                            <div class="flex items-center" style="gap: 4px;">
+                                <span>Assigned Devices</span>
+                                {#if props.sort?.field === 'devicesCount'}
+                                    <span class="flex items-center justify-center" style="width: 16px; height: 16px;">
+                                        {#if props.sort.order === 'desc'}
+                                            <ArrowDown size={16} strokeWidth={1.33} style="color: #475467;" />
+                                        {:else}
+                                            <ArrowUp size={16} strokeWidth={1.33} style="color: #475467;" />
+                                        {/if}
+                                    </span>
+                                {/if}
+                            </div>
                         </th>
                         <th class="h-[44px] text-left" style="width: 10%; padding: 12px 16px; font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); color: var(--ds-color-gray-600);">
                             Actions

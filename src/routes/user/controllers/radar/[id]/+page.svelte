@@ -945,11 +945,12 @@
 
   /** Live Preview – Live Track Details. Shows current-frame points as rows when preview is running (derived from preview.data). When device sends track metadata (id, dwell, lastSeen), use that instead. */
   const liveTrackColumns = [
-    { id: "id", header: "ID", accessor: (r: { id: string }) => r.id, type: "text" as const, width: "33%" },
-    { id: "dwellTime", header: "Dwell Time", accessor: (r: { dwellTime: string }) => r.dwellTime, type: "text" as const, width: "33%" },
-    { id: "seenOn", header: "Seen On", accessor: (r: { seenOn: string }) => r.seenOn, type: "text" as const, width: "34%" },
+    { id: "id", header: "ID", accessor: (r: { id: string }) => r.id, type: "text" as const, width: "33%", sortable: true },
+    { id: "dwellTime", header: "Dwell Time", accessor: (r: { dwellTime: string }) => r.dwellTime, type: "text" as const, width: "33%", sortable: true },
+    { id: "seenOn", header: "Seen On", accessor: (r: { seenOn: string }) => r.seenOn, type: "text" as const, width: "34%", sortable: true },
   ];
   let liveTrackData: Array<{ id: string; dwellTime: string; seenOn: string }> = [];
+  let liveTrackSort: { field: string | null; direction: 'asc' | 'desc' | null } = { field: null, direction: null };
   let liveTrackPagination = { page: 1, pageSize: 10, totalItems: 0, totalPages: 0 };
   const LIVE_TRACK_PAGE_SIZE = 10;
   /** Max items to keep from device (real-time); excess is cut off. */
@@ -1009,13 +1010,30 @@
     ? "Click Refresh to capture the current frame."
     : "Start preview, then click Refresh to see tracks.";
 
+  /** Sorted live tracks (client-side sort before pagination). */
+  $: sortedLiveTrackData = (() => {
+    if (!liveTrackSort.field || !liveTrackSort.direction) return liveTrackData;
+    const f = liveTrackSort.field;
+    const asc = liveTrackSort.direction === 'asc';
+    return [...liveTrackData].sort((a, b) => {
+      let va: string | number, vb: string | number;
+      switch (f) {
+        case 'id': va = a.id; vb = b.id; break;
+        case 'dwellTime': va = (a.dwellTime ?? '').toLowerCase(); vb = (b.dwellTime ?? '').toLowerCase(); break;
+        case 'seenOn': va = (a.seenOn ?? '').toLowerCase(); vb = (b.seenOn ?? '').toLowerCase(); break;
+        default: return 0;
+      }
+      const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+      return asc ? cmp : -cmp;
+    });
+  })();
   /** Slice for current page so DataTable shows only one page of live tracks. */
   $: liveTrackDataForPage = liveTrackPagination.totalPages > 0
-    ? liveTrackData.slice(
+    ? sortedLiveTrackData.slice(
         (liveTrackPagination.page - 1) * liveTrackPagination.pageSize,
         liveTrackPagination.page * liveTrackPagination.pageSize
       )
-    : liveTrackData;
+    : sortedLiveTrackData;
 </script>
 
 <!-- Main wrap: flex column, padding 24px, gap 16px (design) -->
@@ -1841,12 +1859,14 @@
                 columns={liveTrackColumns}
                 data={liveTrackDataForPage}
                 keyField="id"
-                sortable={false}
+                sortable={true}
+                bind:sort={liveTrackSort}
                 paginated={liveTrackPagination.totalPages > 0}
                 pagination={liveTrackPagination}
                 bordered={true}
                 cellBorders={true}
                 emptyMessage={liveTrackEmptyMessage}
+                on:sort={() => { liveTrackPagination = { ...liveTrackPagination, page: 1 }; }}
                 on:pageChange={(e) => { liveTrackPagination = { ...liveTrackPagination, page: e.detail }; }}
               />
             </div>

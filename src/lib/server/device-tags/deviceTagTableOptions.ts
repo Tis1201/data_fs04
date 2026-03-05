@@ -17,6 +17,12 @@ const baseDeviceTagTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
                 devices: true
             }
         }
+    },
+    getOrderBy: (sortField: string, sortOrder: 'asc' | 'desc') => {
+        if (sortField === 'devicesCount') {
+            return { devices: { _count: sortOrder } };
+        }
+        return { [sortField]: sortOrder };
     }
 };
 

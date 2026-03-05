@@ -12,6 +12,16 @@ const baseDeviceProfileTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
     filterMappings: {},
+    /** Map virtual sort fields (assignments → relation count, status → isActive) */
+    getOrderBy: (sortField: string, sortOrder: 'asc' | 'desc') => {
+        if (sortField === 'assignments') {
+            return { assignments: { _count: sortOrder } };
+        }
+        if (sortField === 'status') {
+            return { isActive: sortOrder };
+        }
+        return { [sortField]: sortOrder };
+    },
     include: {
         account: {
             select: {

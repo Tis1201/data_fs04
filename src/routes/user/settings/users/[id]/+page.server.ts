@@ -129,8 +129,10 @@ export const load: PageServerLoad = async ({ params, locals, cookies, url }: Req
             const sessionPerPage = Math.min(50, Math.max(1, parseInt(url.searchParams.get('session_per_page') || '10', 10)));
             const sortFieldParam = url.searchParams.get('session_sort_field') || 'createdAt';
             const sortOrderParam = url.searchParams.get('session_sort_order') || 'desc';
-            if (sortFieldParam === 'createdAt' || sortFieldParam === 'expiresAt') {
+            let orderByField: 'id' | 'createdAt' | 'expiresAt' = 'createdAt';
+            if (sortFieldParam === 'id' || sortFieldParam === 'createdAt' || sortFieldParam === 'expiresAt' || sortFieldParam === 'device') {
                 sessionsSortField = sortFieldParam;
+                orderByField = sortFieldParam === 'device' ? 'id' : sortFieldParam;
             }
             if (sortOrderParam === 'asc' || sortOrderParam === 'desc') {
                 sessionsSortOrder = sortOrderParam;
@@ -139,7 +141,7 @@ export const load: PageServerLoad = async ({ params, locals, cookies, url }: Req
                 prisma.session.findMany({
                     where: { userId },
                     select: { id: true, createdAt: true, expiresAt: true, status: true },
-                    orderBy: { [sessionsSortField]: sessionsSortOrder },
+                    orderBy: { [orderByField]: sessionsSortOrder },
                     skip: (sessionPage - 1) * sessionPerPage,
                     take: sessionPerPage
                 }),

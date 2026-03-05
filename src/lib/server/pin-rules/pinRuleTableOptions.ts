@@ -11,6 +11,11 @@ const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
+    /** Map virtual sort fields to DB fields (status → isActive, appliedTo → targetType) */
+    sortFieldMappings: {
+        status: 'isActive',
+        appliedTo: 'targetType'
+    },
     filterMappings: {
         ruleType: { field: 'ruleType', operator: 'in' },
         isActive: { 

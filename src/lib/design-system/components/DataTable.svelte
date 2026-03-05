@@ -230,8 +230,16 @@
         return row[column.id];
     }
 
+    /** Columns default to sortable; only Actions, pin, rowNumber, moreMenu are non-sortable by convention */
+    function isColumnSortable(col: ColumnDef): boolean {
+        if (col.sortable === false) return false;
+        const nonSortableTypes: CellType[] = ['actions', 'pin', 'rowNumber', 'moreMenu'];
+        if (col.type && nonSortableTypes.includes(col.type)) return false;
+        return true;
+    }
+
     function handleSort(column: ColumnDef) {
-        if (!sortable || !column.sortable) return;
+        if (!sortable || !isColumnSortable(column)) return;
         
         const field = column.id;
         const useToggle = column.sortCycle === 'toggle';
@@ -414,10 +422,10 @@
                         {@const iconColor = isDisabled ? 'text-[var(--ds-text-disabled)]' : 'text-[var(--ds-text-secondary)] group-hover:text-[var(--ds-color-gray-700)]'}
                         {@const helpIconColor = isDisabled ? 'text-[var(--ds-text-disabled)]' : 'text-[var(--ds-text-placeholder)]'}
                         <th 
-                            class="{headerCellClasses} group {sortable && column.sortable && !isDisabled ? 'hover:bg-[var(--ds-color-neutral-true-50)] transition-colors' : ''}"
+                            class="{headerCellClasses} group {sortable && isColumnSortable(column) && !isDisabled ? 'hover:bg-[var(--ds-color-neutral-true-50)] transition-colors' : ''}"
                             style="{column.width ? `width: ${column.width};` : ''}{column.minWidth ? `min-width: ${column.minWidth};` : ''}{column.maxWidth ? `max-width: ${column.maxWidth};` : ''}"
-                            class:cursor-pointer={sortable && column.sortable && !isDisabled}
-                            class:select-none={sortable && column.sortable}
+                            class:cursor-pointer={sortable && isColumnSortable(column) && !isDisabled}
+                            class:select-none={sortable && isColumnSortable(column)}
                             class:cursor-not-allowed={isDisabled}
                             on:click={() => !isDisabled && handleSort(column)}
                         >
@@ -445,7 +453,7 @@
                                 {/if}
                                 
                                 <!-- Sort direction arrows: only when sorted (unsort = no icon per new design) -->
-                                {#if sortable && column.sortable && isSorted}
+                                {#if sortable && isColumnSortable(column) && isSorted}
                                     {#if sort.direction === 'desc'}
                                         <ArrowDown class="w-4 h-4 flex-shrink-0 {iconColor}" stroke-width={1.33} />
                                     {:else}

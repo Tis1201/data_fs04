@@ -3,7 +3,7 @@
     import { page } from '$app/stores';
     import { onMount, onDestroy } from 'svelte';
     import { Button, Card, Badge, TabGroup, ConfirmModal, ActionMenu, Modal } from '$lib/design-system/components';
-    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X, UserMinus } from 'lucide-svelte';
+    import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronUp, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X, UserMinus } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
     import { toast } from '$lib/stores/alertToast';
@@ -210,9 +210,44 @@
 
     const DEVICES_PAGE_SIZE = 10;
     let devicesPage = 1;
-    $: devicesTotalItems = deviceRows.length;
+    let devicesSort: { field: string | null; direction: 'asc' | 'desc' } = { field: null, direction: 'asc' };
+
+    function handleDevicesSort(field: string) {
+        if (devicesSort.field === field) {
+            devicesSort = devicesSort.direction === 'asc'
+                ? { field, direction: 'desc' }
+                : { field: null, direction: 'asc' };
+        } else {
+            devicesSort = { field, direction: 'asc' };
+        }
+        devicesPage = 1;
+    }
+
+    $: sortedDeviceRows = (() => {
+        if (!devicesSort.field) return deviceRows;
+        const f = devicesSort.field;
+        const asc = devicesSort.direction === 'asc';
+        return [...deviceRows].sort((a: any, b: any) => {
+            let va: string | number | null, vb: string | number | null;
+            switch (f) {
+                case 'name': va = (a.name ?? '').toLowerCase(); vb = (b.name ?? '').toLowerCase(); break;
+                case 'macAddress': va = (a.macAddress ?? '').toLowerCase(); vb = (b.macAddress ?? '').toLowerCase(); break;
+                case 'deviceType': va = (a.deviceType ?? '').toLowerCase(); vb = (b.deviceType ?? '').toLowerCase(); break;
+                case 'status': va = (a.status ?? '').toLowerCase(); vb = (b.status ?? '').toLowerCase(); break;
+                case 'applyStatus': va = (a.applyStatus ?? '').toLowerCase(); vb = (b.applyStatus ?? '').toLowerCase(); break;
+                case 'lastUsedAt': va = a.lastUsedAt ? new Date(a.lastUsedAt).getTime() : 0; vb = b.lastUsedAt ? new Date(b.lastUsedAt).getTime() : 0; break;
+                default: return 0;
+            }
+            if (va === null && vb === null) return 0;
+            if (va === null) return asc ? 1 : -1;
+            if (vb === null) return asc ? -1 : 1;
+            const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+            return asc ? cmp : -cmp;
+        });
+    })();
+    $: devicesTotalItems = sortedDeviceRows.length;
     $: devicesTotalPages = Math.max(1, Math.ceil(devicesTotalItems / DEVICES_PAGE_SIZE));
-    $: paginatedDeviceRows = deviceRows.slice(
+    $: paginatedDeviceRows = sortedDeviceRows.slice(
         (devicesPage - 1) * DEVICES_PAGE_SIZE,
         devicesPage * DEVICES_PAGE_SIZE
     );
@@ -849,20 +884,50 @@
                             <table class="assigned-devices-table">
                                 <thead>
                                     <tr class="assigned-devices-thead-tr">
-                                        <th class="assigned-devices-th assigned-devices-th-name">
-                                            <span class="assigned-devices-th-inner">Device Name <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                        <th
+                                            class="assigned-devices-th assigned-devices-th-name cursor-pointer hover:bg-gray-100 select-none"
+                                            role="button"
+                                            tabindex="0"
+                                            on:click={() => handleDevicesSort('name')}
+                                            on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('name')}
+                                        >
+                                            <span class="assigned-devices-th-inner">Device Name {#if devicesSort.field === 'name'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                                         </th>
-                                        <th class="assigned-devices-th">
-                                            <span class="assigned-devices-th-inner">MAC Address <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                        <th
+                                            class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                            role="button"
+                                            tabindex="0"
+                                            on:click={() => handleDevicesSort('macAddress')}
+                                            on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('macAddress')}
+                                        >
+                                            <span class="assigned-devices-th-inner">MAC Address {#if devicesSort.field === 'macAddress'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                                         </th>
-                                        <th class="assigned-devices-th">
-                                            <span class="assigned-devices-th-inner">Operating System <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                        <th
+                                            class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                            role="button"
+                                            tabindex="0"
+                                            on:click={() => handleDevicesSort('deviceType')}
+                                            on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('deviceType')}
+                                        >
+                                            <span class="assigned-devices-th-inner">Operating System {#if devicesSort.field === 'deviceType'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                                         </th>
-                                        <th class="assigned-devices-th">
-                                            <span class="assigned-devices-th-inner">Status <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                        <th
+                                            class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                            role="button"
+                                            tabindex="0"
+                                            on:click={() => handleDevicesSort('status')}
+                                            on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('status')}
+                                        >
+                                            <span class="assigned-devices-th-inner">Status {#if devicesSort.field === 'status'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                                         </th>
-                                        <th class="assigned-devices-th">
-                                            <span class="assigned-devices-th-inner">Apply status <span class="assigned-devices-th-icon"><ChevronDown size={16} /></span></span>
+                                        <th
+                                            class="assigned-devices-th cursor-pointer hover:bg-gray-100 select-none"
+                                            role="button"
+                                            tabindex="0"
+                                            on:click={() => handleDevicesSort('applyStatus')}
+                                            on:keydown={(e) => e.key === 'Enter' && handleDevicesSort('applyStatus')}
+                                        >
+                                            <span class="assigned-devices-th-inner">Apply status {#if devicesSort.field === 'applyStatus'}<span class="assigned-devices-th-icon">{#if devicesSort.direction === 'asc'}<ChevronUp size={16} />{:else}<ChevronDown size={16} />{/if}</span>{/if}</span>
                                         </th>
                                         <th class="assigned-devices-th assigned-devices-th-actions">
                                             <span class="assigned-devices-th-inner">Actions</span>
