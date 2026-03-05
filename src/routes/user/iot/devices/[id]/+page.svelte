@@ -973,7 +973,12 @@
                 const statusUnsub = mqttClient.onNotification('device:statusUpdate', loggingModalHandler);
                 const progressUnsub = mqttClient.onNotification('device:progressUpdate', loggingProgressHandler);
 
-                mqttUnsubscribes.push(statusUnsub, progressUnsub);
+                const dataUpdateUnsub = mqttClient.onNotification('device:dataUpdate', () => {
+                    invalidate('app:device');
+                    loadApps();
+                });
+
+                mqttUnsubscribes.push(statusUnsub, progressUnsub, dataUpdateUnsub);
             } catch (error) {
                 console.error('[UserDevicePage] Failed to set up MQTT handlers:', error);
             }
