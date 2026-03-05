@@ -16,6 +16,7 @@ export type DataChannelCallback = (dataChannel: RTCDataChannel) => void;
 export type ConnectionStateCallback = (state: RTCPeerConnectionState) => void;
 export type TerminalOutputCallback = (output: string) => void;
 export type TrackCallback = (track: MediaStreamTrack) => void;
+export type RdpStartedCallback = () => void;
 
 export class WebRTCClient {
   private peerConnection: RTCPeerConnection | null = null;
@@ -23,6 +24,7 @@ export class WebRTCClient {
   private terminalCB: TerminalOutputCallback | null = null;
   private onDataChannelOpenCB: DataChannelCallback | null = null;
   private onConnectionStateCB: ConnectionStateCallback | null = null;
+  private onRdpStartedCB: RdpStartedCallback | null = null;
   onTrackHandler: TrackCallback | null = null;
 
   config: any;
@@ -86,6 +88,10 @@ export class WebRTCClient {
   setConnectionStateCallback(cb: ConnectionStateCallback) {
     this.onConnectionStateCB = cb;
     if (this.peerConnection) cb(this.peerConnection.connectionState as RTCPeerConnectionState);
+  }
+
+  setRdpStartedCallback(cb: RdpStartedCallback | null) {
+    this.onRdpStartedCB = cb;
   }
 
   private handleDataChannelOpen = () => {
@@ -186,6 +192,9 @@ export class WebRTCClient {
       this.peerConnection = null;
     }
 
+    // Clear callbacks to prevent stale references
+    this.onRdpStartedCB = null;
+
     // Update store
     webRTCStore.update(state => ({
       ...state,
@@ -257,7 +266,7 @@ export class WebRTCClient {
           break;
         case 'rdp:started':
           console.log('[WebRTCClient] RDP started', message);
-          // RDP has started on the device, video track should be available
+          if (this.onRdpStartedCB) this.onRdpStartedCB();
           break;
         case 'rdp:stopped':
           console.log('[WebRTCClient] RDP stopped', message);

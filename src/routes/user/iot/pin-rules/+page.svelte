@@ -232,7 +232,7 @@
             header: 'Pinned Apps',
             accessor: (row: PinRuleRow) => row.apps?.length ?? 0,
             type: 'number' as const,
-            sortable: false, // Cannot sort by array length with standard Prisma
+            sortable: true,
             width: '120px',
             render: (_value: unknown, row: PinRuleRow) => {
                 const n = row.apps?.length ?? 0;

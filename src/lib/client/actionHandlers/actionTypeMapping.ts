@@ -18,9 +18,11 @@ export type ActionType =
   | 'push_file' 
   | 'get_logs' 
   | 'snapshot'
+  | 'terminal'
+  | 'remote_desktop'
   | 'uninstall_app' 
   | 'restart_app' 
-  | 'config_app'
+  | 'config_app' 
   | 'bundle_status';
 
 /**
@@ -36,6 +38,8 @@ const ACTION_LABELS: Record<ActionType, string> = {
   'push_file': 'Push File',
   'get_logs': 'Get Logs',
   'snapshot': 'Screenshot',
+  'terminal': 'Terminal session',
+  'remote_desktop': 'Remote Desktop',
   'uninstall_app': 'Uninstall App',
   'restart_app': 'Restart App',
   'config_app': 'Config App',
@@ -59,7 +63,9 @@ const HANDLER_MAP: Record<string, string> = {
   'uninstall_app': 'uninstall_app',
   'restart_app': 'restart_app',
   'config_app': 'config_app',
-  'snapshot': 'snapshot'
+  'snapshot': 'snapshot',
+  'terminal': 'terminal',
+  'remote_desktop': 'remote_desktop'
 };
 
 /**

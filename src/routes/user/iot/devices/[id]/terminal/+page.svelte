@@ -8,6 +8,7 @@
 	import { page } from "$app/stores";
     
 	import { deviceStore } from "$lib/stores/device-store";
+	import { toast } from "$lib/stores/alertToast";
 	import { onDestroy, onMount } from "svelte";
 	import { browser } from "$app/environment";
 	import { ArrowLeft, Terminal as TerminalIcon } from "lucide-svelte";
@@ -103,10 +104,16 @@
 			// Create MQTT terminal client
 			terminalClient = new TerminalMqttClient(deviceId);
 
-			// Set up output handler
+			// Set up output handler - success = when we actually see terminal output
+			let hasReceivedOutput = false;
 			terminalClient.onOutput((output) => {
 				if (terminalInstance) {
 					terminalInstance.write(output);
+				}
+				if (!hasReceivedOutput) {
+					hasReceivedOutput = true;
+					connected = true;
+					toast.success('Terminal connected – output received');
 				}
 			});
 
@@ -118,9 +125,14 @@
 				}
 			});
 
-			// Set up connected handler
+			// Set up connected handler - session established
 			terminalClient.onConnected(() => {
 				console.log('[Terminal] Terminal connected');
+				connected = true;
+				// Only show "Terminal Ready" if we haven't received output yet (output is the real indicator)
+				if (!hasReceivedOutput && terminalInstance) {
+					terminalInstance.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
+				}
 			});
 
 			// Set up disconnected handler
@@ -147,8 +159,6 @@
 			}, 500);
 
 			connecting = false;
-			connected = true;
-			terminal.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
 		} catch (error) {
 			console.error('[Terminal] Connection failed:', error);
 			terminal.write(`\r\n\x1b[1;31mConnection failed: ${error}\x1b[0m\r\n`);

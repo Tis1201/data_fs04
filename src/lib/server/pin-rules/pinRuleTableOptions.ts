@@ -16,6 +16,9 @@ const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         status: 'isActive',
         appliedTo: 'targetType'
     },
+    /** Sort Pinned Apps (apps.length) in memory - Prisma cannot ORDER BY array cardinality */
+    sortInMemoryForField: 'pinnedApps',
+    sortInMemoryKey: (r: { apps?: string[] }) => r.apps?.length ?? 0,
     filterMappings: {
         ruleType: { field: 'ruleType', operator: 'in' },
         isActive: { 

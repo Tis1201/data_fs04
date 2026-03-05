@@ -146,6 +146,7 @@ export class LogsHandler extends StreamActionHandler {
             this.clearDownloadTriggered(logId);
           });
         }
+        this.onLogsDownloadTriggered?.(logId);
       }
       
       this.handleSuccess({ 
@@ -157,6 +158,7 @@ export class LogsHandler extends StreamActionHandler {
         objectPath
       }, logId);
     } else if (status === 'failed' || status === 'fail') {
+      this.onLogsDownloadFailed?.(logId || '', message || 'Logs failed');
       this.handleError(message || `Logs failed`, logId, 'get_logs');
     } else if (progress !== undefined) {
       this.handleProgress(progress, message || `Logs progress: ${progress}%`, logId, 'get_logs');
@@ -167,7 +169,6 @@ export class LogsHandler extends StreamActionHandler {
 
   private async triggerLogsDownload(logId: string, objectPath: string): Promise<void> {
     try {
-      console.log(`[LogsHandler] Fetching download URL for logs:`, { logId, objectPath, deviceId: this.deviceId });
       
       const downloadResponse = await fetch(
         `/api/v2/devices/${this.deviceId}/pull-file-download-url?logId=${logId}`,
@@ -188,22 +189,16 @@ export class LogsHandler extends StreamActionHandler {
       // Extract filename from objectPath or use default
       const fileName = data.fileName || (objectPath ? objectPath.split('/').pop() || 'logs.zip' : 'logs.zip');
       
-      console.log(`[LogsHandler] Download URL received:`, { downloadUrl, fileName, response });
-      
       if (!downloadUrl) {
         throw new Error(`Download URL is missing from API response: ${JSON.stringify(response)}`);
       }
       
-      console.log(`[LogsHandler] Triggering download via anchor click`);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      // Remove target='_blank' to avoid pop-up blocker - browser will download directly
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      
-      console.log(`[LogsHandler] Logs download triggered`);
     } catch (error) {
       console.error('[LogsHandler] Error triggering logs download', { logId, error });
     }
@@ -224,8 +219,13 @@ export class LogsHandler extends StreamActionHandler {
     }
 
     const mappedActionType = MessageEntityMapper.getActionType(entity);
-    
+
     if (MessageEntityMapper.isStatusUpdate(entity) && mappedActionType === 'get_logs') {
+      this.handleUnifiedStatus(entity);
+      return;
+    }
+
+    if (entity.type === 'device:getLogsStatus' && mappedActionType === 'get_logs') {
       this.handleUnifiedStatus(entity);
       return;
     }

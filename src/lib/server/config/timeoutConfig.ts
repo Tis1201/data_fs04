@@ -11,7 +11,7 @@ const DEFAULT_TIMEOUTS = {
   DEVICE_APP: 5 * 60 * 1000, // 5 minutes
   DEVICE_APP_MONITORING: 5 * 60 * 1000, // 5 minutes
   DEVICE_TERMINAL: 30 * 1000, // 30 seconds (terminal connect should be quick)
-  DEVICE_RDP: 30 * 60 * 1000, // 30 minutes
+  DEVICE_RDP: 2 * 60 * 1000, // 2 minutes - mark failed if device doesn't start RDP
   DEVICE_LOGS: 30 * 1000, // 30 seconds
   WHATSAPP_SCAN: 5 * 60 * 1000, // 5 minutes
   SSE_CONNECTION: 30 * 1000, // 30 seconds
