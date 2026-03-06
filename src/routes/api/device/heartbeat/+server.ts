@@ -80,21 +80,12 @@ export const POST: RequestHandler = async ({ request }) => {
         }
 
         // Update Redis presence for real-time online status tracking
+        // Use SETEX (String) to match MQTT reconciliation which uses setex(presence:device:xxx, ttl, '1')
         try {
             if (redis) {
                 const presenceKey = `presence:device:${data.deviceId}`;
-                // Set presence key with 60 second TTL (will be refreshed by next heartbeat)
-                // Using hash to store additional metadata
-                await redis.hset(presenceKey, {
-                    deviceId: data.deviceId,
-                    timestamp: now.toISOString(),
-                    source: 'heartbeat',
-                    channel: `device:${data.deviceId}`,
-                    mode: 'presence',
-                    subscribers: '1'
-                });
-                // Set TTL to 60 seconds (device should send heartbeat every 30s)
-                await redis.expire(presenceKey, 60);
+                const presenceTTL = 60; // Device should send heartbeat every 30s
+                await redis.setex(presenceKey, presenceTTL, '1');
                 logger.debug(`[Heartbeat] Updated Redis presence for device ${data.deviceId}`);
             }
         } catch (redisError) {

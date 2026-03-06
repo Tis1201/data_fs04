@@ -210,12 +210,17 @@
     });
     $: displayData = (() => {
         const store = $deviceRealtimeStore;
-        if (!store) return devices;
-        return devices.map((row) => {
-            const known = store.getDevice(row.id);
-            const connected = known !== null ? store.isDeviceConnected(row.id) : row.connected;
-            return { ...row, connected };
-        });
+        const rows = store
+            ? devices.map((row) => {
+                const known = store.getDevice(row.id);
+                const connected = known !== null ? store.isDeviceConnected(row.id) : row.connected;
+                return { ...row, connected };
+            })
+            : devices;
+        // When offline, clear CPU/MEM/DSK (same as Device Details TC-DV-0090)
+        return rows.map((row) =>
+            !row.connected ? { ...row, cpuUsage: null, memUsage: null, diskUsage: null } : row
+        );
     })();
 
     let pagination: DeviceTablePagination = {

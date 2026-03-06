@@ -797,11 +797,12 @@
 
     onMount(() => {
         if (browser) initializeDeviceRealtime();
-        // Refresh device detail and (when on Apps tab) installed apps every 2 minutes
+        // Refresh device detail and (when on Apps tab) installed apps every 30s when online (heartbeat interval)
+        // so Device Health metrics (CPU, MEM, DSK from ClickHouse) update promptly
         healthRefreshInterval = setInterval(() => {
             invalidate('app:device');
             if (activeTab === 'apps') loadApps();
-        }, 120000);
+        }, 30000);
 
         // Set up real-time action log sync
         if (device?.id) {
@@ -1501,30 +1502,30 @@
                 </div>
             </div>
 
-            <!-- Metrics Row -->
+            <!-- Metrics Row: when device is offline, show N/A for all metrics (no real-time data) -->
             <div class="details-wrap">
                 <div class="metric-item">
                     <span class="metric-label">Device Uptime</span>
                     <span class="metric-value" style="color: #6941C6;">
-                        {formatUptime(deviceInfo?.system_uptime_seconds ?? null)}
+                        {isOnline ? formatUptime(deviceInfo?.system_uptime_seconds ?? null) : 'N/A'}
                     </span>
                 </div>
                 <div class="metric-item">
                     <span class="metric-label">CPU</span>
-                    <span class="metric-value" style="color: {getUsageColor(deviceInfo?.cpu_usage ?? null)};">
-                        {deviceInfo?.cpu_usage !== null && deviceInfo?.cpu_usage !== undefined ? `${Math.round(deviceInfo.cpu_usage)} %` : 'N/A'}
+                    <span class="metric-value" style="color: {isOnline ? getUsageColor(deviceInfo?.cpu_usage ?? null) : getUsageColor(null)};">
+                        {isOnline && deviceInfo?.cpu_usage !== null && deviceInfo?.cpu_usage !== undefined ? `${Math.round(deviceInfo.cpu_usage)} %` : 'N/A'}
                     </span>
                 </div>
                 <div class="metric-item">
                     <span class="metric-label">MEM</span>
-                    <span class="metric-value" style="color: {getUsageColor(deviceInfo?.ram_usage ?? null)};">
-                        {deviceInfo?.ram_usage != null ? `${Math.round(deviceInfo.ram_usage)} %` : 'N/A'}
+                    <span class="metric-value" style="color: {isOnline ? getUsageColor(deviceInfo?.ram_usage ?? null) : getUsageColor(null)};">
+                        {isOnline && deviceInfo?.ram_usage != null ? `${Math.round(deviceInfo.ram_usage)} %` : 'N/A'}
                     </span>
                 </div>
                 <div class="metric-item">
                     <span class="metric-label">DSK</span>
-                    <span class="metric-value" style="color: {getUsageColor(deviceInfo?.disk_usage ?? null)};">
-                        {deviceInfo?.disk_usage !== null && deviceInfo?.disk_usage !== undefined ? `${Math.round(deviceInfo.disk_usage)} %` : 'N/A'}
+                    <span class="metric-value" style="color: {isOnline ? getUsageColor(deviceInfo?.disk_usage ?? null) : getUsageColor(null)};">
+                        {isOnline && deviceInfo?.disk_usage !== null && deviceInfo?.disk_usage !== undefined ? `${Math.round(deviceInfo.disk_usage)} %` : 'N/A'}
                     </span>
                 </div>
             </div>

@@ -159,6 +159,10 @@
             sortable: false,
             width: "12%",
             render: (record: Device) => {
+                // When device is offline, do not show cached metrics (same as Device Details TC-DV-0090)
+                if (!record.connected) {
+                    return "N/A";
+                }
                 // Get MAC address (prefer macAddress, fallback to lanMac or wifiMac)
                 const macAddress = record.macAddress || record.lanMac || record.wifiMac;
                 const deviceInfo = macAddress ? props.deviceInformation[macAddress] : null;

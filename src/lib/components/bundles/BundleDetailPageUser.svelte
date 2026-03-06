@@ -1592,6 +1592,7 @@
         {@const cpuPct = dev.cpuUsage ?? dev.cpu ?? null}
         {@const memPct = dev.memoryUsage ?? dev.mem ?? null}
         {@const dskPct = dev.diskUsage ?? dev.dsk ?? null}
+        {@const isDeviceOnline = dev.connected === true}
         <div class="view-device-body">
             {#if viewDeviceDetailLoading}
                 <p class="view-device-loading">Loading device details…</p>
@@ -1599,19 +1600,19 @@
             <div class="view-device-metrics">
                 <div class="view-device-metric">
                     <span class="view-device-metric-label">Device Uptime</span>
-                    <span class="view-device-metric-value view-device-metric-uptime">{formatUptime(uptimeSec)}</span>
+                    <span class="view-device-metric-value view-device-metric-uptime">{isDeviceOnline ? formatUptime(uptimeSec) : 'N/A'}</span>
                 </div>
                 <div class="view-device-metric">
                     <span class="view-device-metric-label">CPU</span>
-                    <span class="view-device-metric-value" style="color: {getUsageColor(cpuPct)}">{cpuPct != null ? `${cpuPct} %` : '—'}</span>
+                    <span class="view-device-metric-value" style="color: {isDeviceOnline ? getUsageColor(cpuPct) : getUsageColor(null)}">{isDeviceOnline && cpuPct != null ? `${cpuPct} %` : 'N/A'}</span>
                 </div>
                 <div class="view-device-metric">
                     <span class="view-device-metric-label">MEM</span>
-                    <span class="view-device-metric-value" style="color: {getUsageColor(memPct)}">{memPct != null ? `${memPct} %` : '—'}</span>
+                    <span class="view-device-metric-value" style="color: {isDeviceOnline ? getUsageColor(memPct) : getUsageColor(null)}">{isDeviceOnline && memPct != null ? `${memPct} %` : 'N/A'}</span>
                 </div>
                 <div class="view-device-metric">
                     <span class="view-device-metric-label">DSK</span>
-                    <span class="view-device-metric-value" style="color: {getUsageColor(dskPct)}">{dskPct != null ? `${dskPct} %` : '—'}</span>
+                    <span class="view-device-metric-value" style="color: {isDeviceOnline ? getUsageColor(dskPct) : getUsageColor(null)}">{isDeviceOnline && dskPct != null ? `${dskPct} %` : 'N/A'}</span>
                 </div>
             </div>
             <TabGroup
