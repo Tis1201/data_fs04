@@ -1,4 +1,5 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import { PIN_RULE_NAME_MAX, PIN_RULE_DESCRIPTION_MAX } from '$lib/constants/pinRule';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
@@ -166,12 +167,47 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 	}
 
 	// Validate update data
-	const { name, description, apps, targetType, targetValue, isActive, fallbackScreenEnabled, fallbackScreenUrl } = body;
+	const { name, description, apps, targetType, targetValue, isActive, isDraft, fallbackScreenEnabled, fallbackScreenUrl } = body;
 
 	const updateData: any = {};
 
-	if (name !== undefined) updateData.name = name;
-	if (description !== undefined) updateData.description = description;
+	if (name !== undefined) {
+		if (typeof name === 'string' && name.length > PIN_RULE_NAME_MAX) {
+			throw Object.assign(
+				new Error(`Name must be at most ${PIN_RULE_NAME_MAX} characters`),
+				{ status: 400 }
+			);
+		}
+		// Check for duplicate name (case-insensitive, exclude current rule)
+		const nameTrimmed = String(name).trim();
+		const duplicateWhere: any = {
+			name: { equals: nameTrimmed, mode: 'insensitive' },
+			id: { not: id }
+		};
+		if (existingRule.accountId) {
+			duplicateWhere.accountId = existingRule.accountId;
+		} else {
+			duplicateWhere.accountId = null;
+			duplicateWhere.ruleType = { in: ['admin_default', 'admin_custom'] };
+		}
+		const existingWithName = await prisma.pinRule.findFirst({ where: duplicateWhere });
+		if (existingWithName) {
+			throw Object.assign(
+				new Error('A pin rule with this name already exists'),
+				{ status: 409, code: ErrorCodes.CONFLICT }
+			);
+		}
+		updateData.name = name;
+	}
+	if (description !== undefined) {
+		if (description !== null && typeof description === 'string' && description.length > PIN_RULE_DESCRIPTION_MAX) {
+			throw Object.assign(
+				new Error(`Description must be at most ${PIN_RULE_DESCRIPTION_MAX} characters`),
+				{ status: 400 }
+			);
+		}
+		updateData.description = description;
+	}
 	if (apps !== undefined) {
 		if (!Array.isArray(apps)) {
 			throw Object.assign(new Error('apps must be an array'), { status: 400 });
@@ -186,6 +222,7 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 		updateData.targetValue = targetValue;
 	}
 	if (isActive !== undefined) updateData.isActive = isActive;
+	if (isDraft !== undefined) updateData.isDraft = !!isDraft;
 	if (fallbackScreenEnabled !== undefined) updateData.fallbackScreenEnabled = !!fallbackScreenEnabled;
 	if (fallbackScreenUrl !== undefined) updateData.fallbackScreenUrl = fallbackScreenUrl == null || fallbackScreenUrl === '' ? null : String(fallbackScreenUrl);
 

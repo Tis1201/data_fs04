@@ -1241,6 +1241,7 @@ model PinRule {
   targetValue           String[]
   priority              Int
   isActive              Boolean         @default(true)
+  isDraft               Boolean         @default(false)
   fallbackScreenEnabled Boolean         @default(false)
   fallbackScreenUrl     String?
   createdAt             DateTime        @default(now())

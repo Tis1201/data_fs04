@@ -1,6 +1,7 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { Modal, Button, InputField, TextareaField, Toggle, TabGroup, Dropdown } from '$lib/design-system/components';
+    import { PIN_RULE_NAME_MAX, PIN_RULE_DESCRIPTION_MAX, FALLBACK_ACCEPT, FALLBACK_ALLOWED_MIMES, FALLBACK_ALLOWED_EXTENSIONS } from '$lib/constants/pinRule';
     import AppPickerModal from '$lib/components/shared/AppPickerModal.svelte';
     import type { AppPickerItem } from '$lib/components/shared/AppPickerModal.svelte';
     import DeviceSelector from '$lib/components/bundles_ui/device_select/DeviceSelector.svelte';
@@ -32,9 +33,21 @@
     let prevOpen = false;
     $: isCreateMode = !rule;
     $: modalTitle = isCreateMode ? 'Add Rule' : 'Edit Rule';
+    /** Draft: 3 buttons (Cancel, Save as Draft, Save & Publish). Active/Inactive: 2 buttons (Cancel, Save). */
+    $: showDraftActions = isCreateMode || (rule?.isDraft === true);
+
+    /** Derive display filename from object path (e.g. "pinrule/id/uuid.jpg" -> "uuid.jpg") */
+    function getFallbackFileName(url: string | null | undefined): string | null {
+        if (!url || typeof url !== 'string') return null;
+        const segments = url.split('/').filter(Boolean);
+        const last = segments.pop();
+        return last || null;
+    }
 
     $: {
         if (open && !prevOpen) {
+            nameError = '';
+            descriptionError = '';
             if (rule) {
                 // Edit mode: sync from rule
                 formData = {
@@ -45,7 +58,7 @@
                 selectedApps = new Set(Array.isArray(rule.apps) ? rule.apps.filter(Boolean) : []);
                 fallbackScreenEnabled = rule.fallbackScreenEnabled === true;
                 fallbackScreenUrl = rule.fallbackScreenUrl ?? null;
-                fallbackFileName = rule.fallbackScreenUrl ? (rule.fallbackScreenUrl.split('/').pop() ?? null) : null;
+                fallbackFileName = getFallbackFileName(rule.fallbackScreenUrl);
                 fallbackFileSize = null;
                 applyTo = rule.targetType === 'specific' ? 'devices' : 'all';
                 selectedDevices = [];
@@ -82,6 +95,8 @@
     let devicePickerOpen = false;
     let deviceTags: { id: string; name: string }[] = [];
     let deviceTagsLoaded = false;
+    let nameError = '';
+    let descriptionError = '';
     let selectedTagIdsForAdd: string[] = [];
     let addByTagLoading = false;
 
@@ -196,8 +211,14 @@
     }
     $: selectedAppsList = Array.from(selectedApps);
 
-    const FALLBACK_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm';
     const FALLBACK_MAX_BYTES = 50 * 1024 * 1024;
+
+    function isFallbackFileTypeValid(file: File): boolean {
+        const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '');
+        const mimeValid = file.type && FALLBACK_ALLOWED_MIMES.includes(file.type as any);
+        const extValid = FALLBACK_ALLOWED_EXTENSIONS.includes(ext);
+        return !!(mimeValid || extValid);
+    }
     let fallbackUploading = false;
     /** Upload progress 0–100 when uploading; null when not uploading */
     let fallbackUploadProgress: number | null = null;
@@ -237,10 +258,11 @@
     }
 
     async function handleFallbackDownload() {
-        if (!fallbackScreenUrl || !fallbackFileName) return;
+        if (!fallbackScreenUrl) return;
+        const downloadFileName = fallbackFileName || getFallbackFileName(fallbackScreenUrl) || 'fallback';
         try {
             const res = await fetch(
-                `${apiPrefix}/upload/download-url?objectPath=${encodeURIComponent(fallbackScreenUrl)}&filename=${encodeURIComponent(fallbackFileName)}`
+                `${apiPrefix}/upload/download-url?objectPath=${encodeURIComponent(fallbackScreenUrl)}&filename=${encodeURIComponent(downloadFileName)}`
             );
             const data = await res.json();
             if (data?.success && data?.data?.downloadUrl) {
@@ -257,6 +279,11 @@
         const input = e.target as HTMLInputElement;
         const file = input.files?.[0];
         if (!file) return;
+        if (!isFallbackFileTypeValid(file)) {
+            toast.error('Only image and video files are allowed (JPEG, PNG, WebP, GIF, MP4, WebM).');
+            input.value = '';
+            return;
+        }
         if (file.size > FALLBACK_MAX_BYTES) {
             toast.error(`File must be under ${formatFallbackSize(FALLBACK_MAX_BYTES)}`);
             input.value = '';
@@ -283,7 +310,8 @@
             });
             const presignedData = await presignedRes.json();
             if (!presignedData?.success || !presignedData?.data?.url) {
-                toast.error('Failed to get upload URL');
+                const errMsg = presignedData?.error?.message || presignedData?.message;
+                toast.error(errMsg || 'Failed to get upload URL');
                 return;
             }
             const { url, objectPath, contentType } = presignedData.data;
@@ -342,8 +370,20 @@
     let saving = false;
     async function saveRule(asDraft: boolean) {
         if (!isCreateMode && !rule?.id) return;
+        nameError = '';
+        descriptionError = '';
         if (!formData.name?.trim()) {
             toast.error('Name is required');
+            return;
+        }
+        const nameLen = formData.name.trim().length;
+        if (nameLen > PIN_RULE_NAME_MAX) {
+            nameError = `Name must be at most ${PIN_RULE_NAME_MAX} characters`;
+            return;
+        }
+        const descVal = formData.description?.trim() || '';
+        if (descVal.length > PIN_RULE_DESCRIPTION_MAX) {
+            descriptionError = `Description must be at most ${PIN_RULE_DESCRIPTION_MAX} characters`;
             return;
         }
         if (selectedApps.size === 0) {
@@ -363,6 +403,7 @@
                 targetType: applyTo === 'all' ? 'all' : 'specific',
                 targetValue: applyTo === 'all' ? [] : selectedDevices.map((d) => d.id),
                 isActive: asDraft ? false : formData.isActive,
+                isDraft: asDraft,
                 fallbackScreenEnabled,
                 fallbackScreenUrl: fallbackScreenEnabled ? (fallbackScreenUrl || null) : null
             };
@@ -390,10 +431,14 @@
                 dispatch('saved');
                 handleModalClose();
             } else {
+                const msg = data?.error?.message || data?.message;
                 const errorMsg = isCreateMode
                     ? (asDraft ? 'Unable to create draft. Please try again.' : 'Unable to create rule. Please try again.')
                     : (asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update rule. Please try again.');
-                toast.error(data?.message || errorMsg);
+                toast.error(msg || errorMsg);
+                if (msg && msg.toLowerCase().includes('name already exists')) {
+                    nameError = msg;
+                }
             }
         } catch {
             const errorMsg = isCreateMode
@@ -433,6 +478,10 @@
                     type="text"
                     bind:value={formData.name}
                     placeholder="Rule name"
+                    maxlength={PIN_RULE_NAME_MAX}
+                    state={nameError ? 'error' : 'default'}
+                    helperText={nameError}
+                    on:input={() => (nameError = '')}
                 />
             </div>
             <div class="field toggle-field">
@@ -449,6 +498,9 @@
                     bind:value={formData.description}
                     placeholder="Description (optional)"
                     rows={3}
+                    state={descriptionError ? 'error' : 'default'}
+                    helperText={descriptionError}
+                    on:input={() => (descriptionError = '')}
                 />
             </div>
         </div>
@@ -511,7 +563,7 @@
                         <p class="fallback-hint">Save the rule first to upload a fallback screen.</p>
                     {:else}
                     <div class="fallback-upload">
-                        {#if fallbackScreenUrl && fallbackFileName}
+                        {#if fallbackScreenUrl}
                             <div class="fallback-current">
                                 <button
                                     type="button"
@@ -521,7 +573,7 @@
                                     title="Download"
                                 >
                                     <Download class="fallback-download-icon" size={18} />
-                                    <span>{fallbackFileName}</span>
+                                    <span>{fallbackFileName || 'Uploaded file'}</span>
                                 </button>
                                 {#if fallbackFileSize != null}
                                     <span class="fallback-current-size">{formatFallbackSize(fallbackFileSize)}</span>
@@ -682,16 +734,24 @@
                 Cancel
             </Button>
         </div>
-        <div class="modal-btn-wrapper">
-            <Button variant="filled" size="lg" color="primary" loading={saving} disabled={buttonsDisabled} on:click={handleSaveAsDraft}>
-                Save as Draft
-            </Button>
-        </div>
-        <div class="modal-btn-wrapper">
-            <Button variant="filled" size="lg" color="primary" loading={saving} disabled={buttonsDisabled} on:click={handleSaveAndPublish}>
-                Save & Publish
-            </Button>
-        </div>
+        {#if showDraftActions}
+            <div class="modal-btn-wrapper">
+                <Button variant="filled" size="lg" color="primary" loading={saving} disabled={buttonsDisabled} on:click={handleSaveAsDraft}>
+                    Save as Draft
+                </Button>
+            </div>
+            <div class="modal-btn-wrapper">
+                <Button variant="filled" size="lg" color="primary" loading={saving} disabled={buttonsDisabled} on:click={handleSaveAndPublish}>
+                    Save & Publish
+                </Button>
+            </div>
+        {:else}
+            <div class="modal-btn-wrapper">
+                <Button variant="filled" size="lg" color="primary" loading={saving} disabled={buttonsDisabled} on:click={handleSaveAndPublish}>
+                    Save
+                </Button>
+            </div>
+        {/if}
     </svelte:fragment>
 </Modal>
 

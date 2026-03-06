@@ -1,5 +1,6 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
-import { successResponse } from '$lib/types/api';
+import { PIN_RULE_NAME_MAX, PIN_RULE_DESCRIPTION_MAX } from '$lib/constants/pinRule';
+import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
@@ -195,10 +196,22 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 	const body = await event.request.json();
 
 	// Validate required fields
-	const { ruleType, name, apps, targetType, targetValue, description, isActive, fallbackScreenEnabled, fallbackScreenUrl } = body;
+	const { ruleType, name, apps, targetType, targetValue, description, isActive, isDraft, fallbackScreenEnabled, fallbackScreenUrl } = body;
 
 	if (!ruleType || !name || !apps || !Array.isArray(apps)) {
 		throw Object.assign(new Error('ruleType, name, and apps are required'), { status: 400 });
+	}
+	if (typeof name === 'string' && name.length > PIN_RULE_NAME_MAX) {
+		throw Object.assign(
+			new Error(`Name must be at most ${PIN_RULE_NAME_MAX} characters`),
+			{ status: 400 }
+		);
+	}
+	if (description != null && typeof description === 'string' && description.length > PIN_RULE_DESCRIPTION_MAX) {
+		throw Object.assign(
+			new Error(`Description must be at most ${PIN_RULE_DESCRIPTION_MAX} characters`),
+			{ status: 400 }
+		);
 	}
 
 	// Validate rule type
@@ -229,6 +242,22 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 		}
 	}
 
+	// Check for duplicate name (case-insensitive, same scope as tags)
+	const duplicateWhere: any = { name: { equals: String(name).trim(), mode: 'insensitive' } };
+	if (ruleType === 'user_custom' || ruleType === 'user_default') {
+		duplicateWhere.accountId = ruleAccountId;
+	} else {
+		duplicateWhere.accountId = null;
+		duplicateWhere.ruleType = { in: ['admin_default', 'admin_custom'] };
+	}
+	const existingWithName = await prisma.pinRule.findFirst({ where: duplicateWhere });
+	if (existingWithName) {
+		throw Object.assign(
+			new Error('A pin rule with this name already exists'),
+			{ status: 409, code: ErrorCodes.CONFLICT }
+		);
+	}
+
 	// Create the pin rule
 	const newRule = await prisma.pinRule.create({
 		data: {
@@ -241,7 +270,8 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 			targetType: targetType || 'all',
 			targetValue: targetValue || [],
 			priority,
-			isActive: isActive !== false,
+			isActive: isDraft === true ? false : (isActive !== false),
+			isDraft: isDraft === true,
 			fallbackScreenEnabled: fallbackScreenEnabled === true,
 			fallbackScreenUrl: fallbackScreenUrl || null
 		},

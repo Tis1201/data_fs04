@@ -18,6 +18,8 @@
     let showDuplicateModal = false;
     let duplicateLoading = false;
     let addModalOpen = false;
+    let editModalOpen = false;
+    let ruleToEdit: PinRuleRow | null = null;
 
     interface PinRuleRow {
         id: string;
@@ -27,6 +29,9 @@
         targetType: string;
         targetValue: string[];
         isActive: boolean;
+        isDraft?: boolean;
+        fallbackScreenEnabled?: boolean;
+        fallbackScreenUrl?: string | null;
         createdAt: Date | string;
         updatedAt: Date | string;
         account?: { id: string; name: string };
@@ -42,9 +47,11 @@
 
     // Filter modal
     let showFilterModal = false;
+    // Active/Inactive map to isActive; Draft is placeholder until schema supports it
     const STATUS_OPTIONS = [
         { id: 'true', label: 'Active' },
-        { id: 'false', label: 'Inactive' }
+        { id: 'false', label: 'Inactive' },
+        { id: 'draft', label: 'Draft' }
     ] as const;
     let filterStatuses: string[] = $page.url.searchParams.get('isActive')?.split(',').filter(Boolean) || [];
 
@@ -53,13 +60,39 @@
         ...STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
     ];
 
+    // All and specific options (Active/Inactive/Draft) are mutually exclusive
+    function handleStatusFilterChange(e: CustomEvent<string | string[]>) {
+        const val = e.detail;
+        const arr = Array.isArray(val) ? val : (val ? [val] : []);
+        if (arr.includes('__all__') && !filterStatuses.includes('__all__')) {
+            filterStatuses = ['__all__'];
+            return;
+        }
+        if (!arr.includes('__all__') && filterStatuses.includes('__all__')) {
+            filterStatuses = arr.length > 0 ? arr : ['__all__'];
+            return;
+        }
+        if (arr.some((v) => v !== '__all__')) {
+            filterStatuses = arr.filter((v) => v !== '__all__');
+            return;
+        }
+        filterStatuses = arr.length > 0 ? arr : ['__all__'];
+    }
+
     function applyFilter() {
         const url = new URL($page.url);
+        // TC-RDM-APR-0010: Persist full selection including __all__ so "All" is retained when reopening
         const statuses = filterStatuses.filter((s) => s !== '__all__');
-        if (statuses.length) url.searchParams.set('isActive', statuses.join(','));
-        else url.searchParams.delete('isActive');
+        if (statuses.includes('draft')) {
+            url.searchParams.set('isDraft', 'true');
+            url.searchParams.delete('isActive');
+        } else {
+            url.searchParams.delete('isDraft');
+            if (statuses.length) url.searchParams.set('isActive', statuses.join(','));
+            else url.searchParams.delete('isActive');
+        }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
     }
 
@@ -67,17 +100,25 @@
         filterStatuses = [];
         const url = new URL($page.url);
         url.searchParams.delete('isActive');
+        url.searchParams.delete('isDraft');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
     }
 
     function openFilterModal() {
-        filterStatuses = $page.url.searchParams.get('isActive')?.split(',').filter(Boolean) || [];
+        // TC-RDM-APR-0010: Include __all__ from URL so "All" selection is retained when reopening
+        const isDraftParam = $page.url.searchParams.get('isDraft');
+        const isActiveParam = $page.url.searchParams.get('isActive');
+        if (isDraftParam === 'true') {
+            filterStatuses = ['draft'];
+        } else {
+            filterStatuses = isActiveParam ? isActiveParam.split(',').filter(Boolean) : ['__all__'];
+        }
         showFilterModal = true;
     }
 
-    // Debounced search
+    // Debounced search (TC-RDM-APR-0005: keepFocus preserves cursor in search field after navigation)
     $: if (browser && typeof searchValue !== 'undefined') {
         clearTimeout(searchTimeout);
         searchTimeout = setTimeout(() => {
@@ -91,7 +132,7 @@
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true });
+            goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         }, 500);
     }
 
@@ -135,16 +176,17 @@
             url.searchParams.delete('order');
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
         const url = new URL($page.url);
         url.searchParams.set('page', String(event.detail));
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function statusColor(_value: string, row: PinRuleRow): BadgeColor {
+        if (row.isDraft) return 'gray';
         return row.isActive ? 'success' : 'gray';
     }
 
@@ -191,6 +233,10 @@
         duplicateTarget = null;
     }
 
+    function handleRunRule(row: PinRuleRow) {
+        goto(`${basePath}/pin-rules/${row.id}`);
+    }
+
     async function confirmDuplicate() {
         if (!duplicateTarget) return;
         duplicateLoading = true;
@@ -222,9 +268,9 @@
             width: '280px',
             render: (_value: unknown, row: PinRuleRow) => {
                 const name = row.name || '—';
-                const link = `<a href="${basePath}/pin-rules/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
-                const idLine = `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(row.id)}</span>`;
-                return `<div class="flex flex-col gap-0"><span>${link}</span><span>${idLine}</span></div>`;
+                const link = `<a href="${basePath}/pin-rules/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline truncate block" title="${escapeHtml(name)}">${escapeHtml(name)}</a>`;
+                const idLine = `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)] truncate block" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</span>`;
+                return `<div class="flex flex-col gap-0 min-w-0"><span class="min-w-0">${link}</span><span class="min-w-0">${idLine}</span></div>`;
             }
         },
         {
@@ -257,7 +303,7 @@
         {
             id: 'status',
             header: 'Status',
-            accessor: (row: PinRuleRow) => (row.isActive ? 'Active' : 'Inactive'),
+            accessor: (row: PinRuleRow) => (row.isDraft ? 'Draft' : row.isActive ? 'Active' : 'Inactive'),
             type: 'badge' as const,
             sortable: true,
             statusColor,
@@ -270,7 +316,9 @@
             type: 'moreMenu' as const,
             width: '80px',
             getMenuActions: (row: PinRuleRow) => {
+                const isActive = !row.isDraft && row.isActive === true;
                 const actions: { id: string; label: string; color?: 'danger'; onClick?: () => void }[] = [
+                    ...(isActive ? [{ id: 'run', label: 'Run Rule', onClick: () => handleRunRule(row) }] : []),
                     {
                         id: 'view',
                         label: 'View',
@@ -279,7 +327,10 @@
                     {
                         id: 'edit',
                         label: 'Edit',
-                        onClick: () => goto(`${basePath}/pin-rules/${row.id}/edit`)
+                        onClick: () => {
+                            ruleToEdit = row;
+                            editModalOpen = true;
+                        }
                     },
                     {
                         id: 'duplicate',
@@ -364,9 +415,10 @@
                 label=""
                 placeholder="Select"
                 options={statusDropdownOptions}
-                bind:value={filterStatuses}
+                value={filterStatuses}
                 multiple={true}
                 width="100%"
+                on:change={handleStatusFilterChange}
             />
         </div>
     </div>
@@ -423,6 +475,21 @@
     onSaved={async () => {
         await invalidate('app:pin-rules');
         addModalOpen = false;
+    }}
+    on:saved={async () => {
+        await invalidate('app:pin-rules');
+    }}
+/>
+
+<!-- Edit Rule modal (TC-RDM-APR-0060: use Edit Modal for validation instead of full edit page) -->
+<PinRuleEditModal
+    bind:open={editModalOpen}
+    rule={ruleToEdit}
+    apiPrefix="/api/v2"
+    onSaved={async () => {
+        await invalidate('app:pin-rules');
+        editModalOpen = false;
+        ruleToEdit = null;
     }}
     on:saved={async () => {
         await invalidate('app:pin-rules');

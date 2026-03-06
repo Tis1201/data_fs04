@@ -6,8 +6,8 @@ import type { TableDataOptions } from '$lib/components/ui_components_sveltekit/t
  */
 const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     modelName: 'pinRule',
-    searchableFields: ['name', 'description', 'apps'],
-    allowedFilters: ['ruleType', 'isActive'],
+    searchableFields: ['name', 'id', 'description', 'apps'],
+    allowedFilters: ['ruleType', 'isActive', 'isDraft'],
     defaultSortField: 'createdAt',
     defaultSortOrder: 'desc' as const,
     defaultPerPage: 10,
@@ -24,6 +24,13 @@ const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         isActive: { 
             field: 'isActive', 
             operator: 'equals',
+            valueTransformer: (value: string) => value === 'true',
+            /** When filtering by Inactive (false), also require isDraft: false so Draft rules are excluded */
+            andWithWhen: { whenValue: false, field: 'isDraft', value: false }
+        },
+        isDraft: { 
+            field: 'isDraft', 
+            operator: 'equals',
             valueTransformer: (value: string) => value === 'true'
         }
     },
@@ -39,6 +46,9 @@ const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         targetValue: true,
         priority: true,
         isActive: true,
+        isDraft: true,
+        fallbackScreenEnabled: true,
+        fallbackScreenUrl: true,
         createdAt: true,
         updatedAt: true,
         account: true

@@ -423,22 +423,22 @@
         <div class="overview-details-wrap pin-rule-overview-details">
             <div class="overview-field">
                 <p class="overview-label">Name</p>
-                <p class="overview-value">{rule?.name || '—'}</p>
+                <p class="overview-value overview-value-truncate" title={rule?.name || undefined}>{rule?.name || '—'}</p>
             </div>
             <div class="overview-field">
                 <p class="overview-label">Status</p>
                 <Badge
-                    label={rule?.isActive !== false ? 'Active' : 'Inactive'}
-                    color={rule?.isActive !== false ? 'success' : 'gray'}
+                    label={rule?.isDraft ? 'Draft' : (rule?.isActive !== false ? 'Active' : 'Inactive')}
+                    color={rule?.isDraft ? 'gray' : (rule?.isActive !== false ? 'success' : 'gray')}
                     variant="filled"
                     size="md"
-                    showDot={rule?.isActive !== false}
+                    showDot={!rule?.isDraft && rule?.isActive !== false}
                     interactive={false}
                 />
             </div>
             <div class="overview-field overview-field-full-width">
                 <p class="overview-label">Description</p>
-                <p class="overview-value">{rule?.description || '—'}</p>
+                <p class="overview-value overview-value-desc" title={rule?.description || undefined}>{rule?.description || '—'}</p>
             </div>
             <div class="overview-divider" aria-hidden="true"></div>
             <div class="overview-field overview-field-full-width overview-audit">
@@ -710,6 +710,8 @@
         padding: var(--ds-space-4);
         gap: var(--ds-space-4) var(--ds-space-6);
         box-sizing: border-box;
+        min-width: 0;
+        overflow: hidden;
     }
     .pin-rule-overview-details .overview-field {
         display: flex;
@@ -717,6 +719,7 @@
         align-items: flex-start;
         gap: var(--ds-space-1);
         min-width: 0;
+        overflow: hidden;
     }
     .pin-rule-overview-details .overview-field-full-width {
         grid-column: 1 / -1;
@@ -736,6 +739,24 @@
         line-height: 24px;
         color: var(--ds-color-neutral-true-900);
         margin: 0;
+    }
+    .pin-rule-overview-details .overview-value-truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        width: 100%;
+        min-width: 0;
+    }
+    .pin-rule-overview-details .overview-value-desc {
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        text-overflow: ellipsis;
+        min-width: 0;
+        width: 100%;
+        overflow-wrap: anywhere;
     }
     .pin-rule-overview-details .overview-muted {
         font-family: var(--ds-font-family-primary);

@@ -254,6 +254,7 @@
                 {#if optionsLoading}
                     <div class="app-picker-empty">Loading…</div>
                 {:else}
+                    {#key selected.join(',')}
                     {#each filteredOptions as app (app.id)}
                         {@const key = getSelectionKey(app)}
                         {@const isSelected = selected.includes(key)}
@@ -279,6 +280,7 @@
                             </div>
                         </button>
                     {/each}
+                    {/key}
                     {#if filteredOptions.length === 0}
                         <div class="app-picker-empty">No apps found</div>
                     {/if}

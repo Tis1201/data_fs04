@@ -191,6 +191,13 @@ export function handleUnifiedError(error: any, requestId: string, operation?: st
 		);
 	}
 
+	if (error.status === 409 || error.code === ErrorCodes.CONFLICT) {
+		return json(
+			errorResponse(error.message || 'A resource with this value already exists', ErrorCodes.CONFLICT),
+			{ status: 409 }
+		);
+	}
+
 	if (error.code === 'FEATURE_NOT_AVAILABLE') {
 		return json(
 			errorResponse(error.message, ErrorCodes.FORBIDDEN),

@@ -3,6 +3,7 @@ import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { generatePresignedUrl, generateFilePath, deleteFilesFromCloudStorageByPrefix } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
+import { FALLBACK_ALLOWED_MIMES, FALLBACK_ALLOWED_EXTENSIONS } from '$lib/constants/pinRule';
 
 /**
  * POST /api/v2/upload/presigned-url
@@ -29,6 +30,22 @@ export const POST = unifiedEndpoint(
         new Error('fileName is required'),
         { status: 400, code: ErrorCodes.INVALID_INPUT }
       );
+    }
+
+    const prefixStr = prefix && String(prefix).trim() ? String(prefix).replace(/^\/+|\/+$/g, '') : '';
+    const isPinRuleFallback = prefixStr.startsWith('pinrule/');
+
+    // TC-RDM-APR-0079: Validate file type for pin rule fallback (image/video only)
+    if (isPinRuleFallback) {
+      const ext = '.' + (fileName.split('.').pop()?.toLowerCase() || '');
+      const mimeValid = contentType && FALLBACK_ALLOWED_MIMES.includes(contentType as any);
+      const extValid = FALLBACK_ALLOWED_EXTENSIONS.includes(ext);
+      if (!mimeValid && !extValid) {
+        throw Object.assign(
+          new Error('Only image and video files are allowed (JPEG, PNG, WebP, GIF, MP4, WebM)'),
+          { status: 400, code: ErrorCodes.INVALID_INPUT }
+        );
+      }
     }
 
     // Infer content type from file extension if not provided
@@ -69,7 +86,6 @@ export const POST = unifiedEndpoint(
       type: inferredContentType
     } as File;
 
-    const prefixStr = prefix && String(prefix).trim() ? String(prefix).replace(/^\/+|\/+$/g, '') : '';
     if (replaceInFolder && prefixStr) {
       await deleteFilesFromCloudStorageByPrefix(prefixStr);
       logger.info(`Cleared existing files under prefix: ${prefixStr}`);

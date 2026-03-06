@@ -12,6 +12,7 @@
     import * as Select from "$lib/components/ui/select";
     import { Plus } from "lucide-svelte";
     import { toast } from "svelte-sonner";
+    import { PIN_RULE_NAME_MAX, PIN_RULE_DESCRIPTION_MAX } from '$lib/constants/pinRule';
 
     /**
      * Props for PinRuleCreatePage component
@@ -62,6 +63,15 @@
             toast.error('Name is required');
             return;
         }
+        if (formData.name.trim().length > PIN_RULE_NAME_MAX) {
+            toast.error(`Name must be at most ${PIN_RULE_NAME_MAX} characters`);
+            return;
+        }
+        const descVal = formData.description?.trim() || '';
+        if (descVal.length > PIN_RULE_DESCRIPTION_MAX) {
+            toast.error(`Description must be at most ${PIN_RULE_DESCRIPTION_MAX} characters`);
+            return;
+        }
 
         if (!formData.apps.trim()) {
             toast.error('At least one app is required');
@@ -99,7 +109,7 @@
                 goto(`${basePath}/iot/pin-rules`);
             } else {
                 toast.error('Failed to create pin rule', {
-                    description: result.message || 'Unknown error'
+                    description: result?.error?.message || result?.message || 'Unknown error'
                 });
             }
         } catch (error) {
