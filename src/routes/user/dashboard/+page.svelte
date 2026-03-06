@@ -502,8 +502,7 @@
                 { label: 'CPU Load', value: dashboardStats?.criticalIssues?.cpuLoad || 0 },
                 { label: 'Memory', value: dashboardStats?.criticalIssues?.memory || 0 },
                 { label: 'Storage', value: dashboardStats?.criticalIssues?.storage || 0 },
-                { label: 'Network', value: dashboardStats?.criticalIssues?.network || 0 },
-                { label: 'Update', value: dashboardStats?.criticalIssues?.update || 0 }
+                { label: 'Network', value: dashboardStats?.criticalIssues?.network || 0 }
             ]
         },
         {

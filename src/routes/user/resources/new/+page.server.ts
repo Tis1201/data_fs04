@@ -94,6 +94,21 @@ export const actions: Actions = {
                             )
                         );
                     }
+
+                    // Validate file size (max 500 MB)
+                    const MAX_FILE_SIZE_BYTES = 500 * 1024 * 1024;
+                    if (rawFile.size > MAX_FILE_SIZE_BYTES) {
+                        logger.warn(`File size exceeds limit: ${rawFile.name} (${rawFile.size} bytes)`);
+                        const form = await superValidate(zod(resourceSchema));
+                        return message(
+                            form,
+                            createErrorResponse(
+                                'File too large',
+                                'VALIDATION_ERROR',
+                                { details: 'File size must not exceed 500 MB' }
+                            )
+                        );
+                    }
                     
                     const { type: inferredType, format: inferredFormat } = inferTypeAndFormatFromFile(rawFile);
                     if (!formData.get('type')) {
@@ -228,32 +243,6 @@ export const actions: Actions = {
                     // Create a new enhanced Prisma client with the proper user context
                     // Enable query logging for debugging
                     const enhancedPrisma = getEnhancedPrisma(userContext, { logPrismaQuery: true });
-
-                    // Duplicate check: same packageName + version within account
-                    const packageName = form.data.packageName?.trim();
-                    const versionToUse = form.data.version?.trim() || '1.0.0';
-                    if (packageName) {
-                        const existing = await enhancedPrisma.resource.findFirst({
-                            where: {
-                                accountId,
-                                packageName,
-                                version: versionToUse
-                            }
-                        });
-                        if (existing) {
-                            return message(
-                                form,
-                                createErrorResponse(
-                                    'A resource with this package name and version already exists in this account.',
-                                    'VALIDATION_ERROR',
-                                    {
-                                        details: 'Please use a different package name or version.'
-                                    }
-                                ),
-                                { status: 400 }
-                            );
-                        }
-                    }
 
                     // Create the resource using the enhanced Prisma client
                     const resource = await enhancedPrisma.resource.create({

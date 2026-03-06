@@ -83,24 +83,14 @@ export const actions: Actions = {
                     );
                 }
 
-                // Update the resource (note: accountId cannot be changed by users)
+                // Update the resource - users can only edit name and releaseType.
+                // All other fields (packageName, version, type, format, path, etc.) are read-only.
                 const updatedResource = await locals.prisma.resource.update({
                     where: { id },
                     data: {
                         name: form.data.name,
-                        description: form.data.description,
-                        type: form.data.type,
-                        target: form.data.target || undefined,
-                        version: form.data.version,
-                        versionCode: form.data.versionCode ?? null,
-                        signature: form.data.signature ?? null,
                         releaseType: form.data.releaseType,
-                        format: form.data.format,
-                        packageName: form.data.packageName,
-                        path: form.data.path,
-                        size: form.data.size,
                         updatedBy: locals.user.id
-                        // accountId is NOT updated - users cannot change resource ownership
                     }
                 });
 

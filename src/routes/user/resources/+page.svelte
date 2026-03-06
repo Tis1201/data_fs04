@@ -224,9 +224,9 @@
             render: (value: unknown, row: ResourceRow) => {
                 const name = row.name || '—';
                 const pkg = row.packageName || '';
-                const link = `<a href="${basePath}/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
-                const pkgLine = pkg ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(pkg)}</span>` : '';
-                return `<div class="flex flex-col gap-0"><span>${link}</span>${pkgLine ? `<span>${pkgLine}</span>` : ''}</div>`;
+                const link = `<a href="${basePath}/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline block min-w-0 truncate" title="${escapeHtml(name)}">${escapeHtml(name)}</a>`;
+                const pkgLine = pkg ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)] block min-w-0 truncate" title="${escapeHtml(pkg)}">${escapeHtml(pkg)}</span>` : '';
+                return `<div class="flex flex-col gap-0 min-w-0 overflow-hidden max-w-full"><div class="min-w-0 truncate">${link}</div>${pkgLine ? `<div class="min-w-0 truncate">${pkgLine}</div>` : ''}</div>`;
             }
         },
         {

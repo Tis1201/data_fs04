@@ -96,6 +96,19 @@ export function startMqttListener(): void {
           return;
         }
 
+        // device:unclaimed is sent as plain JSON — no JWT ticket required
+        if (notification.type === 'device:unclaimed') {
+          const deviceId = notification.recipient.replace(/^device:/, '');
+          const topic = `device/device:${deviceId}/notifications`;
+          const payload = JSON.stringify({
+            type: 'device:unclaimed',
+            params: notification.params ?? {}
+          });
+          await clientPublishMqttMessage(topic, payload, { qos: 1 });
+          logger.info(`[MQTT Queue] Published device:unclaimed directly to ${topic}`);
+          return;
+        }
+
         // Send the queued notification via MQTT (device/user notifications)
         await sendNotificationWithTicket({
           prisma: adminPrisma,

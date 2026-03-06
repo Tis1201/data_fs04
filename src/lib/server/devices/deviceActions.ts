@@ -78,25 +78,43 @@ export function createDeviceActions(options: {
                     }
                 }
 
-                // Publish device:unclaimed SSE before deletion
+                const unclaimPayload = {
+                    action: 'unclaimed',
+                    deviceId: id,
+                    reason: 'deleted',
+                    timestamp: new Date().toISOString()
+                };
+
+                // 1. Publish device:unclaimed via SSE (for web clients + devices on Pushpin listen)
                 try {
                     const { MessageFactory, SystemUser } = await import('$lib/server/messaging/interfaces/message');
                     const { publisher } = await import('$lib/server/messaging/core/publisher');
                     const message = MessageFactory.createSystemMessage(
                         'device:unclaimed',
                         `subscription:device:${id}`,
-                        {
-                            action: 'unclaimed',
-                            deviceId: id,
-                            reason: 'deleted',
-                            timestamp: new Date().toISOString()
-                        },
+                        unclaimPayload,
                         SystemUser,
                         { echoToSender: false }
                     );
                     await publisher.publish(message);
                 } catch (pubErr) {
-                    logger.warn(`Failed to publish device:unclaimed for ${id}: ${String(pubErr)}`);
+                    logger.warn(`Failed to publish device:unclaimed SSE for ${id}: ${String(pubErr)}`);
+                }
+
+                // 2. Queue device:unclaimed via MQTT (uses Redis queue → worker → MQTT, same as reboot/refresh)
+                try {
+                    const { queueNotification } = await import('$lib/server/mqtt/core/queue');
+                    const { randomUUID } = await import('node:crypto');
+                    await queueNotification({
+                        sub: 'system:device-delete',
+                        recipient: `device:${id}`,
+                        type: 'device:unclaimed',
+                        flowId: randomUUID(),
+                        params: unclaimPayload
+                    });
+                    logger.info(`[DeviceDelete] Queued device:unclaimed MQTT notification for device ${id}`);
+                } catch (mqttErr) {
+                    logger.warn(`Failed to queue device:unclaimed MQTT for ${id}: ${String(mqttErr)}`);
                 }
 
                 // Delete the device

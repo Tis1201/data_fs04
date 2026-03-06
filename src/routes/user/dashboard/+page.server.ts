@@ -1,5 +1,11 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
+import {
+    getBulkDeviceInformationByDeviceIds,
+    getMultipleDeviceInformation,
+    type DeviceInformation
+} from '$lib/server/clickhouse/client';
+import { logger } from '$lib/server/logger';
 
 export const load: PageServerLoad = async ({ locals, url, cookies }) => {
     const session = await locals.auth.validate();
@@ -37,12 +43,12 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
     const currentYear = new Date().getFullYear();
     const yearParam = url.searchParams.get('year');
     const selectedYear = yearParam ? parseInt(yearParam) : currentYear;
-    
+
     // Validate year is reasonable (last 10 years to current year)
-    const validYear = selectedYear >= currentYear - 10 && selectedYear <= currentYear 
-        ? selectedYear 
+    const validYear = selectedYear >= currentYear - 10 && selectedYear <= currentYear
+        ? selectedYear
         : currentYear;
-    
+
     const startOfYear = new Date(validYear, 0, 1);
     const endOfYear = new Date(validYear, 11, 31, 23, 59, 59);
 
@@ -53,18 +59,14 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         offlineDevices,
         devicesByOS,
         recentDeviceActions,
-        // Action logs grouped by month for charts
-        actionLogsByMonth,
-        // Failed actions count (for issues)
-        failedActionsCount,
-        // Get devices with their connection status for more detailed stats
+        // Get devices with their connection status for detailed stats + Critical Issues (ClickHouse)
         devicesWithStatus
     ] = await Promise.all([
         // Total devices count
         locals.prisma.device.count({
             where: deviceFilter
         }),
-        
+
         // Connected devices (online)
         locals.prisma.device.count({
             where: {
@@ -72,7 +74,7 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
                 connected: true
             }
         }),
-        
+
         // Offline devices (not connected)
         locals.prisma.device.count({
             where: {
@@ -80,7 +82,7 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
                 connected: false
             }
         }),
-        
+
         // Devices grouped by OS type
         locals.prisma.device.groupBy({
             by: ['deviceType'],
@@ -89,7 +91,7 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
                 id: true
             }
         }),
-        
+
         // Recent device action logs (for Recent Events section)
         locals.prisma.deviceActionLog.findMany({
             where: {
@@ -112,34 +114,7 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
                 }
             }
         }),
-        
-        // Action logs grouped by month and status for chart data
-        locals.prisma.deviceActionLog.groupBy({
-            by: ['status'],
-            where: {
-                device: deviceFilter,
-                initiatedAt: {
-                    gte: startOfYear,
-                    lte: endOfYear
-                }
-            },
-            _count: {
-                id: true
-            }
-        }),
-        
-        // Count failed actions by action type
-        locals.prisma.deviceActionLog.groupBy({
-            by: ['actionType'],
-            where: {
-                device: deviceFilter,
-                status: { in: ['failed', 'timeout', 'cancelled'] }
-            },
-            _count: {
-                id: true
-            }
-        }),
-        
+
         // Get all devices with their status for detailed breakdown
         locals.prisma.device.findMany({
             where: deviceFilter,
@@ -150,35 +125,126 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
                 connected: true,
                 connectedAt: true,
                 disconnectedAt: true,
-                status: true
+                status: true,
+                macAddress: true,
+                lanMac: true,
+                wifiMac: true
             }
         })
     ]);
 
     // Calculate health metrics from actual device data
     const healthyDevices = connectedDevices;
-    
-    // Calculate issues from failed action logs
-    const totalFailedActions = failedActionsCount.reduce((sum, item) => sum + item._count.id, 0);
-    
-    // Map action types to issue categories
-    const issuesByActionType: Record<string, number> = {};
-    failedActionsCount.forEach(item => {
-        issuesByActionType[item.actionType] = item._count.id;
-    });
-    // Map unmapped action types (restart, screenshot, etc.) to CPU Load so total = sum(breakdown) (TC-IOT-DB-0004, TC-IOT-DB-0005)
-    const mappedSum = (issuesByActionType['status_check'] || 0) + (issuesByActionType['config_update'] || 0) +
-        (issuesByActionType['install'] || 0) + (issuesByActionType['ping'] || 0) + (issuesByActionType['firmware_update'] || 0);
-    const otherCount = Math.max(0, totalFailedActions - mappedSum);
-    const criticalIssuesCount = totalFailedActions;
-    
+
+    // Critical Issues from ClickHouse (device metrics) - same thresholds as device list page
+    // Thresholds: CPU/Memory/Storage >= 80% = critical; >= 60% = warning; Network: signal_strength_dbm < -75 = weak
+    const CRITICAL_CPU_THRESHOLD = 80;
+    const CRITICAL_MEMORY_THRESHOLD = 80;
+    const CRITICAL_STORAGE_THRESHOLD = 80;
+    const WEAK_NETWORK_SIGNAL_DBM = -75;
+
+    const WARNING_CPU_THRESHOLD = 60;
+    const WARNING_MEMORY_THRESHOLD = 60;
+    const WARNING_STORAGE_THRESHOLD = 60;
+    const WARNING_NETWORK_SIGNAL_DBM = -65;
+
+    let criticalIssuesCount = 0;
+    let cpuLoadCount = 0;
+    let memoryCount = 0;
+    let storageCount = 0;
+    let networkCount = 0;
+
+    let cpuWarningCount = 0;
+    let memoryWarningCount = 0;
+    let storageWarningCount = 0;
+    let networkWarningCount = 0;
+
+    const devicesWithCriticalIssue = new Set<string>();
+
+    try {
+        const macAddresses = devicesWithStatus
+            .map((d) => d.macAddress || d.lanMac || d.wifiMac)
+            .filter((mac): mac is string => Boolean(mac));
+        const deviceIds = devicesWithStatus.map((d: { id: string }) => d.id);
+
+        const [byMacResult, byDeviceIdResult] = await Promise.all([
+            macAddresses.length > 0 ? getMultipleDeviceInformation(macAddresses) : Promise.resolve(new Map<string, DeviceInformation>()),
+            deviceIds.length > 0 ? getBulkDeviceInformationByDeviceIds(deviceIds) : Promise.resolve(new Map<string, DeviceInformation>())
+        ]);
+
+        for (const device of devicesWithStatus) {
+            const deviceId = (device as { id: string }).id;
+            const macAddr = (device as { macAddress?: string; lanMac?: string; wifiMac?: string }).macAddress || (device as { lanMac?: string }).lanMac || (device as { wifiMac?: string }).wifiMac;
+            const info = (byDeviceIdResult.get(deviceId) ??
+                (macAddr ? byMacResult.get(macAddr) : undefined)) as DeviceInformation | undefined;
+            if (!info) continue;
+
+            const cpuUsage = info.cpu_usage ?? 0;
+            const ramUsage = info.ram_usage ?? 0;
+            const diskUsage = info.disk_usage ?? 0;
+            const signalStrength = info.signal_strength_dbm;
+
+            if (cpuUsage >= CRITICAL_CPU_THRESHOLD) {
+                cpuLoadCount++;
+                devicesWithCriticalIssue.add(deviceId);
+            } else if (cpuUsage >= WARNING_CPU_THRESHOLD) {
+                cpuWarningCount++;
+            }
+
+            if (ramUsage >= CRITICAL_MEMORY_THRESHOLD) {
+                memoryCount++;
+                devicesWithCriticalIssue.add(deviceId);
+            } else if (ramUsage >= WARNING_MEMORY_THRESHOLD) {
+                memoryWarningCount++;
+            }
+
+            if (diskUsage >= CRITICAL_STORAGE_THRESHOLD) {
+                storageCount++;
+                devicesWithCriticalIssue.add(deviceId);
+            } else if (diskUsage >= WARNING_STORAGE_THRESHOLD) {
+                storageWarningCount++;
+            }
+
+            if (signalStrength != null) {
+                if (signalStrength < WEAK_NETWORK_SIGNAL_DBM) {
+                    networkCount++;
+                    devicesWithCriticalIssue.add(deviceId);
+                } else if (signalStrength < WARNING_NETWORK_SIGNAL_DBM) {
+                    networkWarningCount++;
+                }
+            }
+        }
+        criticalIssuesCount = devicesWithCriticalIssue.size;
+    } catch (err) {
+        // If ClickHouse unavailable, counts stay at 0
+    }
+
     // Warnings: devices that haven't been seen recently but are marked as connected
-    const warningsCount = devicesWithStatus.filter(d => {
+    const staleDevices = devicesWithStatus.filter(d => {
         if (!d.connected) return false;
         if (!d.connectedAt) return true; // Connected but never seen
         const hoursSinceConnect = (Date.now() - d.connectedAt.getTime()) / (1000 * 60 * 60);
         return hoursSinceConnect > 24; // Connected but not seen in 24h
-    }).length;
+    });
+    const warningsCount = staleDevices.length;
+
+    console.log('[Dashboard Load] Metrics Summary:', {
+        accountId,
+        totalDevices,
+        connectedDevices,
+        offlineDevices,
+        criticalIssuesCount,
+        cpuLoadCount,
+        memoryCount,
+        storageCount,
+        networkCount,
+        warningsCount,
+        cpuWarningCount,
+        memoryWarningCount,
+        storageWarningCount,
+        networkWarningCount,
+        staleDevices: staleDevices.map(d => d.id)
+    });
 
     // Get monthly data for charts from action logs
     // Since we don't have detailed health metrics, we'll use action log data
@@ -212,7 +278,7 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         // Map action types to categories and count by month
         actionLogs.forEach(log => {
             const month = log.initiatedAt.getMonth();
-            
+
             // Map action types to dashboard categories
             switch (log.actionType) {
                 case 'firmware_update':
@@ -324,8 +390,8 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
     ).length;
 
     // Calculate health percentage trend (connected vs total)
-    const healthPercentage = totalDevices > 0 
-        ? Math.round((connectedDevices / totalDevices) * 100 * 10) / 10 
+    const healthPercentage = totalDevices > 0
+        ? Math.round((connectedDevices / totalDevices) * 100 * 10) / 10
         : 100;
 
     // Dashboard stats object
@@ -333,18 +399,17 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         totalDevices,
         criticalIssues: {
             total: criticalIssuesCount,
-            cpuLoad: (issuesByActionType['status_check'] || 0) + otherCount,
-            memory: issuesByActionType['config_update'] || 0,
-            storage: issuesByActionType['install'] || 0,
-            network: issuesByActionType['ping'] || 0,
-            update: issuesByActionType['firmware_update'] || 0
+            cpuLoad: cpuLoadCount,
+            memory: memoryCount,
+            storage: storageCount,
+            network: networkCount
         },
         warnings: {
-            total: warningsCount,
-            cpu: Math.floor(warningsCount * 0.35),
-            memory: Math.floor(warningsCount * 0.30),
-            storage: Math.floor(warningsCount * 0.20),
-            network: Math.floor(warningsCount * 0.15)
+            total: cpuWarningCount + memoryWarningCount + storageWarningCount + networkWarningCount,
+            cpu: cpuWarningCount,
+            memory: memoryWarningCount,
+            storage: storageWarningCount,
+            network: networkWarningCount
         },
         healthy: {
             total: healthyDevices,
@@ -376,7 +441,7 @@ function formatActionDescription(actionType: string, status: string, message: st
     if (message) {
         return message;
     }
-    
+
     const actionMap: Record<string, string> = {
         'screenshot': 'Screenshot captured',
         'terminal': 'Terminal session',

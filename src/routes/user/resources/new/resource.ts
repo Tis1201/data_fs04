@@ -36,7 +36,8 @@ export const resourceSchema = z.object({
         .max(500, { message: 'Path must be 500 characters or less' }),
     size: z.coerce.number()
         .int({ message: 'Size must be an integer' })
-        .min(0, { message: 'Size must be a positive number' }),
+        .min(0, { message: 'Size must be a positive number' })
+        .max(500 * 1024 * 1024, { message: 'File size must not exceed 500 MB' }),
     accountId: z.string()
         .optional()
         .default(''),

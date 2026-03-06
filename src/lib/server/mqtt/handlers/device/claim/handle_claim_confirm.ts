@@ -103,19 +103,20 @@ export async function handleClaimConfirm(
     }
 
     // Check device limit before creating device (skip for admins)
-    if (account && user.systemRole !== 'ADMIN') {
-        try {
-            await checkDeviceLimit(account.id);
-        } catch (e) {
-            if (e instanceof LimitExceededError) {
-                logger.warn(`[DeviceClaimConfirm] Device limit reached for account ${account.id}`);
-                throw new Error(`Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.`);
-            }
-            throw e;
-        }
-    } else if (account && user.systemRole === 'ADMIN') {
-        logger.info(`[DeviceClaimConfirm] Skipping device limit check for admin user ${user.id}`);
-    }
+    // TODO - enable it later
+    // if (account && user.systemRole !== 'ADMIN') {
+    //     try {
+    //         await checkDeviceLimit(account.id);
+    //     } catch (e) {
+    //         if (e instanceof LimitExceededError) {
+    //             logger.warn(`[DeviceClaimConfirm] Device limit reached for account ${account.id}`);
+    //             throw new Error(`Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.`);
+    //         }
+    //         throw e;
+    //     }
+    // } else if (account && user.systemRole === 'ADMIN') {
+    //     logger.info(`[DeviceClaimConfirm] Skipping device limit check for admin user ${user.id}`);
+    // }
 
     const now = new Date();
     const preclaimDeviceId = ctx.params?.preclaimDeviceId as string | undefined;

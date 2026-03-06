@@ -72,7 +72,8 @@
     ];
 
     const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file';
-    const FILE_HELPER = 'Maximum file size 50 MB, and allowed file types: .zip, .cpk, .deb, .apk, .exe.';
+    const MAX_FILE_SIZE_MB = 500;
+    const FILE_HELPER = `Maximum file size ${MAX_FILE_SIZE_MB} MB, and allowed file types: .zip, .cpk, .deb, .apk, .exe.`;
     const FILE_ACCEPT = '.zip,.cpk,.deb,.apk,.exe';
 
     let submitting = false;
@@ -101,18 +102,45 @@
     let uploadedCloudPath: string | null = null;
     /** Upload progress 0–100 when uploading to GCloud; null when not uploading */
     let uploadProgress: number | null = null;
+    /** AbortController for cancelling in-progress GCloud upload */
+    let uploadAbortController: AbortController | null = null;
+    /** Active XHR for in-progress upload - aborted directly on Cancel for immediate stop */
+    let activeUploadXhr: XMLHttpRequest | null = null;
 
     $: accountOptions = accounts.map((a) => ({ id: a.id, label: a.name }));
 
-    /** Upload file to presigned URL with progress (XHR so we get real %). */
+    const UPLOAD_CANCELLED = 'Upload cancelled';
+
+    /** Upload file to presigned URL with progress (XHR so we get real %). Supports abort via signal. */
     function uploadToPresignedUrlWithProgress(
         url: string,
         file: File,
         contentType: string,
-        onProgress: (percent: number) => void
+        onProgress: (percent: number) => void,
+        signal?: AbortSignal
     ): Promise<void> {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
+            activeUploadXhr = xhr;
+
+            const cleanup = () => {
+                activeUploadXhr = null;
+                signal?.removeEventListener('abort', onAbort);
+            };
+
+            const onAbort = () => {
+                xhr.abort();
+                cleanup();
+                reject(new Error(UPLOAD_CANCELLED));
+            };
+
+            if (signal?.aborted) {
+                cleanup();
+                reject(new Error(UPLOAD_CANCELLED));
+                return;
+            }
+            signal?.addEventListener('abort', onAbort, { once: true });
+
             xhr.open('PUT', url);
             xhr.setRequestHeader('Content-Type', contentType || 'application/octet-stream');
             xhr.upload.addEventListener('progress', (e) => {
@@ -122,10 +150,18 @@
                 }
             });
             xhr.addEventListener('load', () => {
+                cleanup();
                 if (xhr.status >= 200 && xhr.status < 300) resolve();
                 else reject(new Error(`Upload failed: ${xhr.status} ${xhr.statusText}`));
             });
-            xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+            xhr.addEventListener('error', () => {
+                cleanup();
+                reject(new Error(xhr.status === 0 ? UPLOAD_CANCELLED : 'Upload failed'));
+            });
+            xhr.addEventListener('abort', () => {
+                cleanup();
+                reject(new Error(UPLOAD_CANCELLED));
+            });
             xhr.send(file);
         });
     }
@@ -197,6 +233,8 @@
         const list = e.detail;
         if (!list?.length) return;
         const file = list[0];
+        // File size is validated by FileUpload at selection time (dropRejected for oversized files)
+
         selectedFile = file;
         uploadedFiles = [
             {
@@ -229,9 +267,12 @@
 
         if (isSupported) {
             zipParsing = true;
+            uploadAbortController = new AbortController();
+            const signal = uploadAbortController.signal;
             try {
                 if (isApk) {
                     let apkResult = await parseApkFileClient(file);
+                    if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     if (!apkResult.success && isCloudMode) {
                         const presignedRes = await fetch('/api/v2/upload/presigned-url', {
                             method: 'POST',
@@ -241,13 +282,16 @@
                                 contentType: file.type || '',
                                 expiresSeconds: 600,
                                 prefix: 'temp/resources'
-                            })
+                            }),
+                            signal
                         });
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                         if (!presignedRes.ok) {
                             const err = await presignedRes.json();
                             throw new Error(err.details || err.error || 'Failed to get upload URL');
                         }
                         const { data: presignedData } = await presignedRes.json();
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                         const { url, bucket, objectPath, contentType } = presignedData;
                         if (!url || !bucket || !objectPath) {
                             throw new Error('Invalid presigned URL response');
@@ -261,15 +305,19 @@
                             (p) => {
                                 uploadProgress = p;
                                 if (uploadedFiles[0]) uploadedFiles = [{ ...uploadedFiles[0], progress: p }];
-                            }
+                            },
+                            signal
                         );
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                         uploadProgress = null;
                         uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 100, state: 'success' }];
                         uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
                         resourcePath = uploadedCloudPath;
                         apkResult = await parseApkByPath(objectPath, bucket);
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     } else if (!apkResult.success) {
                         apkResult = await parseApkFile(file);
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     }
                     if (apkResult.success && apkResult.data) {
                         if (apkResult.data.packageName) packageName = apkResult.data.packageName;
@@ -291,13 +339,16 @@
                             contentType: file.type || '',
                             expiresSeconds: 600,
                             prefix: 'temp/resources'
-                        })
+                        }),
+                        signal
                     });
+                    if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     if (!presignedRes.ok) {
                         const err = await presignedRes.json();
                         throw new Error(err.details || err.error || 'Failed to get upload URL');
                     }
                     const { data: presignedData } = await presignedRes.json();
+                    if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     const { url, bucket, objectPath, contentType } = presignedData;
                     if (!url || !bucket || !objectPath) {
                         throw new Error('Invalid presigned URL response');
@@ -311,13 +362,16 @@
                         (p) => {
                             uploadProgress = p;
                             if (uploadedFiles[0]) uploadedFiles = [{ ...uploadedFiles[0], progress: p }];
-                        }
+                        },
+                        signal
                     );
+                    if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     uploadProgress = null;
                     uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 100, state: 'success' }];
                     uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
                     resourcePath = uploadedCloudPath;
                     const debResult = await parseDebByPath(objectPath, bucket);
+                    if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     if (debResult.success && debResult.data) {
                         packageName = debResult.data.packageName;
                         version = debResult.data.version;
@@ -341,6 +395,7 @@
                 } else {
                     if (isDeb) {
                         const debResult = await parseDebFile(file);
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                         if (debResult.success && debResult.data) {
                             packageName = debResult.data.packageName;
                             version = debResult.data.version;
@@ -352,6 +407,7 @@
                         }
                     } else {
                         const result = await parseZipFile(file);
+                        if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                         if (result.success && result.appData) {
                             const pkg = generatePackageName(result.appData);
                             if (pkg) packageName = pkg;
@@ -368,26 +424,43 @@
                     }
                 }
             } catch (err) {
-                zipParseError = err instanceof Error ? err.message : 'Failed to parse file';
+                const isCancelled =
+                    (err instanceof Error && err.message === UPLOAD_CANCELLED) ||
+                    (err instanceof DOMException && err.name === 'AbortError');
+                if (isCancelled) {
+                    handleFileRemove();
+                } else {
+                    zipParseError = err instanceof Error ? err.message : 'Failed to parse file';
+                }
             } finally {
                 zipParsing = false;
                 uploadProgress = null;
+                uploadAbortController = null;
+                activeUploadXhr = null;
             }
         }
     }
 
+    function handleDropRejected(e: CustomEvent<{ message: string; file: File }>) {
+        zipParseError = e.detail.message;
+        zipParseSuccess = '';
+    }
+
     function handleFileRemove() {
+        abortUploadAndCleanup();
         selectedFile = null;
         uploadedFiles = [];
         uploadedCloudPath = null;
         resourcePath = '';
+        name = '';
+        packageName = '';
+        version = '1.0.0';
         versionCode = null;
         signature = '';
         zipParseSuccess = '';
         zipParseError = '';
         isApkOrCpk = false;
         isApk = false;
-        uploadProgress = null;
     }
 
     /** Recursively find first string that looks like an error message (e.g. contains "already exists") */
@@ -589,7 +662,30 @@
         }
     }
 
+    /** Abort in-progress upload and clean up (call this before close or from Cancel upload button) */
+    function abortUploadAndCleanup() {
+        if (activeUploadXhr) {
+            try {
+                activeUploadXhr.abort();
+            } catch (_) {
+                /* ignore */
+            }
+            activeUploadXhr = null;
+        }
+        if (uploadAbortController) {
+            try {
+                uploadAbortController.abort();
+            } catch (_) {
+                /* ignore */
+            }
+            uploadAbortController = null;
+        }
+        uploadProgress = null;
+        zipParsing = false;
+    }
+
     function handleClose() {
+        abortUploadAndCleanup();
         dispatch('close');
     }
 </script>
@@ -617,11 +713,12 @@
                     accept={FILE_ACCEPT}
                     multiple={false}
                     maxFiles={1}
-                    maxFileSize={50}
+                    maxFileSize={MAX_FILE_SIZE_MB}
                     acceptedTypes="zip, cpk, deb, apk"
                     bind:files={uploadedFiles}
                     showDropZone={uploadedFiles.length === 0}
                     on:drop={handleFileDrop}
+                    on:dropRejected={handleDropRejected}
                     on:remove={() => {
                         handleFileRemove();
                         errorMessage = null;
@@ -671,9 +768,10 @@
             <InputField
                 type="text"
                 label="Package Name"
-                placeholder="Enter"
+                placeholder="Auto-extracted from file"
                 bind:value={packageName}
-                disabled={false}
+                disabled={true}
+                helperText="Read-only (extracted from file)"
             />
         </div>
         <div class="resource-row">
@@ -681,9 +779,10 @@
                 <InputField
                     type="text"
                     label="Version"
-                    placeholder="Enter"
+                    placeholder="Auto-extracted from file"
                     bind:value={version}
-                    disabled={false}
+                    disabled={true}
+                    helperText="Read-only (extracted from file)"
                 />
             </div>
             <div class="resource-field">

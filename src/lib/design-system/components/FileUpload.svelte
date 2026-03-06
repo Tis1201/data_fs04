@@ -37,6 +37,7 @@
     const dispatch = createEventDispatcher<{
         browse: void;
         drop: FileList;
+        dropRejected: { message: string; file: File };
         remove: UploadedFile;
         retry: UploadedFile;
         download: UploadedFile;
@@ -44,6 +45,21 @@
 
     let isDragging = false;
     let fileInput: HTMLInputElement;
+
+    const MAX_FILE_SIZE_BYTES = maxFileSize * 1024 * 1024;
+
+    function validateAndDispatch(files: FileList) {
+        if (!files?.length) return;
+        const file = files[0];
+        if (file.size > MAX_FILE_SIZE_BYTES) {
+            dispatch('dropRejected', {
+                message: `File size exceeds ${maxFileSize} MB limit. Maximum allowed is ${maxFileSize} MB.`,
+                file
+            });
+            return;
+        }
+        dispatch('drop', files);
+    }
 
     function formatFileSize(bytes?: number): string {
         if (!bytes) return '';
@@ -73,7 +89,7 @@
         
         const droppedFiles = e.dataTransfer?.files;
         if (droppedFiles) {
-            dispatch('drop', droppedFiles);
+            validateAndDispatch(droppedFiles);
         }
     }
 
@@ -93,7 +109,7 @@
     function handleFileSelect(e: Event) {
         const input = e.target as HTMLInputElement;
         if (input.files) {
-            dispatch('drop', input.files);
+            validateAndDispatch(input.files);
         }
         // Reset input so the same file can be selected again
         input.value = '';

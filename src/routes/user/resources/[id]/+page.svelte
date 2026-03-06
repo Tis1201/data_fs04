@@ -2,7 +2,7 @@
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
     import { Pencil, Download, Info, Copy } from 'lucide-svelte';
-    import { Button, Card } from '$lib/design-system/components';
+    import { Button, Card, Tooltip } from '$lib/design-system/components';
     import AddEditResourceModal from '../components/AddEditResourceModal.svelte';
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
@@ -82,6 +82,13 @@
     $: downloadFileName = resource.path
         ? (resource.path.split('?')[0].split('/').filter(Boolean).pop() || resource.name || 'resource')
         : resource.name || 'resource';
+        
+    /** Truncated display values for the card */
+    $: nameDisplay = truncateWithEllipsis(resource.name, 40);
+    $: packageNameDisplay = truncateWithEllipsis(resource.packageName, 40);
+    $: versionDisplay = truncateWithEllipsis(resource.version, 24);
+    $: signatureDisplay = truncateWithEllipsis(resource.signature, 64);
+    
     /** Short display for "Resource Uploaded File" (truncated if long) */
     $: uploadedFileDisplay = displayFileName(resource.path) || resource.name || '—';
     /** Short display for "Resource Path" (truncated if long) */
@@ -137,15 +144,21 @@
             <div class="resource-overview-grid">
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Resource Name</span>
-                    <span class="resource-overview-value">{resource.name || '—'}</span>
+                    <Tooltip text={resource.name || ''} position="top" portal={true} maxWidth={500}>
+                        <span class="resource-overview-value resource-overview-truncate">{nameDisplay}</span>
+                    </Tooltip>
                 </div>
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Package Name</span>
-                    <span class="resource-overview-value">{resource.packageName || '—'}</span>
+                    <Tooltip text={resource.packageName || ''} position="top" portal={true} maxWidth={500}>
+                        <span class="resource-overview-value resource-overview-truncate">{packageNameDisplay}</span>
+                    </Tooltip>
                 </div>
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Version</span>
-                    <span class="resource-overview-value">{resource.version || '—'}</span>
+                    <Tooltip text={resource.version || ''} position="top" portal={true} maxWidth={500}>
+                        <span class="resource-overview-value resource-overview-truncate">{versionDisplay}</span>
+                    </Tooltip>
                 </div>
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Type</span>
@@ -176,7 +189,11 @@
                 {#if resource.signature}
                     <div class="resource-overview-field resource-overview-field-span-2">
                         <span class="resource-overview-label">Signature</span>
-                        <span class="resource-overview-value resource-overview-value-mono">{resource.signature}</span>
+                        <Tooltip text={resource.signature || ''} position="top" portal={true} maxWidth={500}>
+                            <span class="resource-overview-value resource-overview-value-mono resource-overview-truncate">
+                                {signatureDisplay}
+                            </span>
+                        </Tooltip>
                     </div>
                 {/if}
                 {#if resource.description}
@@ -197,7 +214,9 @@
                             on:click|preventDefault={() => window.open(`/api/resources/${resource.id}`, '_blank')}
                         >
                             <Download size={16} />
-                            <span class="resource-overview-truncate" title={resource.path}>{uploadedFileDisplay}</span>
+                                <Tooltip text={resource.path || ''} position="top" portal={true} maxWidth={500}>
+                                    <span class="resource-overview-truncate">{uploadedFileDisplay}</span>
+                                </Tooltip>
                         </a>
                     {:else}
                         <span class="resource-overview-value">—</span>
@@ -216,10 +235,11 @@
                                 <Copy size={16} />
                             </button>
                         {/if}
-                        <span
-                            class="resource-overview-path-value resource-overview-truncate"
-                            title={resource.path || ''}
-                        >{pathDisplay}</span>
+                        <Tooltip text={resource.path || ''} position="top" portal={true} maxWidth={600}>
+                            <span
+                                class="resource-overview-path-value resource-overview-truncate"
+                            >{pathDisplay}</span>
+                        </Tooltip>
                     </div>
                 </div>
             </div>
@@ -408,13 +428,9 @@
         background: var(--ds-color-neutral-true-100);
         color: #141414;
     }
-    .resource-overview-path-value {
-        font-weight: 500;
-        font-size: 16px;
-        line-height: 24px;
-        color: #141414;
-        word-break: break-all;
-        font-family: ui-monospace, monospace;
+    .resource-overview-field :global(.tooltip-wrapper) {
+        width: 100%;
+        display: flex;
     }
     .resource-overview-truncate {
         overflow: hidden;
