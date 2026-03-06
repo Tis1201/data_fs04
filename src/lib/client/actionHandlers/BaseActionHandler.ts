@@ -10,6 +10,9 @@ export abstract class BaseActionHandler {
   protected onProgress?: (progress: number | null, message: string, logId?: string, actionType?: string) => void;
   protected onSuccess?: (data: any) => void;
   protected onError?: (error: string, logId?: string, action?: string, durationMs?: number | null) => void;
+  protected onLogsDownloadTriggered?: (logId: string) => void;
+  protected onLogsDownloadFailed?: (logId: string, message: string) => void;
+  protected onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void;
 
   constructor(params: ActionHandlerParams) {
     this.deviceId = params.deviceId;
@@ -19,6 +22,9 @@ export abstract class BaseActionHandler {
     this.onProgress = params.onProgress;
     this.onSuccess = params.onSuccess;
     this.onError = params.onError;
+    this.onLogsDownloadTriggered = params.onLogsDownloadTriggered;
+    this.onLogsDownloadFailed = params.onLogsDownloadFailed;
+    this.onTerminalComplete = params.onTerminalComplete;
   }
 
   abstract handle(evtType: string, entity: DeviceMessageEntity): void;

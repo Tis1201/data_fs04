@@ -10,7 +10,12 @@ export class TerminalHandler extends BaseActionHandler {
   }
 
   handle(evtType: string, data: MessageData): void {
-    // Handle terminal status message
+    // Handle device:statusUpdate (from broadcastDeviceActionUpdate) when action is terminal
+    if (evtType === 'device:statusUpdate' && (data as any)?.action === 'terminal') {
+      this.handleTerminalStatus(evtType, data);
+      return;
+    }
+    // Handle legacy device:terminalStatus
     if (evtType === 'device:terminalStatus' || data?.type === 'device:terminalStatus') {
       this.handleTerminalStatus(evtType, data);
       return;
@@ -23,13 +28,10 @@ export class TerminalHandler extends BaseActionHandler {
     const { logId, status, message, completedAt, durationMs } = this.extractMessageData(data);
     const newStatus = this.mapStatus(status);
 
-    console.log('[Terminal] Status received:', { 
-      evtType, 
-      status: newStatus, 
-      message, 
-      deviceId: this.deviceId, 
-      logId 
-    });
+    if (newStatus === 'failed' && this.onTerminalComplete) {
+      this.onTerminalComplete('failed', message || '');
+    }
+
 
     const logs = this.getLogs();
 
@@ -76,9 +78,10 @@ export class TerminalHandler extends BaseActionHandler {
     this.setLogs(this.addActionLog(logs, newLog));
   }
 
-  // Helper methods (copied from base class for now)
   private isCorrectDevice(data: MessageData, targetDeviceId: string): boolean {
-    return !!(data && data.deviceId === targetDeviceId);
+    if (!data) return false;
+    const deviceId = (data as any).deviceId ?? (data as any).payload?.deviceId;
+    return !!(deviceId && deviceId === targetDeviceId);
   }
 
   private extractMessageData(data: MessageData) {

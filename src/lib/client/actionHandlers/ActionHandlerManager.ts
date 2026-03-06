@@ -31,6 +31,7 @@ export class ActionHandlerManager {
     this.handlers.set('get_logs', new LogsHandler(params));
     this.handlers.set('snapshot', new SnapshotHandler(params));
     this.handlers.set('terminal', new TerminalHandler(params));
+    this.handlers.set('remote_desktop', new SimpleActionHandler(params, 'remote_desktop'));
     this.handlers.set('bundle_status', new BundleStatusHandler(params));
     this.handlers.set('uninstall_app', new SimpleActionHandler(params, 'uninstall_app'));
     this.handlers.set('restart_app', new SimpleActionHandler(params, 'restart_app'));

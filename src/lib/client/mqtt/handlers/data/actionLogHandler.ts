@@ -5,13 +5,16 @@ import { mapActionTypeToDb } from '../../../actionHandlers/actionTypeMapping';
 
 /**
  * Subscribes to device action log updates via MQTT.
- * Handles device:statusUpdate, device:progressUpdate, and device.screenshot notifications.
+ * Handles device:statusUpdate, device:progressUpdate, device:getLogsStatus, and device.screenshot notifications.
  */
 export function subscribeActionLogUpdates(
   deviceId: string,
   getLogs: () => ActionLog[],
   setLogs: (logs: ActionLog[]) => void,
-  actionStatus: any
+  actionStatus: any,
+  onLogsDownloadTriggered?: (logId: string) => void,
+  onLogsDownloadFailed?: (logId: string, message: string) => void,
+  onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void
 ): () => void {
   
   const actionHandlerManager = new ActionHandlerManager({
@@ -19,6 +22,9 @@ export function subscribeActionLogUpdates(
     getLogs,
     setLogs,
     actionStatus,
+    onLogsDownloadTriggered,
+    onLogsDownloadFailed,
+    onTerminalComplete,
     onProgress: (progress: number | null, message: string, logId?: string, actionType?: string) => {
       const logs = getLogs();
       const logExists = logId ? logs.some(log => log.id === logId) : false;
@@ -73,7 +79,7 @@ export function subscribeActionLogUpdates(
       const logs = getLogs();
       const logId = data.logId || data.id;
       
-      const noProgressActions = ['restart', 'reboot', 'refresh', 'screenshot', 'snapshot'];
+      const noProgressActions = ['restart', 'reboot', 'refresh', 'screenshot', 'snapshot', 'terminal', 'remote_desktop'];
       const shouldShowProgress = !noProgressActions.includes(data.action);
       
       const actionMap: Record<string, string[]> = {
@@ -275,11 +281,20 @@ export function subscribeActionLogUpdates(
     });
   });
 
+  const unsubscribeMqttGetLogs = mqttClient.onNotification('device:getLogsStatus', (payload: any) => {
+    actionHandlerManager.handle('device:getLogsStatus', {
+      type: 'device:getLogsStatus',
+      ...payload,
+      payload: { ...payload?.payload, objectPath: payload?.objectPath ?? payload?.payload?.objectPath }
+    });
+  });
+
   return () => {
     try {
       unsubscribeMqttStatus();
       unsubscribeMqttProgress();
       unsubscribeMqttScreenshot();
+      unsubscribeMqttGetLogs();
     } catch (e) {
       console.error('[actionLogHandler] Error unsubscribing from MQTT', { error: e });
     }

@@ -39,7 +39,7 @@
     let showPassword = false;
     let kioskApplication = '';
     let displayResolution = '1920x1080';
-    let screenOrientation = 'portrait';
+    let screenOrientation = 'landscape';
     let brightnessLevel = 100;
     let audioEnabled = true;
     let audioVolume = 100;
@@ -265,7 +265,7 @@
             exitLockdownPassword = getSettingValue('exit_lockdown_password', settings) || '';
             kioskApplication = getSettingValue('kiosk_application', settings) || '';
             displayResolution = getSettingValue('display_resolution', settings) || '1920x1080';
-            screenOrientation = getSettingValue('screen_orientation', settings) || 'portrait';
+            screenOrientation = getSettingValue('screen_orientation', settings) || 'landscape';
             const bright = getSettingValue('brightness_level', settings);
             brightnessLevel = bright ? parseInt(bright, 10) || 100 : 100;
             audioEnabled = getSettingValue('enable_audio', settings) !== 'disabled';
@@ -298,7 +298,7 @@
         showPassword = false;
         kioskApplication = '';
         displayResolution = '1920x1080';
-        screenOrientation = 'portrait';
+        screenOrientation = 'landscape';
         brightnessLevel = 100;
         audioEnabled = true;
         audioVolume = 100;

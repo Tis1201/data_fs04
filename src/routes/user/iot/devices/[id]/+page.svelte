@@ -327,6 +327,8 @@
     let activityLogsTotalPages = 1;
 
     let downloadLogsLoading = false;
+    let pendingLogDownloadId: string | null = null;
+    let pendingLogDownloadTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     // Toggle activity log expansion
     function toggleActivityLogExpansion(logId: string) {
@@ -413,7 +415,7 @@
         loadActivityLogs();
     }
 
-    // Download logs: request device to upload logs to GCS, then poll for signed URL and start download
+    // Download logs: request device to upload logs to GCS. Wait for device:getLogsStatus MQTT; fallback to limited poll if not received.
     async function handleDownloadLogs() {
         if (!device?.id || downloadLogsLoading) return;
         downloadLogsLoading = true;
@@ -428,39 +430,90 @@
             if (!res.ok || !result.success) {
                 const msg = result?.error?.message || `Request failed: ${res.statusText}`;
                 addAlert('error', msg);
+                downloadLogsLoading = false;
                 return;
             }
             const logId = result?.data?.operationId;
             if (!logId) {
                 addAlert('error', 'No operation ID returned');
+                downloadLogsLoading = false;
                 return;
             }
-            const pollIntervalMs = 2000;
-            const pollMaxMs = 120000; // 2 min
-            const start = Date.now();
-            while (Date.now() - start < pollMaxMs) {
-                await new Promise((r) => setTimeout(r, pollIntervalMs));
-                const urlRes = await fetch(`/api/v2/devices/${device.id}/pull-file-download-url?logId=${encodeURIComponent(logId)}`);
-                if (urlRes.ok) {
-                    const urlResult = await urlRes.json();
-                    const downloadUrl = urlResult?.data?.downloadUrl;
-                    const fileName = urlResult?.data?.fileName || `logs_${logId}.zip`;
-                    if (downloadUrl) {
-                        const link = document.createElement('a');
-                        link.href = downloadUrl;
-                        link.download = fileName;
-                        link.target = '_blank';
-                        link.rel = 'noopener noreferrer';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        addAlert('success', 'Logs download started.');
-                        loadActivityLogs();
-                        return;
+            pendingLogDownloadId = logId;
+            pendingLogDownloadTimeoutId = setTimeout(() => {
+                if (pendingLogDownloadId === logId) {
+                    pendingLogDownloadId = null;
+                    pendingLogDownloadTimeoutId = null;
+                    addAlert('error', 'Logs download timed out. The device may be offline or still uploading.');
+                    downloadLogsLoading = false;
+                }
+            }, 120000);
+            // Fallback: if MQTT never arrives, poll after 8s (max 6 calls over ~35s)
+            const pollFallback = async () => {
+                await new Promise((r) => setTimeout(r, 8000));
+                for (let i = 0; i < 6 && pendingLogDownloadId === logId && device?.id; i++) {
+                    await new Promise((r) => setTimeout(r, 5000));
+                    if (pendingLogDownloadId !== logId) return;
+                    const urlRes = await fetch(`/api/v2/devices/${device.id}/pull-file-download-url?logId=${encodeURIComponent(logId)}`);
+                    if (urlRes.ok) {
+                        const urlResult = await urlRes.json();
+                        const downloadUrl = urlResult?.data?.downloadUrl;
+                        if (downloadUrl && pendingLogDownloadId === logId) {
+                            clearPendingLogDownload('done');
+                            await fetchAndDownloadLogs(logId);
+                            return;
+                        }
                     }
                 }
+                if (pendingLogDownloadId === logId) {
+                    clearPendingLogDownload('failed', 'Logs download unavailable. The device may have failed to upload.');
+                    loadActivityLogs();
+                }
+            };
+            pollFallback();
+        } catch (e) {
+            addAlert('error', e instanceof Error ? e.message : 'Failed to download logs');
+            downloadLogsLoading = false;
+        }
+    }
+
+    function clearPendingLogDownload(reason: 'failed' | 'timeout' | 'done', message?: string) {
+        if (pendingLogDownloadTimeoutId) {
+            clearTimeout(pendingLogDownloadTimeoutId);
+            pendingLogDownloadTimeoutId = null;
+        }
+        pendingLogDownloadId = null;
+        if (reason === 'failed' || reason === 'timeout' || reason === 'done') {
+            downloadLogsLoading = false;
+            if (reason === 'failed' && message) addAlert('error', message);
+        }
+    }
+
+    async function fetchAndDownloadLogs(logId: string) {
+        if (!device?.id) return;
+        try {
+            const urlRes = await fetch(`/api/v2/devices/${device.id}/pull-file-download-url?logId=${encodeURIComponent(logId)}`);
+            if (urlRes.ok) {
+                const urlResult = await urlRes.json();
+                const downloadUrl = urlResult?.data?.downloadUrl;
+                const fileName = urlResult?.data?.fileName || `logs_${logId}.zip`;
+                if (downloadUrl) {
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = fileName;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    addAlert('success', 'Logs download started.');
+                    loadActivityLogs();
+                } else {
+                    addAlert('error', 'No download URL in response.');
+                }
+            } else {
+                addAlert('error', `Failed to get download URL: ${urlRes.statusText}`);
             }
-            addAlert('error', 'Logs download timed out. The device may be offline or still uploading.');
         } catch (e) {
             addAlert('error', e instanceof Error ? e.message : 'Failed to download logs');
         } finally {
@@ -882,7 +935,10 @@
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
                     },
-                    actionStatus
+                    actionStatus,
+                    (logId) => clearPendingLogDownload('done'),
+                    (logId, message) => clearPendingLogDownload('failed', message),
+                    (status, message) => status === 'failed' && addAlert('error', message)
                 );
                 mqttUnsubscribes.push(unsubActionLogs);
                 console.log('[UserDevicePage] subscribeActionLogUpdates initialized for device:', device.id);
@@ -974,7 +1030,27 @@
                 const statusUnsub = mqttClient.onNotification('device:statusUpdate', loggingModalHandler);
                 const progressUnsub = mqttClient.onNotification('device:progressUpdate', loggingProgressHandler);
 
-                mqttUnsubscribes.push(statusUnsub, progressUnsub);
+                const dataUpdateUnsub = mqttClient.onNotification('device:dataUpdate', () => {
+                    invalidate('app:device');
+                    loadApps();
+                });
+
+                const getLogsStatusUnsub = mqttClient.onNotification('device:getLogsStatus', (payload: any) => {
+                    const logId = payload?.logId;
+                    const action = payload?.action;
+                    const status = payload?.status;
+                    if (logId !== pendingLogDownloadId || (action !== 'getLogs' && action !== 'get_logs')) return;
+                    if (status === 'failed' || status === 'error') {
+                        clearPendingLogDownload('failed', payload?.message || 'Log upload failed.');
+                        loadActivityLogs();
+                        return;
+                    }
+                    if (status !== 'success' && status !== 'complete') return;
+                    clearPendingLogDownload('done');
+                    loadActivityLogs();
+                });
+
+                mqttUnsubscribes.push(statusUnsub, progressUnsub, dataUpdateUnsub, getLogsStatusUnsub);
             } catch (error) {
                 console.error('[UserDevicePage] Failed to set up MQTT handlers:', error);
             }
@@ -982,6 +1058,11 @@
     });
 
     onDestroy(() => {
+        if (pendingLogDownloadTimeoutId) {
+            clearTimeout(pendingLogDownloadTimeoutId);
+            pendingLogDownloadTimeoutId = null;
+        }
+        pendingLogDownloadId = null;
         if (reloadDebounceTimer) {
             clearTimeout(reloadDebounceTimer);
             reloadDebounceTimer = null;

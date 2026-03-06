@@ -135,8 +135,9 @@
             render: (record: PinRuleWithCount) => getRuleTypeBadge(record.ruleType)
         },
         {
-            id: "apps",
-            label: "Apps",
+            id: "pinnedApps",
+            label: "Pinned Apps",
+            sortable: true,
             width: "15%",
             render: (record: PinRuleWithCount) => `${record.apps.length} app${record.apps.length !== 1 ? 's' : ''}`
         },

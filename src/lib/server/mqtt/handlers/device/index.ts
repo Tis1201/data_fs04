@@ -2,6 +2,7 @@ import { type PrismaClient } from '@prisma/client';
 import { registerRpcClient } from '../index';
 import { handleGetPin } from './claim/handle_get_pin';
 import { handleClaimConfirm } from './claim/handle_claim_confirm';
+import { handleDataReady } from './handle_data_ready';
 
 /********************************************************************************************
  * Register device-side RPC handlers for factory and claimed topics.
@@ -19,7 +20,8 @@ export function registerDeviceHandlers(prisma: PrismaClient): void {
                 const b = Number(params?.b) || 0;
                 return { sum: a + b };
             },
-            'device.claim.confirm': async (params, args) => handleClaimConfirm(params, args)
+            'device.claim.confirm': async (params, args) => handleClaimConfirm(params, args),
+            'device.dataReady': async (params, args) => handleDataReady(params, args)
         },
         prisma
     );

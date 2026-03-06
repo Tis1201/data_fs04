@@ -20,6 +20,12 @@ export type ActionHandlerParams = {
   onProgress?: (progress: number | null, message: string, logId?: string, actionType?: string) => void;
   onSuccess?: (data: any) => void;
   onError?: (error: string, logId?: string, action?: string, durationMs?: number | null) => void;
+  /** Called when LogsHandler has triggered the download (or already did). Page should clear pendingLogDownloadId and downloadLogsLoading. */
+  onLogsDownloadTriggered?: (logId: string) => void;
+  /** Called when LogsHandler receives failed status for get_logs. Page should clear pendingLogDownloadId and downloadLogsLoading. */
+  onLogsDownloadFailed?: (logId: string, message: string) => void;
+  /** Called when TerminalHandler receives terminal session success/failure. Page can show toast. */
+  onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void;
 };
 
 export type MessageData = {

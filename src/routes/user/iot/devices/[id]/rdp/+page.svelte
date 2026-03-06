@@ -30,6 +30,9 @@
 	// WebRTC client
 	let webrtcClient: WebRTCClient | undefined;
 
+	// Current RDP operation log ID (from rdp.start) - used to mark success when rdp:started received
+	let currentRdpLogId: string | null = null;
+
 	// Define breadcrumbs for this page
 	const pageCrumbs: [string, string][] = [
 		["Home", "/user"],
@@ -92,16 +95,41 @@
 				requestRDP();
 			}, 1000);
 		});
+
+		// When device sends rdp:started over WebRTC data channel, notify server to update activity log
+		// (Device sends rdp:started only over WebRTC, not MQTT, so server never receives it)
+		webrtcClient.setRdpStartedCallback(() => {
+			if (currentRdpLogId) {
+				fetch(`/api/user/iot/devices/${deviceId}/rdp-complete`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ logId: currentRdpLogId }),
+					credentials: 'include'
+				}).catch((err) => console.warn('[RDP] Failed to mark RDP success:', err));
+				currentRdpLogId = null; // Only fire once per session
+			}
+		});
 	}
 
 	// Connection Management Functions
-	function connectToDevice() {
+	async function connectToDevice() {
 		if (!webrtcClient) {
 			console.error("WebRTC client not initialized");
 			return;
 		}
 
 		isConnecting = true;
+
+		// Create activity log immediately (even if device is offline) - rdp.start creates log + notifies device
+		const options = { frameRate: 60, quality: 80, captureMode: 'screen' as const };
+		try {
+			await mqttClient.connect();
+			const res = await mqttClient.request('rdp.start', { deviceId, options }) as { result?: { result?: { operationId?: string }; operationId?: string }; operationId?: string };
+			const opId = res?.result?.result?.operationId ?? res?.result?.operationId ?? res?.operationId;
+			if (opId) currentRdpLogId = opId;
+		} catch (err) {
+			console.error('[RDP] Failed to create RDP session (activity log):', err);
+		}
 
 		// Start the WebRTC connection
 		webrtcClient?.connect();
@@ -140,7 +168,7 @@
 		// but we don't need to process them again here.
 	}
 
-	// Request RDP stream via WebRTC data channel
+	// Request RDP stream - send via WebRTC data channel (log already created in connectToDevice)
 	async function requestRDP() {
 		if (!webrtcClient) {
 			console.error("[RDP] WebRTC client not initialized");
@@ -149,7 +177,6 @@
 
 		// Check if data channel is open
 		if ($webRTCStore.dataChannelStatus !== "open") {
-			// Wait a bit and retry
 			setTimeout(() => {
 				if ($webRTCStore.dataChannelStatus === "open") {
 					requestRDP();
@@ -158,15 +185,11 @@
 			return;
 		}
 
-		// Send RDP start request via WebRTC data channel
+		const options = { frameRate: 60, quality: 80, captureMode: "screen" as const };
 		try {
-			webrtcClient.sendRDPStart({
-				frameRate: 60,
-				quality: 80,
-				captureMode: "screen",
-			});
+			webrtcClient.sendRDPStart(options);
 		} catch (error) {
-			console.error("[RDP] Failed to send RDP start request:", error);
+			console.error("[RDP] Failed to send RDP start via WebRTC:", error);
 		}
 	}
 
@@ -186,6 +209,9 @@
 	// Disconnect from device
 	function disconnectFromDevice() {
 		if (!webrtcClient) return;
+
+		currentRdpLogId = null;
+		webrtcClient.setRdpStartedCallback(null);
 
 		// Video stream cleanup is handled by WebRTC store
 
