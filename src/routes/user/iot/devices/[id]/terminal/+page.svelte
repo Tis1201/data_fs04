@@ -36,10 +36,27 @@
 	let terminalClient: TerminalMqttClient | null = null;
 	let unsubscribeDevice: (() => void) | undefined;
 	let terminalElement: HTMLElement | undefined;
+	let terminalViewport: HTMLElement | null = null;
 
-	function scrollToBottomOnFocus() {
+	/**
+	 * Forces the terminal to scroll all the way to the bottom.
+	 * xterm.js scrollToBottom() can be off by sub-pixels on Windows 125% DPI
+	 * scaling (xterm.js #4959). We force the raw DOM scrollTop and use rAF to
+	 * run after layout, so the last line and cursor stay fully visible.
+	 */
+	function forceScrollToBottom() {
 		if (terminalInstance?.scrollToBottom) {
 			terminalInstance.scrollToBottom();
+		}
+		if (terminalViewport) {
+			// Immediate scroll
+			terminalViewport.scrollTop = terminalViewport.scrollHeight;
+			// Deferred scroll for Windows 125% DPI - DOM may not have reflowed yet
+			requestAnimationFrame(() => {
+				if (terminalViewport) {
+					terminalViewport.scrollTop = terminalViewport.scrollHeight;
+				}
+			});
 		}
 	}
 
@@ -116,6 +133,10 @@
 			terminalClient.onOutput((output) => {
 				if (terminalInstance) {
 					terminalInstance.write(output);
+					// Defer scroll - write() renders async; need layout before scroll (Windows 125%)
+					requestAnimationFrame(() => {
+						requestAnimationFrame(() => forceScrollToBottom());
+					});
 				}
 				if (!hasReceivedOutput) {
 					hasReceivedOutput = true;
@@ -277,9 +298,10 @@
 
 		// Remove focus listener
 		if (terminalElement) {
-			terminalElement.removeEventListener('focusin', scrollToBottomOnFocus);
+			terminalElement.removeEventListener('focusin', forceScrollToBottom);
 			terminalElement = undefined;
 		}
+		terminalViewport = null;
 
 		console.log('[Terminal] Component destroyed, resources cleaned up');
 	});
@@ -340,11 +362,11 @@
 		// Fit terminal to container
 		fitAddon.fit();
 
-		// Scroll to bottom on focus - keeps input line visible after scrolling up
-		// (fixes Windows 125% scaling where cursor can get clipped - xterm.js #4959)
+		// Cache the viewport element for direct DOM scroll correction (Windows 125% DPI fix)
 		terminalElement = terminal.element;
+		terminalViewport = terminalElement?.querySelector('.xterm-viewport') as HTMLElement | null;
 		if (terminalElement) {
-			terminalElement.addEventListener('focusin', scrollToBottomOnFocus);
+			terminalElement.addEventListener('focusin', forceScrollToBottom);
 		}
 
 		// Welcome message
@@ -364,9 +386,7 @@
 		const data = event.detail;
 
 		// Keep input line visible on Windows/scaled displays (xterm.js #4959)
-		if (terminalInstance?.scrollToBottom) {
-			terminalInstance.scrollToBottom();
-		}
+		forceScrollToBottom();
 
 		// Send input to device via SSE
 		if (terminalInstance && connected) {

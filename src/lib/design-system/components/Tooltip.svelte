@@ -308,8 +308,7 @@
         line-height: var(--ds-leading-xs);
         letter-spacing: 0.01em;
         color: var(--tooltip-title-color);
-        word-break: break-all;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
     }
     
     .tooltip-supporting {
@@ -319,8 +318,7 @@
         line-height: var(--ds-leading-xs);
         letter-spacing: 0.01em;
         color: var(--tooltip-supporting-color);
-        word-break: break-all;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
     }
     
     /* Arrow base */

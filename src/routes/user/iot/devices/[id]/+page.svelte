@@ -679,7 +679,7 @@
         { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px' },
         { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px' },
         { id: 'size', header: 'Size', type: 'text', accessor: (row: DeviceApp) => formatBytes(row.size_bytes), width: '80px' },
-        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => formatInstallDate(row.install_date || row.last_modified), width: '120px' },
+        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => formatInstallDate(row.install_date || row.last_modified, deviceInfo?.timezone), width: '120px' },
         { id: 'actions', header: 'Actions', type: 'moreMenu', align: 'right', width: '80px', getMenuActions: (row: DeviceApp) => [
             { id: 'restart', label: 'Restart App', onClick: (r: DeviceApp) => handleRestartApp(r) },
             { id: 'settings', label: 'App Settings', onClick: (r: DeviceApp) => handleAppSettings(r) },
@@ -1128,26 +1128,30 @@
     }
 
     // Helper function to parse JSON string settings (for kiosk_application, home_launcher)
+    // Handles: JSON {name, package}, plain string (e.g. "1111", "com.example.app"), and primitives from JSON.parse (e.g. 1111)
     function getProfileSettingParsed(key: string, field: 'name' | 'package' | 'value', defaultValue: string = '-'): string {
         const value = getProfileSetting(key, '');
         if (value === '' || value === '-') {
             return defaultValue;
         }
 
-        // Try to parse as JSON (for complex settings like kiosk_application)
         try {
             const parsed = JSON.parse(value);
             if (typeof parsed === 'object' && parsed !== null) {
                 return parsed[field] || defaultValue;
             }
+            // Parsed as primitive (number, boolean) - e.g. JSON.parse('1111') => 1111
+            if (field === 'value' || field === 'name') {
+                return String(parsed);
+            }
+            return defaultValue;
         } catch {
-            // Not JSON, return as-is for 'value' field
-            if (field === 'value') {
+            // Not valid JSON - value is plain string
+            if (field === 'value' || field === 'name') {
                 return value;
             }
+            return defaultValue;
         }
-
-        return defaultValue;
     }
 
 

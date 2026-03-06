@@ -174,6 +174,17 @@ export const actions: Actions = {
                         message: 'You do not have permission to delete this resource'
                     });
                 }
+
+                // Check if resource is used in any bundles (BundleApp) - cannot delete due to foreign key
+                const bundleAppCount = await locals.prisma.bundleApp.count({
+                    where: { resourceId: id }
+                });
+                if (bundleAppCount > 0) {
+                    return fail(400, {
+                        success: false,
+                        message: `This resource cannot be deleted because it is used in ${bundleAppCount} bundle(s). Please remove it from all bundles first.`
+                    });
+                }
                 
                 // Delete the file from cloud storage first
                 if (resource.path) {
@@ -207,8 +218,15 @@ export const actions: Actions = {
                     success: true,
                     message: 'Resource deleted successfully'
                 };
-            } catch (err) {
-                logger.error(`Error deleting resource ${id}:`, err as Record<string, any>);
+            } catch (err: unknown) {
+                logger.error(`Error deleting resource ${id}:`, err as Record<string, unknown>);
+                const prismaErr = err as { code?: string };
+                if (prismaErr?.code === 'P2003') {
+                    return fail(400, {
+                        success: false,
+                        message: 'This resource cannot be deleted because it is used in one or more bundles. Please remove it from all bundles first.'
+                    });
+                }
                 return fail(500, {
                     success: false,
                     message: 'Failed to delete resource'

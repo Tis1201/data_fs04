@@ -33,9 +33,32 @@ export function formatActivityLogDate(dateString: string): string {
     return `${month}/${day}/${year} ${hour12.toString().padStart(2, '0')}:${minutes} ${ampm}`;
 }
 
-export function formatInstallDate(dateString: string): string {
+export function formatInstallDate(dateString: string, timezone?: string): string {
     if (!dateString) return 'N/A';
-    const d = new Date(dateString);
+
+    // Ensure properly parsed as UTC if no timezone offset is provided
+    const utcString = dateString.endsWith('Z') || dateString.includes('+')
+        ? dateString
+        : dateString.replace(' ', 'T') + 'Z';
+
+    const d = new Date(utcString);
+    if (isNaN(d.getTime())) return 'N/A';
+
+    try {
+        if (timezone && timezone !== '-') {
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone,
+                month: 'short', day: '2-digit', year: 'numeric',
+                hour: '2-digit', minute: '2-digit', hour12: true
+            });
+            const parts = formatter.formatToParts(d);
+            const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+            return `${p.month} ${p.day}, ${p.year} ${p.hour}:${p.minute} ${p.dayPeriod}`;
+        }
+    } catch (e) {
+        console.warn('Invalid timezone:', timezone);
+    }
+
     const month = d.toLocaleString('en-US', { month: 'short' });
     const day = d.getDate().toString().padStart(2, '0');
     const year = d.getFullYear();
@@ -174,7 +197,7 @@ export function mapActionStatus(status: string): 'Success' | 'In Progress' | 'Fa
 
 export function formatActionDescription(actionType: string, message?: string): string {
     if (message) return message;
-    
+
     const descriptions: Record<string, string> = {
         'reboot': 'Rebooted device',
         'restart': 'Restarted device',
@@ -189,6 +212,6 @@ export function formatActionDescription(actionType: string, message?: string): s
         'config_app': 'Configured application',
         'get_logs': 'Retrieved device logs'
     };
-    
+
     return descriptions[actionType] || `Action: ${actionType}`;
 }
