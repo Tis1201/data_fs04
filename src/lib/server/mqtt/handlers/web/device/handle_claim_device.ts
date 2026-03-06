@@ -35,6 +35,10 @@ export async function handleClaimDevice(
         throw new Error('Invalid or expired PIN');
     }
 
+    if (factoryDevice.claimedAt || factoryDevice.claimedDeviceId) {
+        throw new Error('This device has already been claimed');
+    }
+
     // For now, just return the device id. Full claim logic (linking
     // to a user account, clearing the PIN, etc.) can be added later.
     logger.info(
