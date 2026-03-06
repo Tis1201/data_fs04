@@ -35,6 +35,13 @@
 	let fitAddon: any;
 	let terminalClient: TerminalMqttClient | null = null;
 	let unsubscribeDevice: (() => void) | undefined;
+	let terminalElement: HTMLElement | undefined;
+
+	function scrollToBottomOnFocus() {
+		if (terminalInstance?.scrollToBottom) {
+			terminalInstance.scrollToBottom();
+		}
+	}
 
 	
 	// Define breadcrumbs for this page
@@ -267,7 +274,13 @@
 		if (terminalInstance) {
 			terminalInstance.write("\r\n\x1b[1;33mClosing connection...\x1b[0m\r\n");
 		}
-		
+
+		// Remove focus listener
+		if (terminalElement) {
+			terminalElement.removeEventListener('focusin', scrollToBottomOnFocus);
+			terminalElement = undefined;
+		}
+
 		console.log('[Terminal] Component destroyed, resources cleaned up');
 	});
 	
@@ -327,6 +340,13 @@
 		// Fit terminal to container
 		fitAddon.fit();
 
+		// Scroll to bottom on focus - keeps input line visible after scrolling up
+		// (fixes Windows 125% scaling where cursor can get clipped - xterm.js #4959)
+		terminalElement = terminal.element;
+		if (terminalElement) {
+			terminalElement.addEventListener('focusin', scrollToBottomOnFocus);
+		}
+
 		// Welcome message
 		terminal.write("\x1b[1;34m=== Device Terminal ===\x1b[0m\r\n");
 		terminal.write(`Device ID: ${deviceId}\r\n`);
@@ -342,7 +362,12 @@
 	 ****************************************************************************/
 	function onData(event: CustomEvent<string>) {
 		const data = event.detail;
-		
+
+		// Keep input line visible on Windows/scaled displays (xterm.js #4959)
+		if (terminalInstance?.scrollToBottom) {
+			terminalInstance.scrollToBottom();
+		}
+
 		// Send input to device via SSE
 		if (terminalInstance && connected) {
 			sendTerminalInput(data);
