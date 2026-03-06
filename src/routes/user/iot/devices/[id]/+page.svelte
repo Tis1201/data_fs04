@@ -758,7 +758,7 @@
             const failCount = results.filter(r => r.status === 'rejected').length;
             showInstallAppModal = false;
             if (failCount === 0) {
-                addAlert('success', 'App installation initiated successfully!');
+                addAlert('success', 'Install app command sent to device');
                 // App list will reload when we receive device:statusUpdate success (MQTT handler, debounced)
             } else {
                 addAlert('error', 'Some app installations failed. Please try again.');
@@ -1254,7 +1254,7 @@
                 deviceId: device.id
             }, { timeoutMs: 30000 });
 
-            addAlert('success', result.message || 'Device refresh command sent successfully!');
+            addAlert('success', result.message || 'Refresh command sent to device');
             // Reload device information (CPU, MEM, DSK, uptime, etc.) so metrics reflect latest from ClickHouse
             await invalidate('app:device');
             // Give device time to upload new metrics, then reload again
@@ -1268,7 +1268,7 @@
     async function handleSnapshot() {
         if (!device?.id) return;
         try {
-            addAlert('info', 'Capturing screenshot...');
+            addAlert('info', 'Sending screenshot command to device...');
             const rpcResult = await callUserRpc<{
                 flowId?: string;
                 result: { deviceId: string; objectPath: string; operationId: string };
@@ -1345,7 +1345,7 @@
                 destinationPath: pullFileSourcePath.trim()
             }, { timeoutMs: 60000 });
 
-            addAlert('success', result.message || 'File pull action sent to device');
+            addAlert('success', result.message || 'Pull file command sent to device');
             showPullFileModal = false;
         } catch (error) {
             console.error('Pull file failed:', error);
@@ -1421,7 +1421,7 @@
 
             console.log('[PushFile] RPC result:', result);
 
-            addAlert('success', result.message || 'File push action sent to device');
+            addAlert('success', result.message || 'Push file command sent to device');
             showPushFileModal = false;
         } catch (error) {
             console.error('[PushFile] Push file failed:', error);
@@ -1487,7 +1487,7 @@
                 resourceId: updateFirmwareSelected
             }, { timeoutMs: 60000 });
 
-            addAlert('success', result.message || 'Firmware update initiated!');
+            addAlert('success', result.message || 'Firmware update command sent to device');
             showUpdateFirmwareModal = false;
         } catch (error) {
             console.error('Firmware update failed:', error);
@@ -1503,7 +1503,7 @@
 
     async function confirmReboot() {
         try {
-            addAlert('info', 'Rebooting device...');
+            addAlert('info', 'Sending reboot command to device...');
 
             const result = await callUserRpc<{
                 success: boolean;
@@ -1513,7 +1513,7 @@
                 deviceId: device?.id
             }, { timeoutMs: 30000 });
 
-            addAlert('success', result.message || 'Device reboot initiated successfully!');
+            addAlert('success', result.message || 'Reboot command sent to device');
         } catch (error) {
             console.error('Reboot failed:', error);
             addAlert('error', error instanceof Error ? error.message : 'Unable to reboot device. Please try again!');

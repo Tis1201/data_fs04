@@ -818,7 +818,7 @@
             selectedRows = [];
 
             if (failCount === 0) {
-                toast.success( 'App installation initiated successfully!');
+                toast.success('Install app command sent to device');
             } else if (successCount > 0) {
                 toast.success( `App installation initiated on ${successCount} device(s). ${failCount} failed.`);
             } else {
@@ -954,7 +954,7 @@
             selectedRows = [];
 
             if (failCount === 0) {
-                toast.success( 'Firmware update initiated successfully!');
+                toast.success('Firmware update command sent to device');
             } else if (successCount > 0) {
                 toast.success( `Firmware update initiated on ${successCount} device(s). ${failCount} failed.`);
             } else {

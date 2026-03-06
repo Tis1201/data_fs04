@@ -162,7 +162,7 @@ export class DeviceActionsService {
                 status: "success",
                 message: result.message || "Refresh command sent",
             });
-            toast.success("Device refresh initiated");
+            toast.success("Refresh command sent to device");
         } catch (error) {
             this.actionStatus.set({
                 action: "refresh",
@@ -207,7 +207,7 @@ export class DeviceActionsService {
                 status: "success",
                 message: result.message || "Reboot command sent",
             });
-            toast.success("Device reboot initiated");
+            toast.success("Reboot command sent to device");
         } catch (error) {
             this.actionStatus.set({
                 action: "reboot",
@@ -389,17 +389,17 @@ export class DeviceActionsService {
                     sourcePath: sourcePath.trim(),
                     destinationPath: destinationPath || sourcePath.trim()
                 }, { timeoutMs: 60000 }),
-                'File pull action sent to device…',
-                'File pull action sent to device'
+                'Sending pull file command…',
+                'Pull file command sent to device'
             );
             operationId = opId;
 
             this.actionStatus.set({
                 action: 'pullFile',
                 status: 'success',
-                message: result.message || 'File pull action sent to device',
+                message: result.message || 'Pull file command sent to device',
             });
-            toast.success('File pull action sent to device');
+            toast.success('Pull file command sent to device');
         } catch (error) {
             this.actionStatus.set({
                 action: 'pullFile',
@@ -443,17 +443,17 @@ export class DeviceActionsService {
                     destinationPath: destinationPath.trim(),
                     resourceId
                 }, { timeoutMs: 60000 }),
-                'File push action sent to device…',
-                'File push action sent to device'
+                'Sending push file command…',
+                'Push file command sent to device'
             );
             operationId = opId;
 
             this.actionStatus.set({
                 action: 'pushFile',
                 status: 'success',
-                message: result.message || 'File push action sent to device',
+                message: result.message || 'Push file command sent to device',
             });
-            toast.success('File push action sent to device');
+            toast.success('Push file command sent to device');
         } catch (error) {
             this.actionStatus.set({
                 action: 'pushFile',

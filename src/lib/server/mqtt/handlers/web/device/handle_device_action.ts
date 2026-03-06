@@ -125,7 +125,7 @@ async function executeDeviceAction(
             success: true,
             operationId: actionLog.id,
             deviceId,
-            message: `${actionType} initiated successfully`
+            message: `${actionType} command sent to device`
         }
     };
 }

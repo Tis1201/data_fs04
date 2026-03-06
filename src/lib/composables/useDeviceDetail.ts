@@ -498,15 +498,15 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             );
 
             if (result.operationId) {
-                addActionLogRow('pushFile', 'File push action sent to device…', 'in_progress', result.operationId);
+                addActionLogRow('pushFile', 'Sending push file command…', 'in_progress', result.operationId);
             }
 
             actionStatus.set({
                 action: 'pushFile',
                 status: 'success',
-                message: result.message || 'File push action sent to device',
+                message: result.message || 'Push file command sent to device',
             });
-            toast.success('File push action sent to device');
+            toast.success('Push file command sent to device');
             showPullFileModal.set(false);
         } catch (error) {
             actionStatus.set({
@@ -552,15 +552,15 @@ export function useDeviceDetail(options: UseDeviceDetailOptions) {
             );
 
             if (result.operationId) {
-                addActionLogRow('pullFile', 'File pull action sent to device…', 'in_progress', result.operationId);
+                addActionLogRow('pullFile', 'Sending pull file command…', 'in_progress', result.operationId);
             }
 
             actionStatus.set({
                 action: 'pullFile',
                 status: 'success',
-                message: result.message || 'File pull action sent to device',
+                message: result.message || 'Pull file command sent to device',
             });
-            toast.success('File pull action sent to device');
+            toast.success('Pull file command sent to device');
             showPushFileModal.set(false);
         } catch (error) {
             actionStatus.set({

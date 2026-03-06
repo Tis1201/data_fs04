@@ -397,9 +397,7 @@
 
       // Success - show toast and keep loading (will be cleared by MQTT status update)
       const pretty = formatActionName(action);
-      toast.success(`${pretty} command sent`, { 
-        description: `Action sent to device for ${packageName}` 
-      });
+      toast.success(`${pretty} command sent to device`);
 
       // Store operationId for tracking
       actionStatus.set({ 
