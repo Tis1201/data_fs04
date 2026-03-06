@@ -48,12 +48,35 @@
 
     const MAX_FILE_SIZE_BYTES = maxFileSize * 1024 * 1024;
 
+    /** Parse accept string (e.g. ".zip,.apk,.exe") into lowercase extensions for validation */
+    function getAllowedExtensions(): string[] | null {
+        if (!accept || accept === '*') return null;
+        return accept
+            .split(',')
+            .map((s) => s.trim().toLowerCase())
+            .filter((s) => s.startsWith('.'));
+    }
+
+    function isFileTypeAllowed(fileName: string): boolean {
+        const allowed = getAllowedExtensions();
+        if (!allowed?.length) return true;
+        const ext = '.' + (fileName.split('.').pop() || '').toLowerCase();
+        return allowed.includes(ext);
+    }
+
     function validateAndDispatch(files: FileList) {
         if (!files?.length) return;
         const file = files[0];
         if (file.size > MAX_FILE_SIZE_BYTES) {
             dispatch('dropRejected', {
                 message: `File size exceeds ${maxFileSize} MB limit. Maximum allowed is ${maxFileSize} MB.`,
+                file
+            });
+            return;
+        }
+        if (!isFileTypeAllowed(file.name)) {
+            dispatch('dropRejected', {
+                message: `File type not allowed. Accepted types: ${acceptedTypes || accept || 'see requirements'}.`,
                 file
             });
             return;

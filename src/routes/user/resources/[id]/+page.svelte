@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { goto } from '$app/navigation';
+    import { invalidate } from '$app/navigation';
     import { page } from '$app/stores';
     import { Pencil, Download, Info, Copy } from 'lucide-svelte';
     import { Button, Card, Tooltip } from '$lib/design-system/components';
@@ -10,7 +10,8 @@
     export let data: PageData;
     export let params: Record<string, string> = {};
 
-    const { resource, accounts = [] } = data;
+    $: resource = data.resource;
+    $: accounts = data.accounts ?? [];
 
     let showEditModal = false;
 
@@ -274,10 +275,10 @@
         }}
         accounts={accounts}
         on:close={() => (showEditModal = false)}
-        on:success={() => {
+        on:success={async () => {
             showEditModal = false;
             toast.success('Resource updated successfully.');
-            goto($page.url.pathname, { invalidateAll: true });
+            await invalidate('app:resource');
         }}
         on:error={(e) => toast.error(e.detail || 'Unable to update resource. Please try again!')}
     />

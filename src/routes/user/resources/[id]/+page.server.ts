@@ -221,7 +221,9 @@ export const actions: Actions = {
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
-        const { params, locals } = event;
+        const { params, locals, depends } = event;
+
+        depends('app:resource');
 
         if (!locals.user) {
             throw error(401, 'Unauthorized');

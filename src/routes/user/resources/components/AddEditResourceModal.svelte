@@ -714,7 +714,7 @@
                     multiple={false}
                     maxFiles={1}
                     maxFileSize={MAX_FILE_SIZE_MB}
-                    acceptedTypes="zip, cpk, deb, apk"
+                    acceptedTypes="zip, cpk, deb, apk, exe"
                     bind:files={uploadedFiles}
                     showDropZone={uploadedFiles.length === 0}
                     on:drop={handleFileDrop}
