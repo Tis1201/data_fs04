@@ -18,12 +18,19 @@ export const POST = restrict(
     async ({ request, locals }: AuthenticatedEvent) => {
         try {
             const { prisma } = locals;
+            const { TAG_DESCRIPTION_MAX, TAG_NAME_MAX } = await import('./new/device-tag');
             const formData = await request.formData();
             const name = formData.get('name')?.toString()?.trim() || '';
             const description = formData.get('description')?.toString()?.trim() || '';
 
             if (!name) {
                 return json({ success: false, error: 'Tag name is required' }, { status: 400 });
+            }
+            if (name.length > TAG_NAME_MAX) {
+                return json({ success: false, error: `Tag name must be at most ${TAG_NAME_MAX} characters` }, { status: 400 });
+            }
+            if (description.length > TAG_DESCRIPTION_MAX) {
+                return json({ success: false, error: `Description must be at most ${TAG_DESCRIPTION_MAX} characters` }, { status: 400 });
             }
 
             const currentAccount = (locals as any).currentAccount?.account;

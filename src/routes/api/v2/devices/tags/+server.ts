@@ -88,10 +88,17 @@ export const GET = unifiedEndpoint(
 export const POST = unifiedEndpoint(
 	async ({ context, event }) => {
 		const data = await event.request.json();
-		
+		const { TAG_NAME_MAX } = await import('../../../../user/iot/device_tags/new/device-tag');
+
 		if (!data.name) {
 			throw Object.assign(
 				new Error('Tag name is required'),
+				{ status: 400, code: ErrorCodes.INVALID_INPUT }
+			);
+		}
+		if (typeof data.name === 'string' && data.name.length > TAG_NAME_MAX) {
+			throw Object.assign(
+				new Error(`Tag name must be at most ${TAG_NAME_MAX} characters`),
 				{ status: 400, code: ErrorCodes.INVALID_INPUT }
 			);
 		}

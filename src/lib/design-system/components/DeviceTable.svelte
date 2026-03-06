@@ -431,6 +431,7 @@
                                     {column.label}
                                 </span>
                                 
+                                <!-- TC-DV-0020/0021: Show sort icon only when sorted - asc (ArrowUp), desc (ArrowDown). No icon when unsorted. -->
                                 {#if column.sortable && sort.field === column.id}
                                     <span class="flex items-center justify-center" style="width: 16px; height: 16px;">
                                         {#if sort.order === "desc"}

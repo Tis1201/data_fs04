@@ -20,9 +20,19 @@ const baseDeviceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     filterMappings: {
         'types': { field: 'deviceType', operator: 'in' },
         'statuses': { field: 'status', operator: 'in' },
-        'osVersions': { field: 'osVersion', operator: 'in' },
-        // deviceType filter (Operating System column)
-        'deviceType': { field: 'deviceType', operator: 'in' },
+        // osVersions: Operating System filter options (Android/Linux/Windows/macOS) map to deviceType
+        // TC-DV-0025: Filter by OS was matching osVersion (raw string like "Ubuntu 24") instead of deviceType
+        'osVersions': {
+            field: 'deviceType',
+            operator: 'in',
+            valueTransformer: (v: string) => [v, v.toLowerCase(), v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()]
+        },
+        // deviceType filter (Operating System column - inline filter)
+        'deviceType': {
+            field: 'deviceType',
+            operator: 'in',
+            valueTransformer: (v: string) => [v, v.toLowerCase(), v.charAt(0).toUpperCase() + v.slice(1).toLowerCase()]
+        },
         // 'connected' is a boolean column on Device; UI uses Online/Offline, so accept either.
         'connected': {
             field: 'connected',

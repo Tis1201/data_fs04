@@ -452,7 +452,7 @@
                                     </button>
                                 {/if}
                                 
-                                <!-- Sort direction arrows: only when sorted (unsort = no icon per new design) -->
+                                <!-- TC-DV-0020/0021: Show sort icon only when sorted - asc (ArrowUp), desc (ArrowDown). No icon when unsorted. -->
                                 {#if sortable && isColumnSortable(column) && isSorted}
                                     {#if sort.direction === 'desc'}
                                         <ArrowDown class="w-4 h-4 flex-shrink-0 {iconColor}" stroke-width={1.33} />

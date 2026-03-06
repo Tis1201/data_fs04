@@ -65,11 +65,18 @@ export const actions: Actions = {
     createTag: restrict(
         async ({ request, locals }: AuthenticatedEvent) => {
             const formData = await request.formData();
+            const { TAG_DESCRIPTION_MAX, TAG_NAME_MAX } = await import('./new/device-tag');
             const name = formData.get('name')?.toString()?.trim() || '';
             const description = formData.get('description')?.toString()?.trim() || '';
 
             if (!name) {
                 return fail(400, { success: false, error: 'Tag name is required' });
+            }
+            if (name.length > TAG_NAME_MAX) {
+                return fail(400, { success: false, error: `Tag name must be at most ${TAG_NAME_MAX} characters` });
+            }
+            if (description.length > TAG_DESCRIPTION_MAX) {
+                return fail(400, { success: false, error: `Description must be at most ${TAG_DESCRIPTION_MAX} characters` });
             }
 
             try {
