@@ -32,7 +32,11 @@
 	
 	// Track resources for cleanup
 	let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+	let connectTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let fitAddon: any;
+
+	// Match server TimeoutConfig.DEVICE_TERMINAL (30s)
+	const TERMINAL_CONNECT_TIMEOUT_MS = 30 * 1000;
 	let terminalClient: TerminalMqttClient | null = null;
 	let unsubscribeDevice: (() => void) | undefined;
 	let terminalElement: HTMLElement | undefined;
@@ -105,7 +109,7 @@
 		},
 		cursorBlink: true,
 		cursorStyle: "block",
-		rendererType: "canvas",
+		rendererType: "dom",
 		allowTransparency: false,
 		convertEol: true, // Convert '\n' to '\r\n'
 		disableStdin: false, // Enable user input
@@ -123,6 +127,14 @@
 	 ****************************************************************************/
 	async function initDevice(terminal: Terminal) {
 		terminal.write(`\r\nConnecting to device terminal via MQTT...\r\n`);
+		connecting = true;
+
+		const clearConnectTimeout = () => {
+			if (connectTimeoutId) {
+				clearTimeout(connectTimeoutId);
+				connectTimeoutId = null;
+			}
+		};
 
 		try {
 			// Create MQTT terminal client
@@ -131,6 +143,7 @@
 			// Set up output handler - success = when we actually see terminal output
 			let hasReceivedOutput = false;
 			terminalClient.onOutput((output) => {
+				clearConnectTimeout();
 				if (terminalInstance) {
 					terminalInstance.write(output);
 					// Defer scroll - write() renders async; need layout before scroll (Windows 125%)
@@ -141,12 +154,15 @@
 				if (!hasReceivedOutput) {
 					hasReceivedOutput = true;
 					connected = true;
+					connecting = false;
 					toast.success('Terminal connected – output received');
 				}
 			});
 
 			// Set up error handler
 			terminalClient.onError((error) => {
+				clearConnectTimeout();
+				connecting = false;
 				console.error('[Terminal] Error:', error);
 				if (terminalInstance) {
 					terminalInstance.write(`\r\n\x1b[1;31mError: ${error}\x1b[0m\r\n`);
@@ -155,8 +171,10 @@
 
 			// Set up connected handler - session established
 			terminalClient.onConnected(() => {
+				clearConnectTimeout();
 				console.log('[Terminal] Terminal connected');
 				connected = true;
+				connecting = false;
 				// Only show "Terminal Ready" if we haven't received output yet (output is the real indicator)
 				if (!hasReceivedOutput && terminalInstance) {
 					terminalInstance.write("\r\n\x1b[1;32mTerminal Ready\x1b[0m\r\n");
@@ -165,12 +183,30 @@
 
 			// Set up disconnected handler
 			terminalClient.onDisconnected(() => {
+				clearConnectTimeout();
+				connecting = false;
 				console.log('[Terminal] Terminal disconnected');
 				if (terminalInstance) {
 					terminalInstance.write("\r\n\x1b[1;31mTerminal disconnected\x1b[0m\r\n");
 				}
 				connected = false;
 			});
+
+			// Client-side 30s timeout (matches server TimeoutConfig.DEVICE_TERMINAL)
+			connectTimeoutId = setTimeout(() => {
+				if (connected) return;
+				connectTimeoutId = null;
+				connecting = false;
+				const msg = 'Connection timed out: device did not respond within 30 seconds';
+				if (terminalInstance) {
+					terminalInstance.write(`\r\n\x1b[1;31m${msg}\x1b[0m\r\n`);
+				}
+				toast.error(msg);
+				if (terminalClient) {
+					terminalClient.disconnect();
+					terminalClient = null;
+				}
+			}, TERMINAL_CONNECT_TIMEOUT_MS);
 
 			// Connect with terminal dimensions
 			const dimensions = fitAddon?.proposeDimensions();
@@ -181,13 +217,12 @@
 
 			// Send a carriage return to bring the terminal prompt into view
 			setTimeout(() => {
-				if (terminalClient) {
+				if (terminalClient && connected) {
 					terminalClient.sendInput('\r');
 				}
 			}, 500);
-
-			connecting = false;
 		} catch (error) {
+			clearConnectTimeout();
 			console.error('[Terminal] Connection failed:', error);
 			terminal.write(`\r\n\x1b[1;31mConnection failed: ${error}\x1b[0m\r\n`);
 			connecting = false;
@@ -281,6 +316,10 @@
 		}
 		
 		// Clean up timers
+		if (connectTimeoutId) {
+			clearTimeout(connectTimeoutId);
+			connectTimeoutId = null;
+		}
 		if (resizeTimeout) {
 			clearTimeout(resizeTimeout);
 			resizeTimeout = null;
@@ -344,15 +383,22 @@
 		terminalInstance = terminal;
 
 		// Load addons for better terminal experience
-		fitAddon = new (await XtermAddon.FitAddon()).FitAddon();
-		const webLinksAddon = new (await XtermAddon.WebLinksAddon()).WebLinksAddon(
-			(event, uri) => {
+		// Addons use default export; access via .default.FitAddon for Vite/ESM interop
+		const fitModule = await XtermAddon.FitAddon();
+		const FitAddonClass = fitModule.default?.FitAddon ?? fitModule.FitAddon;
+		fitAddon = new FitAddonClass();
+		const webLinksModule = await XtermAddon.WebLinksAddon();
+		const WebLinksAddonClass = webLinksModule.default?.WebLinksAddon ?? webLinksModule.WebLinksAddon;
+		const webLinksAddon = new WebLinksAddonClass(
+			(event: MouseEvent, uri: string) => {
 				if (typeof window !== 'undefined') {
 					window.open(uri, '_blank');
 				}
 			}
 		);
-		const searchAddon = new (await XtermAddon.SearchAddon()).SearchAddon();
+		const searchModule = await XtermAddon.SearchAddon();
+		const SearchAddonClass = searchModule.default?.SearchAddon ?? searchModule.SearchAddon;
+		const searchAddon = new SearchAddonClass();
 		
 		// Load all addons
 		terminal.loadAddon(fitAddon);

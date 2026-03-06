@@ -37,7 +37,8 @@
         getUsageColor,
         mapBundleStatus,
         mapActionStatus,
-        formatActionDescription
+        formatActionDescription,
+        formatActionTypeLabel
     } from "$lib/utils/deviceDetailsUtils";
     import { formatBytes } from "$lib/utils/format";
     import {
@@ -316,6 +317,14 @@
         timestamp: string;
         expanded?: boolean;
         details?: ActivityLogDetail[];
+        // Preserve raw fields for getLogs callback so details survive real-time sync
+        actionType?: string;
+        rawStatus?: string;
+        durationMs?: number | null;
+        user?: { id?: string; name?: string } | null;
+        error?: string | null;
+        message?: string | null;
+        completedAt?: string | null;
     }
 
     let activityLogs: ActivityLog[] = [];
@@ -352,7 +361,7 @@
             const result = await res.json();
 
             if (result.success && result.data?.logs) {
-                // Transform API response to ActivityLog format
+                // Transform API response to ActivityLog format (preserve raw fields for getLogs)
                 activityLogs = result.data.logs.map((log: any) => ({
                     id: log.id,
                     eventName: formatActivityLogDate(log.initiatedAt),
@@ -360,7 +369,14 @@
                     status: mapActionStatus(log.status),
                     timestamp: log.initiatedAt,
                     expanded: false,
-                    details: buildActivityLogDetails(log)
+                    details: buildActivityLogDetails(log),
+                    actionType: log.actionType,
+                    rawStatus: log.status,
+                    durationMs: log.durationMs,
+                    user: log.user,
+                    error: log.error,
+                    message: log.message,
+                    completedAt: log.completedAt
                 }));
 
                 // Get total count for pagination
@@ -391,20 +407,38 @@
         }
     }
 
+    // Format duration in ms to human-readable (e.g. "2 min", "30 sec")
+    function formatDurationMs(ms: number): string {
+        const sec = Math.round(ms / 1000);
+        if (sec < 60) return `${sec} sec`;
+        const min = Math.floor(sec / 60);
+        const remainder = sec % 60;
+        return remainder ? `${min} min ${remainder} sec` : `${min} min`;
+    }
+
     // Build activity log details from API response
     function buildActivityLogDetails(log: any): Array<{ label: string; oldValue?: string; newValue?: string; tags?: string[] }> {
         const details: Array<{ label: string; oldValue?: string; newValue?: string; tags?: string[] }> = [];
 
-        if (log.durationMs) {
-            details.push({ label: 'Duration:', newValue: `${log.durationMs}ms` });
+        if (log.actionType) {
+            details.push({ label: 'Action:', newValue: formatActionTypeLabel(log.actionType) });
+        }
+
+        if (log.initiatedAt) {
+            details.push({ label: 'Initiated at:', newValue: formatActivityLogDate(log.initiatedAt) });
+        }
+
+        if (log.durationMs != null && log.durationMs > 0) {
+            details.push({ label: 'Duration:', newValue: formatDurationMs(log.durationMs) });
         }
 
         if (log.user?.name) {
             details.push({ label: 'Initiated by:', newValue: log.user.name });
         }
 
-        if (log.error) {
-            details.push({ label: 'Error:', newValue: log.error });
+        const errorMsg = log.error || (log.status === 'failed' && log.message ? log.message : null);
+        if (errorMsg) {
+            details.push({ label: 'Error:', newValue: errorMsg });
         }
 
         return details;
@@ -863,23 +897,23 @@
                 actionLogSyncManager = new ActionLogSyncManager(
                     device.id,
                     () => {
-                        // Get current logs in ActionLog format
+                        // Get current logs in ActionLog format (preserve raw fields for merge)
                         return activityLogs.map(log => ({
                             id: log.id,
                             deviceId: device.id,
-                            actionType: log.description || 'unknown',
-                            status: log.status as any,
+                            actionType: log.actionType || log.description || 'unknown',
+                            status: (log.rawStatus || log.status) as string,
                             progress: null,
                             initiatedBy: 'user',
                             initiatedAt: log.timestamp,
-                            completedAt: null,
-                            durationMs: null,
-                            message: log.description || '',
-                            user: null
+                            completedAt: log.completedAt ?? null,
+                            durationMs: log.durationMs ?? null,
+                            message: log.message ?? log.description ?? '',
+                            user: log.user ?? null
                         }));
                     },
                     (logs) => {
-                        // Update activity logs from synced action logs
+                        // Update activity logs from synced action logs (preserve raw fields)
                         console.log('[UserDevicePage] ActionLogSyncManager updating logs:', logs.length);
                         activityLogs = logs.map(log => ({
                             id: log.id,
@@ -888,7 +922,14 @@
                             status: mapActionStatus(log.status),
                             timestamp: log.initiatedAt,
                             expanded: false,
-                            details: buildActivityLogDetails(log)
+                            details: buildActivityLogDetails(log),
+                            actionType: log.actionType,
+                            rawStatus: log.status,
+                            durationMs: log.durationMs,
+                            user: log.user,
+                            error: log.error,
+                            message: log.message,
+                            completedAt: log.completedAt
                         }));
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
@@ -906,23 +947,23 @@
                 const unsubActionLogs = subscribeActionLogUpdates(
                     device.id,
                     () => {
-                        // Convert ActivityLog format to ActionLog format for subscribeActionLogUpdates
+                        // Convert ActivityLog to ActionLog format (preserve raw fields for merge)
                         return activityLogs.map(log => ({
                             id: log.id,
                             deviceId: device.id,
-                            actionType: log.description || 'unknown',
-                            status: log.status as any,
+                            actionType: log.actionType || log.description || 'unknown',
+                            status: (log.rawStatus || log.status) as string,
                             progress: null,
                             initiatedBy: 'user',
                             initiatedAt: log.timestamp,
-                            completedAt: null,
-                            durationMs: null,
-                            message: log.description || '',
-                            user: null
+                            completedAt: log.completedAt ?? null,
+                            durationMs: log.durationMs ?? null,
+                            message: log.message ?? log.description ?? '',
+                            user: log.user ?? null
                         }));
                     },
                     (logs) => {
-                        // Update activity logs from action logs
+                        // Update activity logs from action logs (preserve raw fields)
                         activityLogs = logs.map(log => ({
                             id: log.id,
                             eventName: formatActivityLogDate(log.initiatedAt),
@@ -930,7 +971,14 @@
                             status: mapActionStatus(log.status),
                             timestamp: log.initiatedAt,
                             expanded: false,
-                            details: buildActivityLogDetails(log)
+                            details: buildActivityLogDetails(log),
+                            actionType: log.actionType,
+                            rawStatus: log.status,
+                            durationMs: log.durationMs,
+                            user: log.user,
+                            error: log.error,
+                            message: log.message,
+                            completedAt: log.completedAt
                         }));
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));

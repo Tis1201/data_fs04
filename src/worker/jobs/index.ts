@@ -13,6 +13,7 @@ import { logger } from '$lib/server/logger';
 import { createWorker, stopWorker } from '$lib/server/jobs/worker';
 import { syncCronJobs, reconcileCronJobsWithRedis } from '$lib/server/jobs/cron-sync';
 import { timeoutProfileApplying } from '$lib/server/jobs/handlers/timeout-profile-applying';
+import { timeoutActionLogs } from '$lib/server/jobs/handlers/timeout-action-logs';
 
 // Import registry to ensure handlers are registered
 import '$lib/server/jobs/registry';
@@ -23,6 +24,7 @@ const PROFILE_APPLYING_TIMEOUT_INTERVAL_MS = 1 * 60 * 1000; // 1 minute (so time
 let isShuttingDown = false;
 let reconcileIntervalId: ReturnType<typeof setInterval> | null = null;
 let profileApplyingTimeoutIntervalId: ReturnType<typeof setInterval> | null = null;
+let actionLogsTimeoutIntervalId: ReturnType<typeof setInterval> | null = null;
 
 async function main(): Promise<void> {
     logger.info('[JobWorker] Starting job worker process...');
@@ -56,6 +58,16 @@ async function main(): Promise<void> {
         }, PROFILE_APPLYING_TIMEOUT_INTERVAL_MS);
         logger.info(`[JobWorker] Profile applying timeout check scheduled (every ${PROFILE_APPLYING_TIMEOUT_INTERVAL_MS / 60000} min)`);
 
+        // Mark stuck device action logs as FAILED (e.g. device disconnected, network timeout)
+        const ACTION_LOGS_TIMEOUT_INTERVAL_MS = 60 * 1000; // run every minute
+        await timeoutActionLogs({}, null as any);
+        actionLogsTimeoutIntervalId = setInterval(() => {
+            timeoutActionLogs({}, null as any).catch((err) => {
+                logger.error(`[JobWorker] Action logs timeout check failed: ${err}`);
+            });
+        }, ACTION_LOGS_TIMEOUT_INTERVAL_MS);
+        logger.info(`[JobWorker] Action logs timeout check scheduled (every ${ACTION_LOGS_TIMEOUT_INTERVAL_MS / 60000} min)`);
+
         logger.info('[JobWorker] Worker is running. Press Ctrl+C to stop.');
     } catch (error) {
         logger.error(`[JobWorker] Failed to start: ${error}`);
@@ -77,6 +89,10 @@ async function shutdown(signal: string): Promise<void> {
         if (profileApplyingTimeoutIntervalId) {
             clearInterval(profileApplyingTimeoutIntervalId);
             profileApplyingTimeoutIntervalId = null;
+        }
+        if (actionLogsTimeoutIntervalId) {
+            clearInterval(actionLogsTimeoutIntervalId);
+            actionLogsTimeoutIntervalId = null;
         }
         await stopWorker();
         logger.info('[JobWorker] Shutdown complete');

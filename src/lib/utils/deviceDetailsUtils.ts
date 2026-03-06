@@ -196,7 +196,16 @@ export function mapActionStatus(status: string): 'Success' | 'In Progress' | 'Fa
 }
 
 export function formatActionDescription(actionType: string, message?: string): string {
-    if (message) return message;
+    if (message) {
+        // For timeout/failure messages, prefix with action type so user knows which action failed
+        if (
+            (message.includes('timeout') || message.includes('did not respond')) &&
+            actionType
+        ) {
+            return `${formatActionTypeLabel(actionType)}: ${message}`;
+        }
+        return message;
+    }
 
     const descriptions: Record<string, string> = {
         'reboot': 'Rebooted device',
@@ -214,4 +223,23 @@ export function formatActionDescription(actionType: string, message?: string): s
     };
 
     return descriptions[actionType] || `Action: ${actionType}`;
+}
+
+/** Human-readable action type for activity log details (e.g. "Terminal", "Remote Desktop (RDP)") */
+export function formatActionTypeLabel(actionType: string): string {
+    const labels: Record<string, string> = {
+        terminal: 'Terminal',
+        remote_desktop: 'Remote Desktop (RDP)',
+        refresh: 'Refresh',
+        screenshot: 'Screenshot',
+        snapshot: 'Snapshot',
+        reboot: 'Reboot',
+        restart: 'Restart',
+        install_app: 'Install app',
+        uninstall_app: 'Uninstall app',
+        push_file: 'Push file',
+        pull_file: 'Pull file',
+        get_logs: 'Download logs',
+    };
+    return labels[actionType] || actionType.replace(/_/g, ' ');
 }

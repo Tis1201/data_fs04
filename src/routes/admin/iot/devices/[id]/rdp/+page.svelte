@@ -11,6 +11,7 @@
 	import { AdminPageLayout, AdminCard } from "$lib/components/admin";
 	import RDPVideo from "$lib/webrtc/RDPVideo.svelte";
 	import { mqttClient } from "$lib/client/mqtt/mqttClient";
+	import { toast } from "$lib/stores/alertToast";
 
 	/****************************************************************************
 	 *
@@ -42,7 +43,11 @@
 
 	// Track resources for cleanup
 	let pingInterval: ReturnType<typeof setInterval> | null = null;
+	let connectTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let unsubscribeWebRTC: () => void;
+
+	// Match server TimeoutConfig.DEVICE_RDP (30s)
+	const RDP_CONNECT_TIMEOUT_MS = 30 * 1000;
 	let unsubscribeMqttWebRTC: (() => void) | undefined;
 
 	// Video stream handling - get from WebRTC store
@@ -97,6 +102,10 @@
 		// When device sends rdp:started over WebRTC data channel, notify server to update activity log
 		// (Device sends rdp:started only over WebRTC, not MQTT, so server never receives it)
 		webrtcClient.setRdpStartedCallback(() => {
+			if (connectTimeoutId) {
+				clearTimeout(connectTimeoutId);
+				connectTimeoutId = null;
+			}
 			if (currentRdpLogId) {
 				fetch(`/api/user/iot/devices/${deviceId}/rdp-complete`, {
 					method: 'POST',
@@ -131,6 +140,14 @@
 
 		// Start the WebRTC connection
 		webrtcClient?.connect();
+
+		// Client-side 30s timeout (matches server TimeoutConfig.DEVICE_RDP)
+		connectTimeoutId = setTimeout(() => {
+			if (connected) return;
+			connectTimeoutId = null;
+			toast.error('Connection timed out: device did not respond within 30 seconds');
+			disconnectFromDevice();
+		}, RDP_CONNECT_TIMEOUT_MS);
 
 		// Set up ping interval
 		pingInterval = setInterval(() => {
@@ -206,6 +223,10 @@
 
 	// Disconnect from device
 	function disconnectFromDevice() {
+		if (connectTimeoutId) {
+			clearTimeout(connectTimeoutId);
+			connectTimeoutId = null;
+		}
 		if (!webrtcClient) return;
 
 		currentRdpLogId = null;
@@ -362,6 +383,12 @@
 	onDestroy(() => {
 		// Skip cleanup in SSR
 		if (!browser) return;
+
+		// Clear connect timeout
+		if (connectTimeoutId) {
+			clearTimeout(connectTimeoutId);
+			connectTimeoutId = null;
+		}
 
 		// Clear intervals
 		if (pingInterval) {

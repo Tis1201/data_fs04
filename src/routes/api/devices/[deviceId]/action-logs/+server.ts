@@ -70,6 +70,7 @@ export const GET: RequestHandler = restrict(
         completedAt: log.completedAt?.toISOString() || null,
         durationMs: log.durationMs,
         message: log.message,
+        error: log.error,
         user: log.user ? {
           id: log.user.id,
           name: log.user.name

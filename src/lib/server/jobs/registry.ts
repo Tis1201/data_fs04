@@ -73,4 +73,8 @@ registerJob('test:example', exampleJob, 'Example job for testing the worker');
 import { timeoutProfileApplying } from './handlers/timeout-profile-applying';
 registerJob('system:timeout-profile-applying', timeoutProfileApplying, 'Mark device profile assignments stuck in APPLYING as FAILED');
 
+// Device action logs: mark stuck IN_PROGRESS or INITIATED actions as FAILED
+import { timeoutActionLogs } from './handlers/timeout-action-logs';
+registerJob('system:timeout-action-logs', timeoutActionLogs as any, 'Mark stuck action logs as FAILED');
+
 export { registry };
