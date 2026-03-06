@@ -389,17 +389,17 @@ export class DeviceActionsService {
                     sourcePath: sourcePath.trim(),
                     destinationPath: destinationPath || sourcePath.trim()
                 }, { timeoutMs: 60000 }),
-                'File pull initiated…',
-                'File pull initiated'
+                'File pull action sent to device…',
+                'File pull action sent to device'
             );
             operationId = opId;
 
             this.actionStatus.set({
                 action: 'pullFile',
                 status: 'success',
-                message: result.message || 'File pull initiated',
+                message: result.message || 'File pull action sent to device',
             });
-            toast.success('File pull initiated');
+            toast.success('File pull action sent to device');
         } catch (error) {
             this.actionStatus.set({
                 action: 'pullFile',
@@ -443,17 +443,17 @@ export class DeviceActionsService {
                     destinationPath: destinationPath.trim(),
                     resourceId
                 }, { timeoutMs: 60000 }),
-                'File push initiated…',
-                'File push initiated'
+                'File push action sent to device…',
+                'File push action sent to device'
             );
             operationId = opId;
 
             this.actionStatus.set({
                 action: 'pushFile',
                 status: 'success',
-                message: result.message || 'File push initiated',
+                message: result.message || 'File push action sent to device',
             });
-            toast.success('File push initiated');
+            toast.success('File push action sent to device');
         } catch (error) {
             this.actionStatus.set({
                 action: 'pushFile',

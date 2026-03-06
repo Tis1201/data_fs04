@@ -1293,7 +1293,7 @@
                 destinationPath: pullFileSourcePath.trim()
             }, { timeoutMs: 60000 });
 
-            addAlert('success', result.message || 'File pulled successfully!');
+            addAlert('success', result.message || 'File pull action sent to device');
             showPullFileModal = false;
         } catch (error) {
             console.error('Pull file failed:', error);
@@ -1369,7 +1369,7 @@
 
             console.log('[PushFile] RPC result:', result);
 
-            addAlert('success', result.message || 'File push initiated!');
+            addAlert('success', result.message || 'File push action sent to device');
             showPushFileModal = false;
         } catch (error) {
             console.error('[PushFile] Push file failed:', error);
