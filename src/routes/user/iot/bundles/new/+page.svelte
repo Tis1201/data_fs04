@@ -257,9 +257,11 @@
                                     type="text"
                                     bind:value={$form.name}
                                     placeholder="Enter bundle name"
+                                    maxlength={200}
                                     aria-invalid={$errors.name ? 'true' : undefined}
                                     {...$constraints.name}
                                 />
+                                <p class="text-xs text-muted-foreground mt-1">{$form.name?.length ?? 0}/200 characters</p>
                             </FormField>
                         </FormRow>
 
@@ -271,9 +273,11 @@
                                     bind:value={$form.description}
                                     placeholder="Enter bundle description"
                                     rows={3}
+                                    maxlength={200}
                                     aria-invalid={$errors.description ? 'true' : undefined}
                                     {...$constraints.description}
                                 />
+                                <p class="text-xs text-muted-foreground mt-1">{$form.description?.length ?? 0}/200 characters</p>
                             </FormField>
                         </FormRow>
 

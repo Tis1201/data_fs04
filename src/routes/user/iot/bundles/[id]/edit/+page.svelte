@@ -139,8 +139,10 @@
                                     name="name" 
                                     placeholder="Enter bundle name"
                                     bind:value={$form.name}
+                                    maxlength={200}
                                     disabled={$submitting}
                                 />
+                                <p class="text-xs text-muted-foreground mt-1">{$form.name?.length ?? 0}/200 characters</p>
                             </FormField>
                         </FormRow>
 
@@ -155,8 +157,10 @@
                                 placeholder="Enter bundle description"
                                 bind:value={$form.description}
                                 rows={3}
+                                maxlength={200}
                                 disabled={$submitting}
                             />
+                                <p class="text-xs text-muted-foreground mt-1">{$form.description?.length ?? 0}/200 characters</p>
                         </FormField>
 
                         <FormRow columns={2}>

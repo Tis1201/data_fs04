@@ -91,6 +91,7 @@
               error={$errors.expiresAt}
               placeholder="Select expiry date"
               format_string="yyyy-MM-dd"
+              minDate={new Date()}
               timelineOptions="future"
               showFutureDates={true}
             />

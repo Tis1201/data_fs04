@@ -60,6 +60,12 @@
     $: if (mode === 'add' && (selectedFile != null || uploadedFiles.length > 0) && errorMessage === FILE_REQUIRED) errorMessage = null;
     $: if (profileId?.trim() && errorMessage === PROFILE_REQUIRED) errorMessage = null;
 
+    /** Today's date in yyyy-MM-dd for min attribute (no past dates) */
+    $: minDateStr = (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+
     /** Edit mode: display filename for device list download — derived from set name + expiry (no DB column, matches old app) */
     $: deviceListDisplayName = (() => {
         if (mode !== 'edit') return '';
@@ -356,6 +362,7 @@
                         label="Expiry Date"
                         placeholder="MM/DD/YYYY"
                         bind:value={expiresAt}
+                        min={minDateStr}
                     />
                 </div>
                 <div class="preclaim-field">

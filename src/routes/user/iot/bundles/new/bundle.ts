@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
+const MAX_CHARS = 200;
+
 export const bundleSchema = z.object({
-    name: z.string().min(1, 'Name is required'),
-    description: z.string().optional(),
+    name: z.string().min(1, 'Name is required').max(MAX_CHARS, `Name must be ${MAX_CHARS} characters or less`),
+    description: z.string().max(MAX_CHARS, `Description must be ${MAX_CHARS} characters or less`).optional(),
     os: z.string().default('ANDROID'),
     reboot: z.boolean().default(false),
     autoOpen: z.boolean().default(false),

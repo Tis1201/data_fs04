@@ -236,6 +236,7 @@
                 field="expiresAt"
                 format_string="yyyy-MM-dd"
                 clearable={true}
+                minDate={new Date()}
                 showFutureDates={true}
                 timelineOptions="future"
                 defaultTimeline="future"
