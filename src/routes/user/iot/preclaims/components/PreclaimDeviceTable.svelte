@@ -261,20 +261,20 @@
       url.searchParams.delete('sort_order');
     }
     url.searchParams.set('page', '1');
-    goto(url.toString(), { replaceState: true, noScroll: true });
+    goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
   }
 
   function handlePageChange(e: CustomEvent<number>) {
     const url = new URL($page.url.href);
     url.searchParams.set('page', String(e.detail));
-    goto(url.toString(), { replaceState: true, noScroll: true });
+    goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
   }
 
   function handlePageSizeChange(e: CustomEvent<number>) {
     const url = new URL($page.url.href);
     url.searchParams.set('per_page', String(e.detail));
     url.searchParams.set('page', '1');
-    goto(url.toString(), { replaceState: true, noScroll: true });
+    goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
   }
 </script>
 

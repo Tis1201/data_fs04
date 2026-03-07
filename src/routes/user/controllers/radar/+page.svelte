@@ -52,7 +52,7 @@
                 toast.success('Sensor deleted successfully!');
                 closeDeleteModal();
                 await invalidate('app:userControllersRadar');
-                goto($page.url.pathname + $page.url.search, { noScroll: true });
+                goto($page.url.pathname + $page.url.search, { noScroll: true, keepFocus: true });
             } else {
                 toast.error(result.message || 'Unable to delete sensor. Please try again!');
             }
@@ -91,7 +91,7 @@
         if (locations.length) url.searchParams.set('locations', locations.join(','));
         else url.searchParams.delete('locations');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         showFilterModal = false;
     }
 
@@ -102,7 +102,7 @@
         url.searchParams.delete('statuses');
         url.searchParams.delete('locations');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         showFilterModal = false;
     }
 
@@ -401,7 +401,7 @@
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true });
+            goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         }, 500);
     }
 
@@ -429,7 +429,7 @@
         openEditDeviceModal((data as unknown as { editSensor: SensorRow }).editSensor);
         const u = new URL($page.url);
         u.searchParams.delete('editSensorId');
-        goto(u.pathname + u.search, { replaceState: true, noScroll: true });
+        goto(u.pathname + u.search, { replaceState: true, noScroll: true, keepFocus: true });
     }
 
     function handleSort(event: CustomEvent<SortState>) {
@@ -443,13 +443,13 @@
             url.searchParams.delete('sort_order');
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
         const url = new URL($page.url);
         url.searchParams.set('page', String(event.detail));
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
     }
 
     function getControllerId(row: SensorRow): string {

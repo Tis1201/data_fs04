@@ -123,7 +123,7 @@
             if (next) url.searchParams.set('search', next);
             else url.searchParams.delete('search');
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true });
+            goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         }, 500);
     }
 
@@ -152,13 +152,13 @@
             url.searchParams.delete('order');
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
         const url = new URL($page.url);
         url.searchParams.set('page', String(event.detail));
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
     }
 
     function escapeHtml(s: string): string {

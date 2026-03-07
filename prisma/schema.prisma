@@ -1139,6 +1139,7 @@ model DeviceProfile {
   preclaimSets PreclaimSet[]
   overrides    DeviceProfileOverride[]   @relation("ProfileOverrides")
 
+  @@unique([accountId, name])
   @@index([accountId])
   @@index([createdBy])
   @@index([level])

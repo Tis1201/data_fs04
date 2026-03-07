@@ -169,6 +169,17 @@ export const actions: Actions = {
                 return fail(403, { form, message: 'You do not have permission to create device profiles in this account.' });
             }
 
+            // Check for duplicate profile name (case-insensitive) within account
+            const existingByName = await locals.prisma.deviceProfile.findFirst({
+                where: {
+                    accountId,
+                    name: { equals: form.data.name.trim(), mode: 'insensitive' }
+                }
+            });
+            if (existingByName) {
+                return fail(400, { form, message: 'A profile with this name already exists. Please choose a unique name.' });
+            }
+
             let settings: Array<{ key: string; value: string; dataType: string; label: string; category?: string; order?: number }>;
             try {
                 settings = JSON.parse(form.data.settings || '[]');

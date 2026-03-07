@@ -106,6 +106,18 @@ export const actions: Actions = {
                 return fail(404, { form, error: 'Device profile not found' });
             }
 
+            // Check for duplicate profile name (case-insensitive) within account, excluding current profile
+            const existingByName = await locals.prisma.deviceProfile.findFirst({
+                where: {
+                    accountId: currentAccountId,
+                    name: { equals: form.data.name.trim(), mode: 'insensitive' },
+                    id: { not: profileId }
+                }
+            });
+            if (existingByName) {
+                return fail(400, { form, message: 'A profile with this name already exists. Please choose a unique name.' });
+            }
+
             let settingsArray: Array<{ key?: string; value?: string; dataType?: string; label?: string; category?: string; order?: number }>;
             try {
                 settingsArray = JSON.parse(form.data.settings || '[]');

@@ -142,6 +142,16 @@ export const actions: Actions = {
                 if (!membership) {
                     return fail(403, { form, message: 'You do not have permission to create device profiles in this account.' });
                 }
+                // Check for duplicate profile name (case-insensitive) within account
+                const existingByName = await locals.prisma.deviceProfile.findFirst({
+                    where: {
+                        accountId,
+                        name: { equals: form.data.name.trim(), mode: 'insensitive' }
+                    }
+                });
+                if (existingByName) {
+                    return fail(400, { form, message: 'A profile with this name already exists. Please choose a unique name.' });
+                }
                 let settings: any[] = [];
                 try {
                     settings = JSON.parse(form.data.settings || '[]');
@@ -232,6 +242,17 @@ export const actions: Actions = {
                 });
                 if (!existingProfile) {
                     return fail(404, { form, error: 'Device profile not found' });
+                }
+                // Check for duplicate profile name (case-insensitive) within account, excluding current profile
+                const existingByName = await locals.prisma.deviceProfile.findFirst({
+                    where: {
+                        accountId: currentAccountId,
+                        name: { equals: form.data.name.trim(), mode: 'insensitive' },
+                        id: { not: profileId }
+                    }
+                });
+                if (existingByName) {
+                    return fail(400, { form, message: 'A profile with this name already exists. Please choose a unique name.' });
                 }
                 let settingsArray: any[] = [];
                 try {

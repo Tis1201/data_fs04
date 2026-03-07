@@ -64,14 +64,14 @@
         toast.success('Profile added successfully!');
         closeAddProfileModal();
         invalidate('app:userDeviceProfiles');
-        goto($page.url.pathname + $page.url.search, { noScroll: true });
+        goto($page.url.pathname + $page.url.search, { noScroll: true, keepFocus: true });
     }
 
     function onEditProfileSuccess() {
         toast.success('Profile updated successfully!');
         closeEditProfileModal();
         invalidate('app:userDeviceProfiles');
-        goto($page.url.pathname + $page.url.search, { noScroll: true });
+        goto($page.url.pathname + $page.url.search, { noScroll: true, keepFocus: true });
     }
 
     const ADD_PROFILE_ERROR_MSG = 'Unable to add Profile. Please try again!';
@@ -115,7 +115,7 @@
                 toast.success('Profile deleted successfully.');
                 closeDeleteModal();
                 await invalidate('app:userDeviceProfiles');
-                goto($page.url.pathname + $page.url.search, { noScroll: true });
+                goto($page.url.pathname + $page.url.search, { noScroll: true, keepFocus: true });
             } else {
                 toast.error(result.message || 'Unable to delete Profile. Please try again!');
             }
@@ -136,8 +136,21 @@
 
     $: statusDropdownOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
-        ...STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
+        ...STATUS_OPTIONS.map((o) => ({
+            id: o.id,
+            label: o.label,
+            type: 'checkbox' as const,
+            disabled: filterStatuses.includes('__all__')
+        }))
     ];
+
+    function handleStatusFilterChange(newValue: string[]) {
+        if (newValue.includes('__all__')) {
+            filterStatuses = ['__all__'];
+        } else {
+            filterStatuses = newValue;
+        }
+    }
 
     function applyFilter() {
         const url = new URL($page.url);
@@ -145,7 +158,7 @@
         if (statuses.length) url.searchParams.set('statuses', statuses.join(','));
         else url.searchParams.delete('statuses');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         showFilterModal = false;
     }
 
@@ -154,7 +167,7 @@
         const url = new URL($page.url);
         url.searchParams.delete('statuses');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         showFilterModal = false;
     }
 
@@ -177,7 +190,7 @@
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true });
+            goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
         }, 500);
     }
 
@@ -216,13 +229,13 @@
             url.searchParams.delete('order');
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
         const url = new URL($page.url);
         url.searchParams.set('page', String(event.detail));
-        goto(url.pathname + url.search, { noScroll: true });
+        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
     }
 
     function statusColor(_value: string, row: DeviceProfileRow): BadgeColor {
@@ -365,7 +378,8 @@
                 label=""
                 placeholder="Select"
                 options={statusDropdownOptions}
-                bind:value={filterStatuses}
+                value={filterStatuses}
+                on:change={(e) => handleStatusFilterChange(e.detail)}
                 multiple={true}
                 width="100%"
             />
