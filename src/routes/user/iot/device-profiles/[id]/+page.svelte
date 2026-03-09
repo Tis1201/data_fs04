@@ -626,13 +626,13 @@
             >
                 <!-- Row 1: Profile Name (left) | Status (right) -->
                 <div class="flex flex-row items-start w-full" style="gap: var(--ds-space-4);">
-                    <div class="flex flex-col gap-1 min-w-0 flex-1">
+                    <div class="flex flex-col gap-1 min-w-0 flex-1 overflow-hidden">
                         <span
                             class="text-sm"
                             style="font-weight: 400; font-size: 14px; line-height: 20px; color: var(--ds-color-neutral-true-600);"
                         >Profile Name</span>
                         <span
-                            class="font-medium truncate"
+                            class="font-medium profile-overview-truncate"
                             style="font-size: 16px; line-height: 24px; color: var(--ds-color-neutral-true-900);"
                             title={profile.name}
                         >{profile.name}</span>
@@ -655,14 +655,15 @@
                     </div>
                 </div>
                 <!-- Row 2: Description full width -->
-                <div class="flex flex-col gap-1 w-full">
+                <div class="flex flex-col gap-1 w-full min-w-0 overflow-hidden">
                     <span
                         class="text-sm"
                         style="font-weight: 400; font-size: 14px; line-height: 20px; color: var(--ds-color-neutral-true-600);"
                     >Description</span>
                     <span
-                        class="font-medium"
+                        class="font-medium profile-overview-desc-truncate"
                         style="font-size: 16px; line-height: 24px; color: var(--ds-color-neutral-true-900);"
+                        title={profile.description || undefined}
                     >{profile.description || '—'}</span>
                 </div>
                 <!-- Divider -->
@@ -1876,5 +1877,20 @@
     .assigned-devices-td-actions {
         padding: 12px 16px;
         vertical-align: middle;
+    }
+
+    /* TC-RDM-PR-0087: Prevent long profile name/description from overflowing layout */
+    .profile-overview-truncate {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .profile-overview-desc-truncate {
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        line-clamp: 3;
+        -webkit-box-orient: vertical;
+        word-break: break-word;
     }
 </style>

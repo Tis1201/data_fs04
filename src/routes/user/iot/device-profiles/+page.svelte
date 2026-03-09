@@ -261,10 +261,12 @@
             render: (_value: unknown, row: DeviceProfileRow) => {
                 const name = row.name || '—';
                 const desc = row.description || '';
-                const link = `<a href="${basePath}/device-profiles/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline truncate block" title="${escapeHtml(name)}">${escapeHtml(name)}</a>`;
-                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</div>` : '';
-                const descLine = desc ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(desc)}</span>` : '';
-                return `<div class="flex flex-col gap-0 min-w-0"><span class="block min-w-0 overflow-hidden">${link}</span>${idLine}${descLine ? `<span>${descLine}</span>` : ''}</div>`;
+                /* TC-RDM-PR-0087: Truncate long name/description to prevent layout overflow */
+                const truncateStyle = 'overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; min-width: 0;';
+                const link = `<a href="${basePath}/device-profiles/${row.id}" class="profile-name-link text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline block" style="${truncateStyle}" title="${escapeHtml(name)}">${escapeHtml(name)}</a>`;
+                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; ${truncateStyle}" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</div>` : '';
+                const descLine = desc ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)] block" style="${truncateStyle} margin-top: 2px;" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>` : '';
+                return `<div class="profile-name-cell flex flex-col gap-0 min-w-0 overflow-hidden" style="max-width: 100%;"><span style="min-width: 0;">${link}</span>${idLine}${descLine ? `<span style="min-width: 0;">${descLine}</span>` : ''}</div>`;
             }
         },
         {
@@ -354,7 +356,7 @@
         </Button>
     </div>
 
-    <div class="w-full">
+    <div class="w-full device-profiles-page">
         <DataTable
             {columns}
             data={profiles}
@@ -443,3 +445,10 @@
         Are you sure you want to delete this profile? Once you delete this profile, it can not be reverse.
     </p>
 </Modal>
+
+<style>
+    /* TC-RDM-PR-0087: Prevent long name/description from overflowing table layout */
+    :global(.device-profiles-page .ds-datatable td:has(.profile-name-cell)) {
+        overflow: hidden;
+    }
+</style>
