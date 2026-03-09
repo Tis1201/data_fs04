@@ -374,7 +374,6 @@
         handleModalClose();
     }
 
-    /** TC-RDM-APR-0016: Enforce name max length during typing; show validation in real time. */
     function handleNameInput() {
         if (formData.name.length > PIN_RULE_NAME_MAX) {
             formData.name = formData.name.slice(0, PIN_RULE_NAME_MAX);
