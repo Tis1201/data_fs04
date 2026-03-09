@@ -57,6 +57,7 @@
     let containerRef: HTMLDivElement;
     let triggerRef: HTMLButtonElement;
     let searchInputRef: HTMLInputElement;
+    let optionsListRef: HTMLDivElement;
     let hoveredIndex = -1;
     let dropdownPosition = { top: 0, left: 0, width: 0, bottom: 0 };
 
@@ -122,6 +123,23 @@
             // Wait for DOM to render then compute position
             await tick();
             updateDropdownPosition();
+            // Scroll selected option into view so e.g. "22nd" is visible when reopening
+            const selectedId = typeof value === 'string' ? value : (Array.isArray(value) && value.length ? value[0] : '');
+            if (selectedId) {
+                const selectedIndex = filteredOptions.findIndex((opt) => opt.id === selectedId);
+                if (selectedIndex >= 0) {
+                    hoveredIndex = selectedIndex;
+                    // Scroll after next paint so the options list is in the DOM
+                    requestAnimationFrame(() => {
+                        const el = optionsListRef?.querySelector(`[data-option-id="${selectedId}"]`);
+                        if (el) {
+                            el.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+                        }
+                    });
+                }
+            } else {
+                hoveredIndex = -1;
+            }
             if (searchable) {
                 setTimeout(() => searchInputRef?.focus(), 0);
             }
@@ -335,13 +353,14 @@
             {/if}
 
             <!-- Options -->
-            <div class="dropdown-options">
+            <div class="dropdown-options" bind:this={optionsListRef}>
                 {#each filteredOptions as option, index (option.id)}
                     <div
                         class="dropdown-option"
                         class:dropdown-option-hover={hoveredIndex === index}
                         class:dropdown-option-selected={selectedSet.has(option.id)}
                         class:dropdown-option-disabled={option.disabled}
+                        data-option-id={option.id}
                         on:click={() => handleSelect(option)}
                         on:mouseenter={() => hoveredIndex = index}
                         on:keydown={(e) => e.key === 'Enter' && handleSelect(option)}
