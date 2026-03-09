@@ -48,6 +48,8 @@
         if (open && !prevOpen) {
             nameError = '';
             descriptionError = '';
+            appsError = '';
+            applyToError = '';
             if (rule) {
                 // Edit mode: sync from rule
                 formData = {
@@ -97,6 +99,8 @@
     let deviceTagsLoaded = false;
     let nameError = '';
     let descriptionError = '';
+    let appsError = '';
+    let applyToError = '';
     let selectedTagIdsForAdd: string[] = [];
     let addByTagLoading = false;
 
@@ -357,6 +361,9 @@
     }
 
     $: if (open && activeTab === 'apply_to') loadDeviceTags();
+    /** Clear inline errors when user fixes the condition. */
+    $: if (selectedApps.size > 0) appsError = '';
+    $: if (applyTo === 'all' || selectedDevices.length > 0) applyToError = '';
 
     function handleModalClose() {
         open = false;
@@ -367,13 +374,25 @@
         handleModalClose();
     }
 
+    /** TC-RDM-APR-0016: Enforce name max length during typing; show validation in real time. */
+    function handleNameInput() {
+        if (formData.name.length > PIN_RULE_NAME_MAX) {
+            formData.name = formData.name.slice(0, PIN_RULE_NAME_MAX);
+            nameError = '';
+        } else {
+            nameError = '';
+        }
+    }
+
     let saving = false;
     async function saveRule(asDraft: boolean) {
         if (!isCreateMode && !rule?.id) return;
         nameError = '';
         descriptionError = '';
+        appsError = '';
+        applyToError = '';
         if (!formData.name?.trim()) {
-            toast.error('Name is required');
+            nameError = 'Name is required';
             return;
         }
         const nameLen = formData.name.trim().length;
@@ -387,11 +406,13 @@
             return;
         }
         if (selectedApps.size === 0) {
-            toast.error('At least one app is required');
+            appsError = 'At least one app is required';
+            activeTab = 'pinned_app';
             return;
         }
         if (applyTo === 'devices' && selectedDevices.length === 0) {
-            toast.error('Please select at least one device');
+            applyToError = 'Please select at least one device';
+            activeTab = 'apply_to';
             return;
         }
         saving = true;
@@ -480,15 +501,9 @@
                     placeholder="Rule name"
                     maxlength={PIN_RULE_NAME_MAX}
                     state={nameError ? 'error' : 'default'}
-                    helperText={nameError}
-                    on:input={() => (nameError = '')}
+                    helperText={nameError || `${formData.name.length}/${PIN_RULE_NAME_MAX} characters`}
+                    on:input={handleNameInput}
                 />
-                <p class="char-count" class:char-count-limit={formData.name.length === PIN_RULE_NAME_MAX}>
-                    {formData.name.length}/{PIN_RULE_NAME_MAX} characters
-                    {#if formData.name.length === PIN_RULE_NAME_MAX}
-                        — Maximum length reached
-                    {/if}
-                </p>
             </div>
             <div class="field toggle-field">
                 <Toggle
@@ -513,7 +528,7 @@
 
         <TabGroup
             tabs={tabs}
-            activeTab={activeTab}
+            bind:activeTab
             type="underline"
             size="md"
             on:change={handleTabChange}
@@ -529,6 +544,9 @@
                 </div>
                 <div class="pinned-app-selected">
                     <p class="pinned-app-selected-label">Selected ({selectedAppsList.length} item{selectedAppsList.length !== 1 ? 's' : ''})</p>
+                    {#if appsError}
+                        <p class="field-error-inline">{appsError}</p>
+                    {/if}
                     {#if selectedAppsList.length === 0}
                         <p class="pinned-app-empty">No apps selected. Click &quot;Add App&quot; to select apps.</p>
                     {:else}
@@ -657,6 +675,9 @@
                         width="280px"
                     />
                 </div>
+                {#if applyToError}
+                    <p class="field-error-inline">{applyToError}</p>
+                {/if}
                 {#if applyTo === 'devices'}
                     <div class="apply-to-add-actions">
                         <div class="apply-to-by-tag">
@@ -813,6 +834,11 @@
     }
     .required {
         color: var(--ds-color-error-500);
+    }
+    .field-error-inline {
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-error-500);
+        margin: 0;
     }
     /* Tab strip does not grow */
     .edit-rule-modal-body :global(.tab-group) {
@@ -1075,13 +1101,5 @@
         font-size: var(--ds-text-sm);
         color: var(--ds-text-secondary);
         padding: var(--ds-space-3);
-    }
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
     }
 </style>
