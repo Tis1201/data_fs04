@@ -137,7 +137,23 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
             }
         }
     } else if (controlTarFile.endsWith('.zst')) {
-        await execAsync(`tar --zstd -xf "${controlTarPath}" control`, { cwd: workDir });
+        const tarListOutput = await execAsync(`tar --zstd -tf "${controlTarPath}"`, { cwd: workDir });
+        const controlFileName =
+            tarListOutput.stdout
+                .trim()
+                .split('\n')
+                .map((f) => f.trim())
+                .find((f) => f.endsWith('control') || f === 'control') || 'control';
+        await execAsync(`tar --zstd -xf "${controlTarPath}" "${controlFileName}"`, { cwd: workDir });
+        const extractedPath = join(workDir, controlFileName);
+        const finalPath = join(workDir, 'control');
+        if (extractedPath !== finalPath) {
+            try {
+                await rename(extractedPath, finalPath);
+            } catch {
+                // ignore
+            }
+        }
     } else {
         await execAsync(`tar -xf "${controlTarPath}" control`, { cwd: workDir });
     }

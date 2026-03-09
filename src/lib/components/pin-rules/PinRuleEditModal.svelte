@@ -518,10 +518,17 @@
                     bind:value={formData.description}
                     placeholder="Description (optional)"
                     rows={3}
+                    maxlength={PIN_RULE_DESCRIPTION_MAX}
                     state={descriptionError ? 'error' : 'default'}
                     helperText={descriptionError}
                     on:input={() => (descriptionError = '')}
                 />
+                <p class="char-count" class:char-count-limit={formData.description.length === PIN_RULE_DESCRIPTION_MAX}>
+                    {formData.description.length}/{PIN_RULE_DESCRIPTION_MAX} characters
+                    {#if formData.description.length === PIN_RULE_DESCRIPTION_MAX}
+                        — Maximum length reached
+                    {/if}
+                </p>
             </div>
         </div>
 
@@ -838,6 +845,14 @@
         font-size: var(--ds-text-sm);
         color: var(--ds-color-error-500);
         margin: 0;
+    }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
     /* Tab strip does not grow */
     .edit-rule-modal-body :global(.tab-group) {

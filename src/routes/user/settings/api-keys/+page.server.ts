@@ -143,6 +143,7 @@ export const actions: Actions = {
             const permission = form.get('permission') as string | null;
 
             if (!name?.trim()) return fail(400, { error: 'Key name is required' });
+            if (name.length > 100) return fail(400, { error: 'Key name must be 100 characters or less' });
             if (!permission) return fail(400, { error: 'Permission is required' });
 
             const accountId = getCurrentAccountId(cookies, locals);

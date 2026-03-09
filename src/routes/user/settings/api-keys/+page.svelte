@@ -87,6 +87,8 @@
 
     const permissionOptions = API_KEY_PERMISSIONS.map(p => ({ id: p.id, label: p.label }));
 
+    const MAX_KEY_NAME_LENGTH = 100;
+
     function handleSort(event: CustomEvent<SortState>) {
         const next = event.detail;
         const url = new URL($page.url);
@@ -164,6 +166,10 @@
     async function handleAddApiKey() {
         if (!newKeyName.trim()) {
             toast.error('Key name is required');
+            return;
+        }
+        if (newKeyName.length > MAX_KEY_NAME_LENGTH) {
+            toast.error(`Key name must be ${MAX_KEY_NAME_LENGTH} characters or less`);
             return;
         }
         if (!newKeyPermission) {
@@ -345,9 +351,9 @@ console.log(data);`;
             render: (_value, row) => {
                 const name = row.name || '—';
                 const esc = (s: string) => s.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-                const link = `<span class="text-[14px] font-medium text-[var(--ds-text-primary)]">${esc(name)}</span>`;
+                const link = `<span class="text-[14px] font-medium text-[var(--ds-text-primary)] truncate block" title="${esc(name)}">${esc(name)}</span>`;
                 const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${esc(row.id)}">${esc(row.id)}</div>` : '';
-                return `<div class="flex flex-col gap-0 min-w-0"><span class="min-w-0">${link}</span>${idLine}</div>`;
+                return `<div class="flex flex-col gap-0 min-w-0"><span class="block min-w-0 overflow-hidden">${link}</span>${idLine}</div>`;
             }
         },
         {
@@ -505,13 +511,22 @@ console.log(data);`;
     on:close={closeAddModal}
 >
     <div class="add-modal-body">
-        <InputField
-            type="text"
-            label="Key Name"
-            placeholder="Enter"
-            bind:value={newKeyName}
-            required={true}
-        />
+        <div class="add-modal-field">
+            <InputField
+                type="text"
+                label="Key Name"
+                placeholder="Enter"
+                bind:value={newKeyName}
+                required={true}
+                maxlength={MAX_KEY_NAME_LENGTH}
+            />
+            <p class="char-count" class:char-count-limit={newKeyName.length === MAX_KEY_NAME_LENGTH}>
+                {newKeyName.length}/{MAX_KEY_NAME_LENGTH} characters
+                {#if newKeyName.length === MAX_KEY_NAME_LENGTH}
+                    — Maximum length reached
+                {/if}
+            </p>
+        </div>
         <div class="permission-field">
             <Dropdown
                 label="Permission"
@@ -680,6 +695,22 @@ console.log(data);`;
         display: flex;
         flex-direction: column;
         gap: var(--ds-space-4);
+    }
+
+    .add-modal-field {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
 
     .permission-field {

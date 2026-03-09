@@ -174,7 +174,14 @@
                             bind:value={formData.description}
                             placeholder="Enter rule description (optional)"
                             rows={3}
+                            maxlength={PIN_RULE_DESCRIPTION_MAX}
                         />
+                        <p class="char-count text-xs text-muted-foreground" class:char-count-limit={formData.description.length === PIN_RULE_DESCRIPTION_MAX}>
+                            {formData.description.length}/{PIN_RULE_DESCRIPTION_MAX} characters
+                            {#if formData.description.length === PIN_RULE_DESCRIPTION_MAX}
+                                — Maximum length reached
+                            {/if}
+                        </p>
                     </div>
 
                     <!-- Apps (multi-select picker with search) -->

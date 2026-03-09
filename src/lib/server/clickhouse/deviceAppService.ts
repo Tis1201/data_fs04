@@ -266,7 +266,8 @@ export class DeviceAppService {
             metadata,
             created_at,
             last_modified,
-            size_bytes
+            size_bytes,
+            installed_on
           FROM mv_device_apps 
           WHERE ${whereConditions}
           ORDER BY ${orderBy}
@@ -290,7 +291,7 @@ export class DeviceAppService {
         metadata: app.metadata || {},
         created_at: app.created_at,
         last_modified: app.last_modified || app.created_at,
-        install_date: app.install_date || app.created_at,
+        install_date: app.installed_on || app.install_date || app.created_at,
         // Parse size_bytes: if it's a string like "30MB", convert to bytes
         size_bytes: typeof app.size_bytes === 'string' 
           ? parseSizeString(app.size_bytes) 

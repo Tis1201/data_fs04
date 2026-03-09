@@ -12,7 +12,7 @@ import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 const profileSchema = z.object({
-    name: z.string().min(1, 'Profile name is required').max(500, 'Profile name must be 500 characters or less'),
+    name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be 100 characters or less'),
     description: z.string().max(500).optional(),
     isActive: z.string().optional().default('true'),
     settings: z.string().optional().default('[]'),

@@ -145,7 +145,7 @@
             <div class="resource-overview-grid">
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Resource Name</span>
-                    <Tooltip text={resource.path || resource.name || ''} position="top" portal={true} maxWidth={600}>
+                    <Tooltip text={resource.name || ''} position="top" portal={true} maxWidth={600}>
                         <span class="resource-overview-value resource-overview-truncate">{nameDisplay}</span>
                     </Tooltip>
                 </div>

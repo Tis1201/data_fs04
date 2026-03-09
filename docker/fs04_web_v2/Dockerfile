@@ -49,13 +49,14 @@ WORKDIR /app
 ENV ROLLUP_SKIP_NODE_NATIVE=1
 ENV NODE_ENV=production
 
-# Install runtime libraries for node-canvas and system deps
+# Install runtime libraries for node-canvas and system deps (zstd for .deb control.tar.zst)
 RUN apt-get update && apt-get install -y --no-install-recommends \
   ca-certificates bash \
   libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libjpeg62-turbo libgif7 librsvg2-2 libpixman-1-0 libfreetype6 \
   openssl \
   binutils \
   xz-utils \
+  zstd \
   tar \
   && rm -rf /var/lib/apt/lists/*
 

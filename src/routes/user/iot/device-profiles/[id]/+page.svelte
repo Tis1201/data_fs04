@@ -632,8 +632,9 @@
                             style="font-weight: 400; font-size: 14px; line-height: 20px; color: var(--ds-color-neutral-true-600);"
                         >Profile Name</span>
                         <span
-                            class="font-medium"
+                            class="font-medium truncate"
                             style="font-size: 16px; line-height: 24px; color: var(--ds-color-neutral-true-900);"
+                            title={profile.name}
                         >{profile.name}</span>
                     </div>
                     <div class="flex flex-col gap-1 min-w-0 flex-1">
@@ -952,7 +953,7 @@
                                             <tr class="assigned-devices-tbody-tr">
                                                 <td class="assigned-devices-td assigned-devices-td-name">
                                                     <div class="assigned-devices-name-cell">
-                                                        <span class="assigned-devices-name-text">{row.name}</span>
+                                                        <span class="assigned-devices-name-text" title={row.name}>{row.name}</span>
                                                         {#if row.deviceType && row.deviceType !== '—'}
                                                             <div class="assigned-devices-tags">
                                                                 <span class="assigned-devices-tag">{row.deviceType}</span>
@@ -1741,6 +1742,8 @@
         justify-content: center;
         align-items: flex-start;
         gap: 6px;
+        min-width: 0;
+        overflow: hidden;
     }
 
     .assigned-devices-name-text {
@@ -1748,6 +1751,11 @@
         font-size: 14px;
         line-height: 20px;
         color: var(--ds-color-neutral-true-900, #141414);
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 100%;
     }
 
     .assigned-devices-tags {

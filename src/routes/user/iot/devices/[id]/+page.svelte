@@ -713,7 +713,7 @@
         { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px' },
         { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px' },
         { id: 'size', header: 'Size', type: 'text', accessor: (row: DeviceApp) => formatBytes(row.size_bytes), width: '80px' },
-        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => formatInstallDate(row.install_date || row.last_modified, deviceInfo?.timezone), width: '120px' },
+        { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => row.install_date || row.last_modified || 'N/A', width: '120px' },
         { id: 'actions', header: 'Actions', type: 'moreMenu', align: 'right', width: '80px', getMenuActions: (row: DeviceApp) => [
             { id: 'restart', label: 'Restart App', onClick: (r: DeviceApp) => handleRestartApp(r) },
             { id: 'settings', label: 'App Settings', onClick: (r: DeviceApp) => handleAppSettings(r) },
