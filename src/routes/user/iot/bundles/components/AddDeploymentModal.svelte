@@ -1,5 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
+    import { deserialize } from '$app/forms';
     import {
         Modal,
         InputField,
@@ -11,6 +12,8 @@
     import type { DropdownOption } from '$lib/design-system/components';
     import { OS_OPTIONS } from '$lib/utils/bundleUtils';
     import { toast } from '$lib/stores/alertToast';
+
+    const MAX_NAME_LENGTH = 200;
 
     export let open = false;
 
@@ -74,6 +77,10 @@
 
     $: showScheduleFields = schedule === 'future';
 
+    $: if (nameError && name.length > 0 && name.length <= MAX_NAME_LENGTH) {
+        nameError = '';
+    }
+
     $: if (schedule === 'none' || schedule === '') {
         startDate = '';
         startTime = '09:00';
@@ -88,6 +95,8 @@
         startDateError = '';
         if (!name.trim()) {
             nameError = 'Name is required';
+        } else if (name.length > MAX_NAME_LENGTH) {
+            nameError = `Name must be ${MAX_NAME_LENGTH} characters or less`;
         }
         if (!os) {
             osError = 'Target OS is required';
@@ -185,9 +194,42 @@
                     responseText = await res.text();
                 }
                 try {
-                    const data = JSON.parse(responseText);
-                    const msg = data?.message || data?.error || data?.form?.data?.message || 'Failed to create deployment.';
-                    toast.error(msg);
+                    let data: { type?: string; data?: unknown } = {};
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch {
+                        data = typeof responseText === 'string' && responseText.trim()
+                            ? (deserialize(responseText) as { type?: string; data?: unknown })
+                            : {};
+                    }
+                    const payload = data?.data;
+                    let parsedPayload = typeof payload === 'object' ? payload : null;
+                    if (payload && typeof payload === 'string') {
+                        try {
+                            parsedPayload = deserialize(payload) as Record<string, unknown>;
+                        } catch {
+                            // Ignore deserialize errors
+                        }
+                    }
+                    const form = parsedPayload?.form as { errors?: Record<string, string[] | string> } | undefined;
+                    if (form?.errors && typeof form.errors === 'object') {
+                        const getErr = (key: string) => {
+                            const v = form.errors![key];
+                            return Array.isArray(v) ? v[0] : (typeof v === 'string' ? v : '');
+                        };
+                        nameError = getErr('name');
+                        osError = getErr('os');
+                        batchSizeError = getErr('waveSize');
+                        const schedErr = getErr('scheduledAt') || getErr('scheduledTime');
+                        if (schedErr) {
+                            scheduleError = schedErr;
+                            startDateError = schedErr;
+                        }
+                    }
+                    const msg = form?.errors
+                        ? (nameError || osError || batchSizeError || scheduleError)
+                        : (data?.message || (data as any)?.error || (parsedPayload as any)?.form?.data?.message || 'Failed to create deployment.');
+                    toast.error(msg || 'Failed to create deployment.');
                 } catch {
                     toast.error('Failed to create deployment. Please try again.');
                 }
@@ -272,9 +314,16 @@
                         placeholder="Enter"
                         bind:value={name}
                         required={true}
+                        maxlength={MAX_NAME_LENGTH}
                         state={nameError ? 'error' : 'default'}
                         helperText={nameError}
                     />
+                    <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
+                        {name.length}/{MAX_NAME_LENGTH} characters
+                        {#if name.length === MAX_NAME_LENGTH}
+                            — Maximum length reached
+                        {/if}
+                    </p>
                 </div>
                 <div class="row-version-batch">
                     <div class="field-wrap version-field">
@@ -327,6 +376,7 @@
                         errorMessage={osError}
                         on:change={handleOsChange}
                     />
+                    <p class="field-spacer" aria-hidden="true">&nbsp;</p>
                 </div>
                 <div class="field-wrap">
                     <Dropdown
@@ -531,6 +581,23 @@
         margin: 0;
         font-size: var(--ds-text-xs);
         color: var(--ds-color-error-600);
+    }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
+    }
+    /* Hidden row to align Target to Operating System height with Deployment Name (which has char count) */
+    .field-spacer {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        min-height: 20px;
+        visibility: hidden;
+        pointer-events: none;
     }
     .device-behavior-section {
         margin-top: var(--ds-space-6);

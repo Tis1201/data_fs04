@@ -63,7 +63,7 @@
         }
     }
 
-    // Filter modal: Status (Connection Status) + Location dropdowns per design
+    // Filter modal: Status (Connection Status) + Location – aligned with pin-rules pattern
     let showFilterModal = false;
     const STATUS_OPTIONS = [
         { id: 'ACTIVE', label: 'Active' },
@@ -82,6 +82,43 @@
         ...(data.availableLocations || []).map((loc) => ({ id: loc, label: loc, type: 'checkbox' as const }))
     ];
 
+    // All and specific options mutually exclusive – same as pin-rules
+    function handleStatusFilterChange(e: CustomEvent<string | string[]>) {
+        const val = e.detail;
+        const arr = Array.isArray(val) ? val : (val ? [val] : []);
+        if (arr.includes('__all__') && !filterStatuses.includes('__all__')) {
+            filterStatuses = ['__all__'];
+            return;
+        }
+        if (!arr.includes('__all__') && filterStatuses.includes('__all__')) {
+            filterStatuses = arr.length > 0 ? arr : ['__all__'];
+            return;
+        }
+        if (arr.some((v) => v !== '__all__')) {
+            filterStatuses = arr.filter((v) => v !== '__all__');
+            return;
+        }
+        filterStatuses = arr.length > 0 ? arr : ['__all__'];
+    }
+
+    function handleLocationFilterChange(e: CustomEvent<string | string[]>) {
+        const val = e.detail;
+        const arr = Array.isArray(val) ? val : (val ? [val] : []);
+        if (arr.includes('__all__') && !filterLocations.includes('__all__')) {
+            filterLocations = ['__all__'];
+            return;
+        }
+        if (!arr.includes('__all__') && filterLocations.includes('__all__')) {
+            filterLocations = arr.length > 0 ? arr : ['__all__'];
+            return;
+        }
+        if (arr.some((v) => v !== '__all__')) {
+            filterLocations = arr.filter((v) => v !== '__all__');
+            return;
+        }
+        filterLocations = arr.length > 0 ? arr : ['__all__'];
+    }
+
     function applyFilter() {
         const url = new URL($page.url);
         const statuses = filterStatuses.filter((s) => s !== '__all__');
@@ -91,7 +128,7 @@
         if (locations.length) url.searchParams.set('locations', locations.join(','));
         else url.searchParams.delete('locations');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
     }
 
@@ -102,13 +139,16 @@
         url.searchParams.delete('statuses');
         url.searchParams.delete('locations');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
     }
 
     function openFilterModal() {
-        filterStatuses = $page.url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
-        filterLocations = $page.url.searchParams.get('locations')?.split(',').filter(Boolean) || [];
+        // Include __all__ from URL so "All" selection is retained when reopening (same as pin-rules)
+        const statusesParam = $page.url.searchParams.get('statuses');
+        const locationsParam = $page.url.searchParams.get('locations');
+        filterStatuses = statusesParam ? statusesParam.split(',').filter(Boolean) : ['__all__'];
+        filterLocations = locationsParam ? locationsParam.split(',').filter(Boolean) : ['__all__'];
         showFilterModal = true;
     }
 
@@ -401,7 +441,7 @@
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+            goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         }, 500);
     }
 
@@ -443,13 +483,13 @@
             url.searchParams.delete('sort_order');
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
         const url = new URL($page.url);
         url.searchParams.set('page', String(event.detail));
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function getControllerId(row: SensorRow): string {
@@ -477,9 +517,16 @@
             id: 'name',
             header: 'Sensor Name',
             accessor: (row: SensorRow) => row.name ?? '',
-            type: 'text' as const,
+            type: 'custom' as const,
             sortable: true,
-            width: '220px'
+            width: '220px',
+            render: (_value: unknown, row: SensorRow) => {
+                const name = row.name ?? '—';
+                const id = row.id ?? '';
+                const link = `<a href="/user/controllers/radar/${getControllerId(row)}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline truncate block">${name.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}</a>`;
+                const idLine = id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${id.replace(/"/g, '&quot;')}">${id.replace(/</g, '&lt;')}</div>` : '';
+                return `<div class="flex flex-col gap-0 min-w-0"><span class="min-w-0">${link}</span>${idLine}</div>`;
+            }
         },
         {
             id: 'location',
@@ -623,9 +670,10 @@
                 label=""
                 placeholder="Select"
                 options={statusDropdownOptions}
-                bind:value={filterStatuses}
+                value={filterStatuses}
                 multiple={true}
                 width="100%"
+                on:change={handleStatusFilterChange}
             />
         </div>
         <div class="flex flex-col gap-2 w-full min-w-0">
@@ -634,9 +682,10 @@
                 label=""
                 placeholder="Select"
                 options={locationDropdownOptions}
-                bind:value={filterLocations}
+                value={filterLocations}
                 multiple={true}
                 width="100%"
+                on:change={handleLocationFilterChange}
             />
         </div>
     </div>
@@ -720,10 +769,17 @@
                         bind:value={addDeviceForm.name}
                         placeholder="Enter"
                         required={true}
+                        maxlength={500}
                         disabled={addDeviceLoading}
                         state={addDeviceNameError ? 'error' : 'default'}
                         helperText={addDeviceNameError}
                     />
+                    <p class="add-device-char-count" class:add-device-char-count-limit={addDeviceForm.name.length === 500}>
+                        {addDeviceForm.name.length}/500 characters
+                        {#if addDeviceForm.name.length === 500}
+                            — Maximum length reached
+                        {/if}
+                    </p>
                 </div>
                 <div class="add-device-field add-device-field-full">
                     <InputField
@@ -1488,6 +1544,14 @@
     }
     .add-device-field-with-pin-help {
         gap: 16px;
+    }
+    .add-device-char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .add-device-char-count.add-device-char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
     /* Path Tracking row – Figma: Device record 816×52, table cell text (flex 1) + table cell toggle 36×52 */
     .add-device-path-tracking-row {

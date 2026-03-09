@@ -81,6 +81,8 @@
     export let selectable = true;
     export let selectedRows: DeviceRow[] = [];
     export let loading = false;
+    /** When provided, device name is rendered as an <a href> link (like other tables). Enables URL on hover, right-click "Open in new tab", etc. */
+    export let detailHref: ((row: DeviceRow) => string) | undefined = undefined;
     // Allows routes to hide specific columns (by column id) without forking this table.
     // Example: hiddenColumns={['deviceType','usage']}
     export let hiddenColumns: string[] = [];
@@ -138,15 +140,16 @@
     $: visibleColumns = columns.filter((c) => !hiddenSet.has(c.id));
 
     // Calculate usage health status for client-side filtering
+    // Aligned with dashboard: Critical >=80%, Warning 60-79%, Healthy <60%
     function getUsageHealthStatus(row: DeviceRow): 'Healthy' | 'Warning' | 'Critical' {
         const cpu = row.cpuUsage ?? 0;
         const mem = row.memUsage ?? 0;
         const disk = row.diskUsage ?? 0;
         
-        // Critical if any metric > 80%
-        if (cpu > 80 || mem > 80 || disk > 80) return 'Critical';
-        // Warning if any metric > 50%
-        if (cpu > 50 || mem > 50 || disk > 50) return 'Warning';
+        // Critical if any metric >= 80%
+        if (cpu >= 80 || mem >= 80 || disk >= 80) return 'Critical';
+        // Warning if any metric >= 60%
+        if (cpu >= 60 || mem >= 60 || disk >= 60) return 'Warning';
         // Healthy otherwise
         return 'Healthy';
     }
@@ -512,14 +515,27 @@
                             {#if !hiddenSet.has('name')}
                                 <td class="h-[72px]" style="padding: 12px 16px; border-bottom: 1px solid #EAECF0;">
                                     <div class="flex flex-col gap-[6px]">
-                                        <button
-                                            type="button"
-                                            class="device-name-link text-left"
-                                            style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); cursor: pointer; background: none; border: none; padding: 0;"
-                                            on:click={() => handleAction("view", row)}
-                                        >
-                                            {row.name}
-                                        </button>
+                                        {#if detailHref}
+                                            <a
+                                                href={detailHref(row)}
+                                                class="device-name-link text-left"
+                                                style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); cursor: pointer; text-decoration: none;"
+                                            >
+                                                {row.name}
+                                            </a>
+                                        {:else}
+                                            <button
+                                                type="button"
+                                                class="device-name-link text-left"
+                                                style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-primary-700); cursor: pointer; background: none; border: none; padding: 0;"
+                                                on:click={() => handleAction("view", row)}
+                                            >
+                                                {row.name}
+                                            </button>
+                                        {/if}
+                                        {#if row.id}
+                                            <div class="device-id-cell" title={row.id} style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px;">{row.id}</div>
+                                        {/if}
                                         {#if row.tags && row.tags.length > 0}
                                             <div class="flex items-center gap-1 flex-nowrap">
                                                 {#each row.tags.slice(0, 3) as deviceTag}

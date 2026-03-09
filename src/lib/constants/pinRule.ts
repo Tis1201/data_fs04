@@ -1,5 +1,5 @@
 /** TC-RDM-APR-0016: Max characters for pin rule name (consistent with tag name limit). */
-export const PIN_RULE_NAME_MAX = 50;
+export const PIN_RULE_NAME_MAX = 500;
 
 /** Max characters for pin rule description (consistent with tag description limit). */
 export const PIN_RULE_DESCRIPTION_MAX = 200;

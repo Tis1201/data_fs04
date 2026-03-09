@@ -483,6 +483,12 @@
                     helperText={nameError}
                     on:input={() => (nameError = '')}
                 />
+                <p class="char-count" class:char-count-limit={formData.name.length === PIN_RULE_NAME_MAX}>
+                    {formData.name.length}/{PIN_RULE_NAME_MAX} characters
+                    {#if formData.name.length === PIN_RULE_NAME_MAX}
+                        — Maximum length reached
+                    {/if}
+                </p>
             </div>
             <div class="field toggle-field">
                 <Toggle
@@ -1069,5 +1075,13 @@
         font-size: var(--ds-text-sm);
         color: var(--ds-text-secondary);
         padding: var(--ds-space-3);
+    }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
 </style>

@@ -7,13 +7,13 @@
     export let diskUsage: number | null = null;
 
     // Get badge color based on usage value
-    // Per Figma: Good = Green (<50%), Warning = Yellow (50-80%), Error = Red (>80%)
+    // Aligned with dashboard: Green (<60%), Warning (60-79%), Error (>=80%)
     // When no data available, show green (assumed healthy)
     function getUsageColor(value: number | null): BadgeColor {
         if (value === null || value === undefined) {
             return "success"; // Default to green when no data (assumed healthy)
         }
-        if (value < 50) {
+        if (value < 60) {
             return "success"; // green - healthy
         }
         if (value < 80) {

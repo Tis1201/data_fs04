@@ -5,6 +5,7 @@
     import DeviceSelector from '$lib/components/bundles_ui/device_select/DeviceSelector.svelte';
     import { toast } from 'svelte-sonner';
     import { onMount } from 'svelte';
+    import { PIN_RULE_NAME_MAX } from '$lib/constants/pinRule';
 
     export let rule: any;
     export let title: string;
@@ -121,7 +122,14 @@
                     type="text"
                     bind:value={formData.name}
                     placeholder="Rule name"
+                    maxlength={PIN_RULE_NAME_MAX}
                 />
+                <p class="char-count" class:char-count-limit={formData.name.length === PIN_RULE_NAME_MAX}>
+                    {formData.name.length}/{PIN_RULE_NAME_MAX} characters
+                    {#if formData.name.length === PIN_RULE_NAME_MAX}
+                        — Maximum length reached
+                    {/if}
+                </p>
             </div>
             <div>
                 <Toggle
@@ -192,3 +200,14 @@
     on:select={handleDevicesSelected}
     on:close={() => (devicePickerOpen = false)}
 />
+
+<style>
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
+    }
+</style>

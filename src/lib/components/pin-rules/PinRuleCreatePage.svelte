@@ -156,7 +156,14 @@
                             bind:value={formData.name}
                             placeholder="Enter rule name"
                             required
+                            maxlength={PIN_RULE_NAME_MAX}
                         />
+                        <p class="char-count" class:char-count-limit={formData.name.length === PIN_RULE_NAME_MAX}>
+                            {formData.name.length}/{PIN_RULE_NAME_MAX} characters
+                            {#if formData.name.length === PIN_RULE_NAME_MAX}
+                                — Maximum length reached
+                            {/if}
+                        </p>
                     </div>
 
                     <!-- Description -->
@@ -304,4 +311,15 @@
         </Card>
     </div>
 </AdminPageLayout>
+
+<style>
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
+    }
+</style>
 

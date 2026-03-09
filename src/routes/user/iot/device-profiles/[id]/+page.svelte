@@ -782,6 +782,10 @@
                                             <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getSettingValue('reboot_schedule_frequency') || 'daily'}</span></span>
                                             {#if (getSettingValue('reboot_schedule_frequency') || 'daily') === 'weekly'}
                                                 <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getSettingValue('reboot_schedule_day') || 'monday'}</span></span>
+                                            {:else if (getSettingValue('reboot_schedule_frequency') || 'daily') === 'monthly'}
+                                                {@const d = parseInt(getSettingValue('reboot_schedule_day') || '1') || 1}
+                                                {@const suffix = (d % 10 === 1 && d !== 11) ? 'st' : (d % 10 === 2 && d !== 12) ? 'nd' : (d % 10 === 3 && d !== 13) ? 'rd' : 'th'}
+                                                <span class="schedule-item"><span class="schedule-label">Day:</span> {d}{suffix}</span>
                                             {/if}
                                             <span class="schedule-item"><span class="schedule-label">Time:</span> {getSettingValue('reboot_schedule_time') || '02:00'}</span>
                                         </div>
@@ -808,6 +812,10 @@
                                             <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getSettingValue('download_schedule_frequency') || 'daily'}</span></span>
                                             {#if (getSettingValue('download_schedule_frequency') || 'daily') === 'weekly'}
                                                 <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getSettingValue('download_schedule_day') || 'monday'}</span></span>
+                                            {:else if (getSettingValue('download_schedule_frequency') || 'daily') === 'monthly'}
+                                                {@const d = parseInt(getSettingValue('download_schedule_day') || '1') || 1}
+                                                {@const suffix = (d % 10 === 1 && d !== 11) ? 'st' : (d % 10 === 2 && d !== 12) ? 'nd' : (d % 10 === 3 && d !== 13) ? 'rd' : 'th'}
+                                                <span class="schedule-item"><span class="schedule-label">Day:</span> {d}{suffix}</span>
                                             {/if}
                                             <span class="schedule-item"><span class="schedule-label">Time:</span> {getSettingValue('download_schedule_time') || '03:00'}</span>
                                         </div>

@@ -122,7 +122,8 @@
                         record: resource,
                         baseUrl: baseUrl,
                         idField: "id",
-                        nameField: "name"
+                        nameField: "name",
+                        showId: true
                     }
                 };
             }

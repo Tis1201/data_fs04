@@ -73,6 +73,7 @@
 
     const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file';
     const MAX_FILE_SIZE_MB = 500;
+    const MAX_NAME_LENGTH = 500;
     const FILE_HELPER = `Maximum file size ${MAX_FILE_SIZE_MB} MB, and allowed file types: .zip, .cpk, .deb, .apk, .exe.`;
     const FILE_ACCEPT = '.zip,.cpk,.deb,.apk,.exe';
 
@@ -204,16 +205,17 @@
     }
 
     const RESOURCE_NAME_REQUIRED = 'Resource name is required';
+    const RESOURCE_NAME_TOO_LONG = `Resource name must be ${MAX_NAME_LENGTH} characters or less`;
     const FILE_REQUIRED = 'Resource upload file is required';
     const ACCOUNT_REQUIRED = 'Please select Account';
-    $: resourceNameError = errorMessage === RESOURCE_NAME_REQUIRED ? errorMessage : '';
+    $: resourceNameError = (errorMessage === RESOURCE_NAME_REQUIRED || errorMessage === RESOURCE_NAME_TOO_LONG) ? errorMessage : '';
     $: fileUploadError = errorMessage === FILE_REQUIRED;
     $: accountError = errorMessage === ACCOUNT_REQUIRED;
     // Clear resource name error when user fills name (or it’s auto-filled from file) so UI stays in sync
-    $: if (name?.trim() && errorMessage === RESOURCE_NAME_REQUIRED) errorMessage = null;
+    $: if (name?.trim() && name.length <= MAX_NAME_LENGTH && (errorMessage === RESOURCE_NAME_REQUIRED || errorMessage === RESOURCE_NAME_TOO_LONG)) errorMessage = null;
     // Clear file required error when user uploads a file so validation reflects current state
     $: if (mode === 'add' && (selectedFile != null || uploadedFiles.length > 0) && errorMessage === FILE_REQUIRED) errorMessage = null;
-    $: serverFileError = errorMessage != null && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && isFileRelatedError(errorMessage);
+    $: serverFileError = errorMessage != null && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== RESOURCE_NAME_TOO_LONG && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && isFileRelatedError(errorMessage);
     function isFileRelatedError(msg: string): boolean {
         const lower = msg.toLowerCase();
         return lower.includes('file') || lower.includes('upload') || lower.includes('allowed') || lower.includes('type') || lower.includes('format') || lower.includes('extension');
@@ -551,6 +553,10 @@
             errorMessage = RESOURCE_NAME_REQUIRED;
             return;
         }
+        if (name.length > MAX_NAME_LENGTH) {
+            errorMessage = RESOURCE_NAME_TOO_LONG;
+            return;
+        }
         if (mode === 'add' && !selectedFile) {
             errorMessage = FILE_REQUIRED;
             return;
@@ -698,7 +704,7 @@
     on:close={handleClose}
 >
     <form on:submit|preventDefault={handleSubmit} class="resource-modal-form">
-        {#if errorMessage && !errorFromServer && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && !serverFileError}
+        {#if errorMessage && !errorFromServer && errorMessage !== RESOURCE_NAME_REQUIRED && errorMessage !== RESOURCE_NAME_TOO_LONG && errorMessage !== FILE_REQUIRED && errorMessage !== ACCOUNT_REQUIRED && !serverFileError}
             <p class="resource-form-error">{errorMessage}</p>
         {/if}
 
@@ -759,10 +765,17 @@
                 placeholder="Enter"
                 bind:value={name}
                 required={true}
+                maxlength={MAX_NAME_LENGTH}
                 state={resourceNameError ? 'error' : 'default'}
                 helperText={resourceNameError}
                 disabled={false}
             />
+            <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
+                {name.length}/{MAX_NAME_LENGTH} characters
+                {#if name.length === MAX_NAME_LENGTH}
+                    — Maximum length reached
+                {/if}
+            </p>
         </div>
         <div class="resource-field">
             <InputField
@@ -885,6 +898,14 @@
         width: 100%;
         min-width: 0;
         font-family: var(--ds-font-family-primary);
+    }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
     .resource-form-error {
         font-size: var(--ds-text-sm);

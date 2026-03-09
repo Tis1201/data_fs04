@@ -12,7 +12,7 @@ import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 
 const profileSchema = z.object({
-    name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
+    name: z.string().min(1, 'Profile name is required').max(500, 'Profile name must be 500 characters or less'),
     description: z.string().max(500).optional(),
     isActive: z.string().optional().default('true'),
     settings: z.string().optional().default('[]'),
@@ -150,6 +150,7 @@ export const actions: Actions = {
                     }
                 });
                 if (existingByName) {
+                    form.errors.name = ['A profile with this name already exists. Please choose a unique name.'];
                     return fail(400, { form, message: 'A profile with this name already exists. Please choose a unique name.' });
                 }
                 let settings: any[] = [];
@@ -252,6 +253,7 @@ export const actions: Actions = {
                     }
                 });
                 if (existingByName) {
+                    form.errors.name = ['A profile with this name already exists. Please choose a unique name.'];
                     return fail(400, { form, message: 'A profile with this name already exists. Please choose a unique name.' });
                 }
                 let settingsArray: any[] = [];

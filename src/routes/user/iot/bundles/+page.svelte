@@ -470,7 +470,9 @@
             render: (value: unknown, row: Bundle) => {
                 const label = escapeHtml(row.name || row.id || 'Unnamed');
                 const href = `${basePath}/${row.id}`;
-                return `<a href="${escapeHtml(href)}" class="ds-deployment-name ds-deployment-name-link" title="${label}">${label}</a>`;
+                const link = `<a href="${escapeHtml(href)}" class="ds-deployment-name ds-deployment-name-link" title="${label}">${label}</a>`;
+                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</div>` : '';
+                return `<div class="flex flex-col gap-0 min-w-0"><span class="min-w-0">${link}</span>${idLine}</div>`;
             }
         },
         {

@@ -1192,6 +1192,7 @@
         {pagination}
         {sort}
         {loading}
+        detailHref={(row) => `/user/iot/devices/${row.id}`}
         bind:selectedRows
         on:sort={handleSort}
         on:pageChange={handlePageChange}

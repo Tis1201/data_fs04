@@ -239,6 +239,7 @@ export const actions: Actions = {
 
             if (!id) return { success: false, error: 'Missing template id' };
             if (!name?.trim()) return { success: false, error: 'Template name is required' };
+            if (name.length > 500) return { success: false, error: 'Template name must be 500 characters or less' };
 
             const accountId = getCurrentAccountId(cookies, locals);
             if (!accountId) return { success: false, error: 'No account found' };

@@ -3,6 +3,7 @@ import type { PageServerLoad } from './$types';
 import {
     getBulkDeviceInformationByDeviceIds,
     getMultipleDeviceInformation,
+    getMonthlyIssuesFromClickHouse,
     type DeviceInformation
 } from '$lib/server/clickhouse/client';
 import { logger } from '$lib/server/logger';
@@ -165,11 +166,11 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         const macAddresses = devicesWithStatus
             .map((d) => d.macAddress || d.lanMac || d.wifiMac)
             .filter((mac): mac is string => Boolean(mac));
-        const deviceIds = devicesWithStatus.map((d: { id: string }) => d.id);
+        const clickhouseDeviceIds = devicesWithStatus.map((d: { id: string }) => d.id);
 
         const [byMacResult, byDeviceIdResult] = await Promise.all([
             macAddresses.length > 0 ? getMultipleDeviceInformation(macAddresses) : Promise.resolve(new Map<string, DeviceInformation>()),
-            deviceIds.length > 0 ? getBulkDeviceInformationByDeviceIds(deviceIds) : Promise.resolve(new Map<string, DeviceInformation>())
+            clickhouseDeviceIds.length > 0 ? getBulkDeviceInformationByDeviceIds(clickhouseDeviceIds) : Promise.resolve(new Map<string, DeviceInformation>())
         ]);
 
         for (const device of devicesWithStatus) {
@@ -219,6 +220,16 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         // If ClickHouse unavailable, counts stay at 0
     }
 
+    // Network Unstable (offline >70%): devices currently offline, disconnected >21 days ago (70% of 30 days)
+    const OFFLINE_70_PCT_DAYS = 21;
+    const offline70Cutoff = new Date(Date.now() - OFFLINE_70_PCT_DAYS * 24 * 60 * 60 * 1000);
+    const offline70Devices = devicesWithStatus.filter(
+        d => !d.connected && d.disconnectedAt && d.disconnectedAt <= offline70Cutoff
+    );
+    offline70Devices.forEach(d => devicesWithCriticalIssue.add((d as { id: string }).id));
+    networkCount += offline70Devices.length;
+    criticalIssuesCount = devicesWithCriticalIssue.size;
+
     // Warnings: devices that haven't been seen recently but are marked as connected
     const staleDevices = devicesWithStatus.filter(d => {
         if (!d.connected) return false;
@@ -246,86 +257,99 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         staleDevices: staleDevices.map(d => d.id)
     });
 
-    // Get monthly data for charts from action logs
-    // Since we don't have detailed health metrics, we'll use action log data
-    const getMonthlyActionData = async () => {
-        const monthlyData: Record<string, number[]> = {
-            cpuOverload: Array(12).fill(0),
-            memoryCritical: Array(12).fill(0),
-            storageLow: Array(12).fill(0),
-            networkUnstable: Array(12).fill(0),
-            updateFailed: Array(12).fill(0),
-            offline: Array(12).fill(0)
-        };
+    // Get monthly data for charts: ClickHouse (actual metrics) + Prisma (updateFailed, offline, networkUnstable)
+    // Update Failed: Bundle + manual app installs + firmware (DeviceActionLog + BundleInstallDevice)
+    // Network Unstable: weak signal (ClickHouse) OR device offline >70% of month (disconnected early in month)
+    const deviceIds = devicesWithStatus.map((d: { id: string }) => d.id);
 
-        // Get action logs by month
-        const actionLogs = await locals.prisma.deviceActionLog.findMany({
+    const [clickHouseIssues, actionLogs, devicesWithDisconnectInYear, allOfflineDevices, bundleInstallFailures] = await Promise.all([
+        getMonthlyIssuesFromClickHouse(deviceIds, startOfYear, endOfYear),
+        locals.prisma.deviceActionLog.findMany({
             where: {
                 device: deviceFilter,
-                initiatedAt: {
-                    gte: startOfYear,
-                    lte: endOfYear
-                },
+                initiatedAt: { gte: startOfYear, lte: endOfYear },
                 status: { in: ['failed', 'timeout'] }
             },
-            select: {
-                actionType: true,
-                initiatedAt: true,
-                status: true
-            }
-        });
-
-        // Map action types to categories and count by month
-        actionLogs.forEach(log => {
-            const month = log.initiatedAt.getMonth();
-
-            // Map action types to dashboard categories
-            switch (log.actionType) {
-                case 'firmware_update':
-                case 'install':
-                    monthlyData.updateFailed[month]++;
-                    break;
-                case 'ping':
-                case 'status_check':
-                    monthlyData.networkUnstable[month]++;
-                    break;
-                case 'config_update':
-                    monthlyData.storageLow[month]++;
-                    break;
-                default:
-                    // Count other failures as general issues
-                    monthlyData.cpuOverload[month]++;
-            }
-        });
-
-        // Get offline events by month (devices that disconnected)
-        const devicesWithDisconnect = await locals.prisma.device.findMany({
+            select: { actionType: true, initiatedAt: true }
+        }),
+        // For offline[] chart: devices that disconnected within the selected year
+        locals.prisma.device.findMany({
             where: {
                 ...deviceFilter,
-                disconnectedAt: {
-                    gte: startOfYear,
-                    lte: endOfYear
-                }
+                disconnectedAt: { gte: startOfYear, lte: endOfYear }
             },
-            select: {
-                disconnectedAt: true
-            }
-        });
+            select: { disconnectedAt: true }
+        }),
+        // For networkUnstable >70%: all offline devices, including those disconnected before year start
+        // (a device disconnected in Dec prior year is offline >70% of Jan)
+        locals.prisma.device.findMany({
+            where: {
+                ...deviceFilter,
+                connected: false,
+                disconnectedAt: { not: null, lte: endOfYear }
+            },
+            select: { disconnectedAt: true }
+        }),
+        // Bundle install failures: BundleInstallDevice with status FAILED
+        locals.prisma.bundleInstallDevice.findMany({
+            where: {
+                device: deviceFilter,
+                status: 'FAILED',
+                OR: [
+                    { completedAt: { gte: startOfYear, lte: endOfYear } },
+                    { completedAt: null, initiatedAt: { gte: startOfYear, lte: endOfYear } }
+                ]
+            },
+            select: { completedAt: true, initiatedAt: true }
+        })
+    ]);
 
-        devicesWithDisconnect.forEach(d => {
-            if (d.disconnectedAt) {
-                const month = d.disconnectedAt.getMonth();
-                monthlyData.offline[month]++;
-            }
-        });
+    // Update Failed: firmware_update, install, install_app, bundle_install (action logs) + BundleInstallDevice FAILED
+    const UPDATE_FAILED_ACTION_TYPES = ['firmware_update', 'install', 'install_app', 'bundle_install'];
+    const updateFailed = Array(12).fill(0);
+    actionLogs.forEach((log) => {
+        if (UPDATE_FAILED_ACTION_TYPES.includes(log.actionType)) {
+            updateFailed[log.initiatedAt.getMonth()]++;
+        }
+    });
+    bundleInstallFailures.forEach((b) => {
+        const date = b.completedAt ?? b.initiatedAt;
+        updateFailed[date.getMonth()]++;
+    });
 
-        return monthlyData;
+    const offline = Array(12).fill(0);
+    devicesWithDisconnectInYear.forEach((d) => {
+        if (d.disconnectedAt) offline[d.disconnectedAt.getMonth()]++;
+    });
+
+    // Network Unstable: (1) weak WiFi signal from ClickHouse + (2) device offline >70% of month
+    // (2) = devices that disconnected in first 30% of month (offline rest of month = >70%)
+    const networkUnstableOffline70 = Array(12).fill(0);
+    const OFFLINE_70_PCT_THRESHOLD = 0.7;
+    allOfflineDevices.forEach((d) => {
+        if (!d.disconnectedAt) return;
+        const month = d.disconnectedAt.getMonth();
+        const startOfMonth = new Date(validYear, month, 1);
+        const endOfMonth = new Date(validYear, month + 1, 0, 23, 59, 59);
+        const daysInMonth = (endOfMonth.getTime() - startOfMonth.getTime()) / (1000 * 60 * 60 * 24);
+        const offlineDays = (endOfMonth.getTime() - d.disconnectedAt.getTime()) / (1000 * 60 * 60 * 24);
+        if (offlineDays / daysInMonth >= OFFLINE_70_PCT_THRESHOLD) {
+            networkUnstableOffline70[month]++;
+        }
+    });
+    const networkUnstable = Array(12)
+        .fill(0)
+        .map((_, i) => clickHouseIssues.networkUnstable[i] + networkUnstableOffline70[i]);
+
+    const issuesByCategory = {
+        cpuOverload: clickHouseIssues.cpuOverload,
+        memoryCritical: clickHouseIssues.memoryCritical,
+        storageLow: clickHouseIssues.storageLow,
+        networkUnstable,
+        updateFailed,
+        offline
     };
 
-    const issuesByCategory = await getMonthlyActionData();
-
-    // Fleet health trends - based on connected/offline ratio over time
-    // Since we don't have historical snapshots, we'll show current month data
     const fleetHealthTrends = {
         cpuOverload: issuesByCategory.cpuOverload,
         networkUnstable: issuesByCategory.networkUnstable,
@@ -447,6 +471,8 @@ function formatActionDescription(actionType: string, status: string, message: st
         'terminal': 'Terminal session',
         'remote_desktop': 'Remote desktop session',
         'install': 'App installation',
+        'install_app': 'App installation',
+        'bundle_install': 'Bundle installation',
         'firmware_update': 'Firmware update',
         'restart': 'Device restart',
         'snapshot': 'Snapshot created',

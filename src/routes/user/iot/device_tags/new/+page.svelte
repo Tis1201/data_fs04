@@ -21,6 +21,7 @@
   
   // Import the reusable form handler
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
+  import { TAG_NAME_MAX } from "./device-tag";
   import type { PageData } from "./$types";
   
   // Import page data
@@ -100,9 +101,13 @@
                   placeholder="Enter name"
                   aria-invalid={$errors.name ? 'true' : undefined}
                   disabled={$submitting}
+                  maxlength={TAG_NAME_MAX}
                 />
-                <p class="text-xs text-muted-foreground mt-1">
-                  A friendly name to help identify this Tag
+                <p class="text-xs mt-1" class:text-amber-600={($form.name?.length ?? 0) === TAG_NAME_MAX} class:text-muted-foreground={($form.name?.length ?? 0) !== TAG_NAME_MAX}>
+                  {$form.name?.length ?? 0}/{TAG_NAME_MAX} characters
+                  {#if ($form.name?.length ?? 0) === TAG_NAME_MAX}
+                    — Maximum length reached
+                  {/if}
                 </p>
               </FormField>
               <FormField id="description" label="Description" error={$errors.description}>

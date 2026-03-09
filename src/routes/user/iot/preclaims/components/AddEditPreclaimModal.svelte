@@ -33,7 +33,7 @@
     }>();
 
     // Match legacy app & server: preclaims/new accepts .csv (parsed), .xls/.xlsx (rejected with message)
-    const FILE_HELPER = 'Maximum file size 1 GB, acceptable file types: csv, xls, xlsx.';
+    const FILE_HELPER = 'Maximum file size 50 MB, acceptable file types: csv, xls, xlsx.';
     const FILE_ACCEPT = '.csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
     let submitting = false;
@@ -48,15 +48,20 @@
     let profileId = '';
     let selectedFile: File | null = null;
     let uploadedFiles: UploadedFile[] = [];
+    /** Message when FileUpload rejects a file (e.g. size > 50MB, wrong type) */
+    let fileRejectMessage: string | null = null;
 
+    const MAX_NAME_LENGTH = 500;
     const SET_NAME_REQUIRED = 'Set name is required';
+    const SET_NAME_TOO_LONG = `Set name must be ${MAX_NAME_LENGTH} characters or less`;
     const FILE_REQUIRED = 'Device upload file is required';
     const PROFILE_REQUIRED = 'Please select Device Profile';
 
-    $: setNameError = errorMessage === SET_NAME_REQUIRED ? errorMessage : '';
+    $: setNameError = (errorMessage === SET_NAME_REQUIRED || errorMessage === SET_NAME_TOO_LONG) ? errorMessage : '';
     $: fileUploadError = errorMessage === FILE_REQUIRED;
+    $: fileUploadShowError = fileUploadError || fileRejectMessage != null;
     $: profileError = errorMessage === PROFILE_REQUIRED;
-    $: if (name?.trim() && errorMessage === SET_NAME_REQUIRED) errorMessage = null;
+    $: if (name?.trim() && name.length <= MAX_NAME_LENGTH && (errorMessage === SET_NAME_REQUIRED || errorMessage === SET_NAME_TOO_LONG)) errorMessage = null;
     $: if (mode === 'add' && (selectedFile != null || uploadedFiles.length > 0) && errorMessage === FILE_REQUIRED) errorMessage = null;
     $: if (profileId?.trim() && errorMessage === PROFILE_REQUIRED) errorMessage = null;
 
@@ -80,6 +85,7 @@
     $: if (open) {
         if (!wasOpen) {
             errorMessage = null;
+            fileRejectMessage = null;
             if (mode === 'edit' && initialData) {
                 name = initialData.name ?? '';
                 description = initialData.description ?? '';
@@ -112,6 +118,7 @@
         const list = e.detail;
         if (!list?.length) return;
         const file = list[0];
+        fileRejectMessage = null;
         selectedFile = file;
         uploadedFiles = [
             {
@@ -123,6 +130,10 @@
             }
         ];
         if (!name?.trim()) name = file.name.replace(/\.[^.]+$/, '') || 'Pre-Enrollment Set';
+    }
+
+    function handleFileDropRejected(e: CustomEvent<{ message: string; file: File }>) {
+        fileRejectMessage = e.detail?.message ?? 'File was rejected. Please check file size (max 50 MB) and type (csv, xls, xlsx).';
     }
 
     function handleClose() {
@@ -173,10 +184,24 @@
             const first = Object.values(form.errors).flat().find((e: any) => typeof e === 'string' && e.trim());
             if (first) return String(first);
         }
-        if (result?.data?.message) {
-            const m = result.data.message;
-            if (typeof m === 'string' && m.trim()) return m;
-            if (m?.error?.message) return m.error.message;
+        if (result?.data) {
+            let d = result.data;
+            // result.data may be a devalue-serialized string; deserialize to get the object
+            if (typeof d === 'string' && d.trim()) {
+                try {
+                    d = deserialize(d) as Record<string, unknown>;
+                } catch {
+                    d = {};
+                }
+            }
+            if (d && typeof d === 'object') {
+                // Prefer specific error (e.g. "CSV must include macId/mac") over generic message
+                const errVal = (d as any).error;
+                if (typeof errVal === 'string' && errVal.trim() && errVal !== 'Unknown error') return errVal;
+                const msgVal = (d as any).message;
+                if (typeof msgVal === 'string' && msgVal.trim()) return msgVal;
+                if (errVal?.message && typeof errVal.message === 'string' && errVal.message.trim()) return errVal.message;
+            }
         }
         return toErrorMessage(result);
     }
@@ -185,6 +210,10 @@
         errorMessage = null;
         if (!name?.trim()) {
             errorMessage = SET_NAME_REQUIRED;
+            return;
+        }
+        if (name.length > MAX_NAME_LENGTH) {
+            errorMessage = SET_NAME_TOO_LONG;
             return;
         }
         if (mode === 'add') {
@@ -276,6 +305,10 @@
             errorMessage = SET_NAME_REQUIRED;
             return;
         }
+        if (name.length > MAX_NAME_LENGTH) {
+            errorMessage = SET_NAME_TOO_LONG;
+            return;
+        }
         if (!selectedFile) {
             errorMessage = FILE_REQUIRED;
             return;
@@ -350,9 +383,16 @@
                     placeholder="Enter"
                     bind:value={name}
                     required={true}
+                    maxlength={MAX_NAME_LENGTH}
                     state={setNameError ? 'error' : 'default'}
                     helperText={setNameError}
                 />
+                <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
+                    {name.length}/{MAX_NAME_LENGTH} characters
+                    {#if name.length === MAX_NAME_LENGTH}
+                        — Maximum length reached
+                    {/if}
+                </p>
             </div>
 
             <div class="preclaim-row">
@@ -400,21 +440,23 @@
                     <FileUpload
                         label={uploadedFiles.length > 0 ? '' : 'Device Upload File'}
                         required={true}
-                        state={fileUploadError ? 'error' : 'default'}
-                        errorMessage={fileUploadError ? FILE_REQUIRED : ''}
-                        helperText={uploadedFiles.length > 0 ? '' : (!fileUploadError ? FILE_HELPER : '')}
+                        state={fileUploadShowError ? 'error' : 'default'}
+                        errorMessage={fileRejectMessage ?? (fileUploadError ? FILE_REQUIRED : '')}
+                        helperText={uploadedFiles.length > 0 ? '' : (!fileUploadShowError ? FILE_HELPER : '')}
                         accept={FILE_ACCEPT}
                         multiple={false}
                         maxFiles={1}
-                        maxFileSize={1024}
+                        maxFileSize={50}
                         acceptedTypes="csv, xls, xlsx"
                         bind:files={uploadedFiles}
                         showDropZone={uploadedFiles.length === 0}
                         on:drop={handleFileDrop}
+                        on:dropRejected={handleFileDropRejected}
                         on:remove={() => {
                             uploadedFiles = [];
                             selectedFile = null;
                             errorMessage = null;
+                            fileRejectMessage = null;
                         }}
                     />
                 </div>
@@ -496,6 +538,14 @@
         gap: var(--ds-space-4);
         width: 100%;
         min-width: 0;
+    }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
     .preclaim-field {
         display: block;

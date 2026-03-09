@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { deserialize } from '$app/forms';
     import { createEventDispatcher } from 'svelte';
     import {
         Modal,
@@ -27,8 +28,11 @@
     let errorMessage: string | null = null;
 
     // Profile name validation error: show on InputField (below input), not at top of form
+    const MAX_NAME_LENGTH = 500;
     const PROFILE_NAME_REQUIRED_MSG = 'Profile name is required';
-    $: profileNameError = errorMessage === PROFILE_NAME_REQUIRED_MSG ? PROFILE_NAME_REQUIRED_MSG : '';
+    const PROFILE_NAME_TOO_LONG_MSG = `Profile name must be ${MAX_NAME_LENGTH} characters or less`;
+    $: profileNameError = errorMessage || '';
+    $: if (name?.trim() && name.length <= MAX_NAME_LENGTH && (errorMessage === PROFILE_NAME_REQUIRED_MSG || errorMessage === PROFILE_NAME_TOO_LONG_MSG)) errorMessage = null;
 
     // Form state
     let name = '';
@@ -81,8 +85,7 @@
             } else {
                 availablePackages = [];
             }
-        } catch (error) {
-            console.error('Failed to load packages:', error);
+        } catch {
             availablePackages = [];
         } finally {
             packagesLoading = false;
@@ -122,6 +125,20 @@
             { id: 'sunday', label: 'Sunday' }
         ];
     })();
+    /** Day of month (1-31) for Monthly frequency */
+    const dayOfMonthOptions = Array.from({ length: 31 }, (_, i) => {
+        const n = i + 1;
+        const suffix = n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th';
+        return { id: String(n), label: `${n}${suffix}` };
+    });
+    const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    const isValidDayOfMonth = (v: string) => /^([1-9]|1\d|2\d|30|31)$/.test(v);
+    /** Reset downloadDay when frequency changes so weekly uses day-of-week, monthly uses day-of-month */
+    $: if (downloadSchedule && downloadFrequency === 'monthly' && !isValidDayOfMonth(downloadDay)) downloadDay = '1';
+    $: if (downloadSchedule && downloadFrequency === 'weekly' && !WEEKDAYS.includes(downloadDay)) downloadDay = 'monday';
+    /** Reset rebootDay when frequency changes so weekly uses day-of-week, monthly uses day-of-month */
+    $: if (rebootSchedule && rebootFrequency === 'monthly' && !isValidDayOfMonth(rebootDay)) rebootDay = '1';
+    $: if (rebootSchedule && rebootFrequency === 'weekly' && !WEEKDAYS.includes(rebootDay)) rebootDay = 'monday';
 
     // Dropdown options from availableSettings
     $: displayResolutionOptions = (() => {
@@ -222,7 +239,12 @@
                 category: 'Maintenance'
             },
             reboot_schedule_frequency: { value: rebootFrequency || 'daily', dataType: 'string', label: 'Reboot Frequency', category: 'Maintenance' },
-            reboot_schedule_day: { value: rebootDay || 'monday', dataType: 'string', label: 'Reboot Day', category: 'Maintenance' },
+            reboot_schedule_day: {
+                value: rebootFrequency === 'monthly' ? (rebootDay || '1') : (rebootDay || 'monday'),
+                dataType: 'string',
+                label: 'Reboot Day',
+                category: 'Maintenance'
+            },
             reboot_schedule_time: { value: rebootTime || '02:00', dataType: 'string', label: 'Reboot Time', category: 'Maintenance' },
             download_schedule_enabled: {
                 value: downloadSchedule ? 'enabled' : 'disabled',
@@ -231,7 +253,12 @@
                 category: 'Maintenance'
             },
             download_schedule_frequency: { value: downloadFrequency || 'daily', dataType: 'string', label: 'Download Frequency', category: 'Maintenance' },
-            download_schedule_day: { value: downloadDay || 'monday', dataType: 'string', label: 'Download Day', category: 'Maintenance' },
+            download_schedule_day: {
+                value: downloadFrequency === 'monthly' ? (downloadDay || '1') : (downloadDay || 'monday'),
+                dataType: 'string',
+                label: 'Download Day',
+                category: 'Maintenance'
+            },
             download_schedule_time: { value: downloadTime || '03:00', dataType: 'string', label: 'Download Time', category: 'Maintenance' }
         };
         return Object.entries(map).map(([key], index) => ({
@@ -278,11 +305,11 @@
             powerOffDatetime = getSettingValue('power_off_datetime', settings) || '';
             rebootSchedule = getSettingValue('reboot_schedule', settings) === 'enabled' || getSettingValue('reboot_schedule_enabled', settings) === 'enabled';
             rebootFrequency = getSettingValue('reboot_schedule_frequency', settings) || 'daily';
-            rebootDay = getSettingValue('reboot_schedule_day', settings) || 'monday';
+            rebootDay = getSettingValue('reboot_schedule_day', settings) || (rebootFrequency === 'monthly' ? '1' : 'monday');
             rebootTime = getSettingValue('reboot_schedule_time', settings) || '02:00';
             downloadSchedule = getSettingValue('download_schedule', settings) === 'enabled' || getSettingValue('download_schedule_enabled', settings) === 'enabled';
             downloadFrequency = getSettingValue('download_schedule_frequency', settings) || 'daily';
-            downloadDay = getSettingValue('download_schedule_day', settings) || 'monday';
+            downloadDay = getSettingValue('download_schedule_day', settings) || (downloadFrequency === 'monthly' ? '1' : 'monday');
             downloadTime = getSettingValue('download_schedule_time', settings) || '03:00';
         } catch (e) {
             errorMessage = e instanceof Error ? e.message : 'Failed to load profile';
@@ -348,6 +375,10 @@
             errorMessage = PROFILE_NAME_REQUIRED_MSG;
             return;
         }
+        if (name.length > MAX_NAME_LENGTH) {
+            errorMessage = PROFILE_NAME_TOO_LONG_MSG;
+            return;
+        }
         submitting = true;
         try {
             const settingsArray = buildSettingsArray();
@@ -369,12 +400,42 @@
                 headers: { Accept: 'application/json' },
                 credentials: 'same-origin'
             });
-            const result = await res.json().catch(() => ({}));
+            const responseText = await res.text();
 
-            if (result.type === 'success' || result.success || result.data?.success) {
+            // Form actions return devalue-serialized data; deserialize the whole response first
+            let result: { type?: string; status?: number; data?: unknown; success?: boolean } = {};
+            try {
+                result = deserialize(responseText) as typeof result;
+            } catch {
+                try {
+                    result = JSON.parse(responseText) as typeof result;
+                } catch {
+                    result = {};
+                }
+            }
+
+            if (result.type === 'success' || result.success || (result.data as any)?.success) {
                 dispatch('success');
             } else {
-                const msg = toErrorMessage(result);
+                let msg = '';
+                const data = result.data;
+                // data may be object (from full deserialize) or string (from JSON parse of wrapper)
+                if (data && typeof data === 'object') {
+                    const payload = data as { form?: { errors?: Record<string, string[] | string> }; message?: string };
+                    const nameErr = payload?.form?.errors?.name;
+                    const nameMsg = Array.isArray(nameErr) ? nameErr[0] : (typeof nameErr === 'string' ? nameErr : '');
+                    msg = (typeof payload?.message === 'string' ? payload.message : '') || nameMsg;
+                } else if (data && typeof data === 'string') {
+                    try {
+                        const parsed = deserialize(data) as { form?: { errors?: Record<string, string[] | string> }; message?: string };
+                        const nameErr = parsed?.form?.errors?.name;
+                        const nameMsg = Array.isArray(nameErr) ? nameErr[0] : (typeof nameErr === 'string' ? nameErr : '');
+                        msg = (typeof parsed?.message === 'string' ? parsed.message : '') || nameMsg;
+                    } catch {
+                        /* ignore */
+                    }
+                }
+                if (!msg) msg = toErrorMessage(result);
                 dispatch('error', msg);
                 errorMessage = msg;
             }
@@ -411,9 +472,16 @@
                         placeholder="Enter"
                         bind:value={name}
                         required={true}
+                        maxlength={MAX_NAME_LENGTH}
                         state={profileNameError ? 'error' : 'default'}
                         helperText={profileNameError || ''}
                     />
+                    <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
+                        {name.length}/{MAX_NAME_LENGTH} characters
+                        {#if name.length === MAX_NAME_LENGTH}
+                            — Maximum length reached
+                        {/if}
+                    </p>
                 </div>
                 <div class="profile-active-wrap">
                     <Toggle bind:checked={isActive} size="sm" />
@@ -679,14 +747,20 @@
                         <Dropdown placeholder="Select" options={frequencyOptions} bind:value={rebootFrequency} />
                     </div>
                 </div>
-                {#if rebootFrequency === 'weekly'}
+                {#if rebootFrequency === 'weekly' || rebootFrequency === 'monthly'}
                 <div class="config-row config-sub-row">
                     <div>
                         <p class="config-label config-sub-label">Reboot Day</p>
-                        <p class="config-description">Day of the week for scheduled reboot</p>
+                        <p class="config-description">
+                            {rebootFrequency === 'weekly' ? 'Day of the week for scheduled reboot' : 'Day of the month for scheduled reboot (1-31)'}
+                        </p>
                     </div>
                     <div class="config-input-wrap">
-                        <Dropdown placeholder="Select" options={dayOptions} bind:value={rebootDay} />
+                        <Dropdown
+                            placeholder="Select"
+                            options={rebootFrequency === 'weekly' ? dayOptions : dayOfMonthOptions}
+                            bind:value={rebootDay}
+                        />
                     </div>
                 </div>
                 {/if}
@@ -731,6 +805,16 @@
                     </div>
                     <div class="config-input-wrap">
                         <Dropdown placeholder="Select" options={dayOptions} bind:value={downloadDay} />
+                    </div>
+                </div>
+                {:else if downloadFrequency === 'monthly'}
+                <div class="config-row config-sub-row">
+                    <div>
+                        <p class="config-label config-sub-label">Download Day</p>
+                        <p class="config-description">Day of the month for scheduled downloads (1-31)</p>
+                    </div>
+                    <div class="config-input-wrap">
+                        <Dropdown placeholder="Select" options={dayOfMonthOptions} bind:value={downloadDay} />
                     </div>
                 </div>
                 {/if}
@@ -959,6 +1043,15 @@
         font-size: var(--ds-text-sm);
         color: var(--ds-text-tertiary);
         pointer-events: none;
+    }
+
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
 
 </style>

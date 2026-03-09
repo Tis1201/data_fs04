@@ -729,15 +729,15 @@
                                     {:else if column.type === 'usageIndicators'}
                                         <!-- Usage indicators with colored dots (CPU/MEM/DSK) -->
                                         {@const defaultUsageFields = [
-                                            { label: 'CPU', field: 'cpu', thresholds: { warning: 70, danger: 90 } },
-                                            { label: 'MEM', field: 'mem', thresholds: { warning: 70, danger: 90 } },
-                                            { label: 'DSK', field: 'dsk', thresholds: { warning: 70, danger: 90 } }
+                                            { label: 'CPU', field: 'cpu', thresholds: { warning: 60, danger: 80 } },
+                                            { label: 'MEM', field: 'mem', thresholds: { warning: 60, danger: 80 } },
+                                            { label: 'DSK', field: 'dsk', thresholds: { warning: 60, danger: 80 } }
                                         ]}
                                         {@const fields = column.usageFields || defaultUsageFields}
                                         <div class="flex items-center gap-2">
                                             {#each fields as usageField}
                                                 {@const usageValue = row[usageField.field] ?? 0}
-                                                {@const threshold = usageField.thresholds || { warning: 70, danger: 90 }}
+                                                {@const threshold = usageField.thresholds || { warning: 60, danger: 80 }}
                                                 {@const dotColor = usageValue >= threshold.danger ? 'var(--ds-color-error-500)' : usageValue >= threshold.warning ? 'var(--ds-color-warning-500)' : 'var(--ds-color-success-500)'}
                                                 <div class="inline-flex items-center gap-1">
                                                     <div class="w-2 h-2 rounded-full" style="background-color: {dotColor}" />

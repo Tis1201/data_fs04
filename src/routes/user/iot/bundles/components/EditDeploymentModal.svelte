@@ -13,6 +13,8 @@
     import { toast } from '$lib/stores/alertToast';
     import type { Bundle } from '@prisma/client';
 
+    const MAX_NAME_LENGTH = 200;
+
     export let open = false;
     /** Bundle to edit (from list). Must be DRAFT to be editable. */
     export let bundle: Bundle | null = null;
@@ -62,7 +64,7 @@
     $: minStartDate = todayDateInputValue();
     $: minStartTime = startDate === minStartDate ? nowTimeInputValue() : undefined;
 
-    $: isFormValid = name.trim().length > 0 && os && waveSize > 0 &&
+    $: isFormValid = name.trim().length > 0 && name.length <= MAX_NAME_LENGTH && os && waveSize > 0 &&
         (schedule !== 'future' || !!startDate);
 
     const OS_OPTIONS_DS: DropdownOption[] = OS_OPTIONS.map((o) => ({ id: o.value, label: o.label }));
@@ -79,6 +81,10 @@
     ];
 
     $: showScheduleFields = schedule === 'future';
+
+    $: if (nameError && name.length > 0 && name.length <= MAX_NAME_LENGTH) {
+        nameError = '';
+    }
 
     function formatDateForInput(d: Date): string {
         const y = d.getFullYear();
@@ -139,6 +145,7 @@
         nameError = '';
         startDateError = '';
         if (!name.trim()) nameError = 'Name is required';
+        else if (name.length > MAX_NAME_LENGTH) nameError = `Name must be ${MAX_NAME_LENGTH} characters or less`;
         if (schedule === 'future' && !startDate.trim()) {
             startDateError = 'Start date is required';
         }
@@ -286,9 +293,16 @@
                         placeholder="Enter"
                         bind:value={name}
                         required={true}
+                        maxlength={MAX_NAME_LENGTH}
                         state={nameError ? 'error' : 'default'}
                         helperText={nameError}
                     />
+                    <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
+                        {name.length}/{MAX_NAME_LENGTH} characters
+                        {#if name.length === MAX_NAME_LENGTH}
+                            — Maximum length reached
+                        {/if}
+                    </p>
                 </div>
                 <div class="row-version-batch">
                     <div class="field-wrap version-field">
@@ -477,6 +491,14 @@
     .date-time-row :global(.input-field-wrapper),
     .date-time-row :global(.input-container) { width: 100%; min-width: 0; box-sizing: border-box; }
     .field-error { margin: 0; font-size: var(--ds-text-xs); color: var(--ds-color-error-600); }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
+    }
     .device-behavior-section {
         margin-top: var(--ds-space-6);
         padding-top: var(--ds-space-4);

@@ -126,7 +126,7 @@
         }
     }
 
-    // Filter modal: Status (Active / Inactive)
+    // Filter modal: Status (Active / Inactive) – aligned with pin-rules pattern
     let showFilterModal = false;
     const STATUS_OPTIONS = [
         { id: 'active', label: 'Active' },
@@ -136,20 +136,26 @@
 
     $: statusDropdownOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
-        ...STATUS_OPTIONS.map((o) => ({
-            id: o.id,
-            label: o.label,
-            type: 'checkbox' as const,
-            disabled: filterStatuses.includes('__all__')
-        }))
+        ...STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
     ];
 
-    function handleStatusFilterChange(newValue: string[]) {
-        if (newValue.includes('__all__')) {
+    // All and specific options (Active/Inactive) are mutually exclusive – same as pin-rules
+    function handleStatusFilterChange(e: CustomEvent<string | string[]>) {
+        const val = e.detail;
+        const arr = Array.isArray(val) ? val : (val ? [val] : []);
+        if (arr.includes('__all__') && !filterStatuses.includes('__all__')) {
             filterStatuses = ['__all__'];
-        } else {
-            filterStatuses = newValue;
+            return;
         }
+        if (!arr.includes('__all__') && filterStatuses.includes('__all__')) {
+            filterStatuses = arr.length > 0 ? arr : ['__all__'];
+            return;
+        }
+        if (arr.some((v) => v !== '__all__')) {
+            filterStatuses = arr.filter((v) => v !== '__all__');
+            return;
+        }
+        filterStatuses = arr.length > 0 ? arr : ['__all__'];
     }
 
     function applyFilter() {
@@ -158,7 +164,7 @@
         if (statuses.length) url.searchParams.set('statuses', statuses.join(','));
         else url.searchParams.delete('statuses');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
     }
 
@@ -167,12 +173,14 @@
         const url = new URL($page.url);
         url.searchParams.delete('statuses');
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
     }
 
     function openFilterModal() {
-        filterStatuses = $page.url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
+        // Include __all__ from URL so "All" selection is retained when reopening (same as pin-rules)
+        const statusesParam = $page.url.searchParams.get('statuses');
+        filterStatuses = statusesParam ? statusesParam.split(',').filter(Boolean) : ['__all__'];
         showFilterModal = true;
     }
 
@@ -190,7 +198,7 @@
                 url.searchParams.delete('search');
             }
             url.searchParams.set('page', '1');
-            goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+            goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         }, 500);
     }
 
@@ -229,13 +237,13 @@
             url.searchParams.delete('order');
         }
         url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function handlePageChange(event: CustomEvent<number>) {
         const url = new URL($page.url);
         url.searchParams.set('page', String(event.detail));
-        goto(url.pathname + url.search, { noScroll: true, keepFocus: true });
+        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function statusColor(_value: string, row: DeviceProfileRow): BadgeColor {
@@ -254,8 +262,9 @@
                 const name = row.name || '—';
                 const desc = row.description || '';
                 const link = `<a href="${basePath}/device-profiles/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
+                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</div>` : '';
                 const descLine = desc ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(desc)}</span>` : '';
-                return `<div class="flex flex-col gap-0"><span>${link}</span>${descLine ? `<span>${descLine}</span>` : ''}</div>`;
+                return `<div class="flex flex-col gap-0 min-w-0"><span>${link}</span>${idLine}${descLine ? `<span>${descLine}</span>` : ''}</div>`;
             }
         },
         {
@@ -379,7 +388,7 @@
                 placeholder="Select"
                 options={statusDropdownOptions}
                 value={filterStatuses}
-                on:change={(e) => handleStatusFilterChange(e.detail)}
+                on:change={handleStatusFilterChange}
                 multiple={true}
                 width="100%"
             />

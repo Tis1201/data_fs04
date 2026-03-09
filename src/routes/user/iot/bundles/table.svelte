@@ -124,7 +124,8 @@
                         record: bundle,
                         baseUrl: "/user/iot/bundles",
                         idField: "id",
-                        nameField: "name"
+                        nameField: "name",
+                        showId: true
                     }
                 };
             }

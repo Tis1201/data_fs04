@@ -157,7 +157,7 @@ export function getAppTypeBadgeColor(type: string): { bg: string; text: string }
 
 export function getUsageColor(usage: number | null): string {
     if (usage === null || usage === undefined) return '#A3A3A3';
-    if (usage < 50) return '#039855';
+    if (usage < 60) return '#039855';
     if (usage < 80) return '#DC6803';
     return '#D92D20';
 }

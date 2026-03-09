@@ -883,9 +883,16 @@
                     label="Device Name"
                     placeholder="Enter device name"
                     bind:value={editDeviceName}
+                    maxlength={500}
                     state={editDeviceError ? 'error' : 'default'}
                     helperText={editDeviceError || undefined}
                 />
+                <p class="char-count" class:char-count-limit={editDeviceName.length === 500}>
+                    {editDeviceName.length}/500 characters
+                    {#if editDeviceName.length === 500}
+                        — Maximum length reached
+                    {/if}
+                </p>
             </div>
             <div class="flex items-center gap-2" style="padding-top: var(--ds-space-6);">
                 <Toggle
@@ -1375,6 +1382,14 @@
 </Modal>
 
 <style>
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
+    }
     /* Edit Device Modal - Configuration blocks */
     .config-block {
         background: var(--ds-bg-secondary);

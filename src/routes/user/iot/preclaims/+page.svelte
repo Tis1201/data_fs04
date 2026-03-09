@@ -229,8 +229,9 @@
                 const name = row.name || '—';
                 const desc = row.description || '';
                 const link = `<a href="${basePath}/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
+                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</div>` : '';
                 const descLine = desc ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(desc)}</span>` : '';
-                return `<div class="flex flex-col gap-0"><span>${link}</span>${descLine ? `<span>${descLine}</span>` : ''}</div>`;
+                return `<div class="flex flex-col gap-0 min-w-0"><span>${link}</span>${idLine}${descLine ? `<span>${descLine}</span>` : ''}</div>`;
             }
         },
         {

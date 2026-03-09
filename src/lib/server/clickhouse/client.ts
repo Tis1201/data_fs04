@@ -383,3 +383,79 @@ export async function getMultipleDeviceInformation(macAddresses: string[]): Prom
     return resultMap;
   }
 }
+
+/** Monthly issue counts from ClickHouse device_information (actual metrics: cpu, ram, disk, network). */
+export type MonthlyIssuesFromClickHouse = {
+  cpuOverload: number[];
+  memoryCritical: number[];
+  storageLow: number[];
+  networkUnstable: number[];
+};
+
+/** Fetch monthly issue counts from raw device_information (historical metrics). Uses thresholds: >=80% critical. */
+export async function getMonthlyIssuesFromClickHouse(
+  deviceIds: string[],
+  startOfYear: Date,
+  endOfYear: Date
+): Promise<MonthlyIssuesFromClickHouse> {
+  const empty = (): MonthlyIssuesFromClickHouse => ({
+    cpuOverload: Array(12).fill(0),
+    memoryCritical: Array(12).fill(0),
+    storageLow: Array(12).fill(0),
+    networkUnstable: Array(12).fill(0)
+  });
+
+  if (!deviceIds.length) return empty();
+
+  const validIds = deviceIds.filter((id) => id && id.trim().length > 0);
+  if (!validIds.length) return empty();
+
+  const client = getClickHouseClient();
+  try {
+    const y = startOfYear.getFullYear();
+    const startStr = `${y}-01-01 00:00:00`;
+    const endStr = `${y}-12-31 23:59:59`;
+
+    const query = `
+      SELECT
+        toMonth(created_at) AS month,
+        uniqExactIf(device_id, cpu_usage >= 80) AS cpu_overload,
+        uniqExactIf(device_id, ram_usage >= 80) AS memory_critical,
+        uniqExactIf(device_id, disk_usage >= 80) AS storage_low,
+        uniqExactIf(device_id, isNotNull(signal_strength_dbm) AND signal_strength_dbm < -75) AS network_unstable
+      FROM device_information
+      WHERE device_id IN {deviceIds:Array(String)}
+        AND created_at >= toDateTime({start:String})
+        AND created_at <= toDateTime({end:String})
+      GROUP BY month
+    `;
+
+    const result = await client.query({
+      query,
+      query_params: {
+        deviceIds: validIds,
+        start: startStr,
+        end: endStr
+      }
+    });
+
+    const data = await result.json();
+    const rows = (data.data || []) as { month: number; cpu_overload: number; memory_critical: number; storage_low: number; network_unstable: number }[];
+
+    const out = empty();
+    for (const row of rows) {
+      const idx = row.month - 1;
+      if (idx >= 0 && idx < 12) {
+        out.cpuOverload[idx] = Number(row.cpu_overload) || 0;
+        out.memoryCritical[idx] = Number(row.memory_critical) || 0;
+        out.storageLow[idx] = Number(row.storage_low) || 0;
+        out.networkUnstable[idx] = Number(row.network_unstable) || 0;
+      }
+    }
+    logger.debug(`[ClickHouse] getMonthlyIssuesFromClickHouse: ${rows.length} months for ${validIds.length} devices`);
+    return out;
+  } catch (error) {
+    logger.warn(`[ClickHouse] getMonthlyIssuesFromClickHouse failed: ${error instanceof Error ? error.message : String(error)}`);
+    return empty();
+  }
+}

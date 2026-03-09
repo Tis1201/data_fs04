@@ -339,9 +339,16 @@ console.log(data);`;
             id: 'name',
             header: 'Name',
             accessor: (row) => row.name,
-            type: 'text',
+            type: 'custom',
             sortable: true,
-            width: '20%'
+            width: '20%',
+            render: (_value, row) => {
+                const name = row.name || '—';
+                const esc = (s: string) => s.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+                const link = `<span class="text-[14px] font-medium text-[var(--ds-text-primary)]">${esc(name)}</span>`;
+                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${esc(row.id)}">${esc(row.id)}</div>` : '';
+                return `<div class="flex flex-col gap-0 min-w-0"><span class="min-w-0">${link}</span>${idLine}</div>`;
+            }
         },
         {
             id: 'key',

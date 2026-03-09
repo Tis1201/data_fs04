@@ -371,7 +371,8 @@
                     ? '<span class="inline-flex align-middle mr-1" style="color: var(--ds-color-warning-500);"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span>'
                     : '';
                 const link = `<a href="${basePath}/${row.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:underline">${escapeHtml(name)}</a>`;
-                return `<div class="flex items-center">${star}${link}</div>`;
+                const idLine = row.id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${escapeHtml(row.id)}">${escapeHtml(row.id)}</div>` : '';
+                return `<div class="flex flex-col gap-0 min-w-0"><div class="flex items-center">${star}${link}</div>${idLine}</div>`;
             }
         },
         {

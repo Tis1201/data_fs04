@@ -601,7 +601,11 @@
             const skipped = Array.isArray(payload?.skipped) ? payload.skipped : [];
 
             if (!res.ok) {
-                const msg = data?.error?.message || data?.message || 'Import failed.';
+                const msg =
+                    data?.error?.details?.originalError ||
+                    data?.error?.message ||
+                    data?.message ||
+                    'Import failed.';
                 toast.error(msg);
                 return;
             }

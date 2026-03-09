@@ -271,22 +271,40 @@
 	// Remote Desktop Input Handling Functions
 	let lastMouseMoveTime = 0;
 
+	/**
+	 * Map click/move coords from element (with object-contain) to video pixel coords.
+	 * Handles letterboxing/pillarboxing - video may not fill the full element rect.
+	 */
 	function getVideoCoordinates(event: MouseEvent) {
 		const target = event.currentTarget as HTMLVideoElement | HTMLImageElement;
 		if (!target) return { x: 0, y: 0 };
 		const rect = target.getBoundingClientRect();
 		if (!rect.width || !rect.height) return { x: 0, y: 0 };
-		// Use actual video dimensions when available; otherwise assume RDP stream 1280x720
 		let w = "videoWidth" in target ? target.videoWidth : (target as HTMLImageElement).naturalWidth;
 		let h = "videoHeight" in target ? target.videoHeight : (target as HTMLImageElement).naturalHeight;
 		if (!w || !h) {
 			w = 1280;
 			h = 720;
 		}
-		const scaleX = w / rect.width;
-		const scaleY = h / rect.height;
-		const x = Math.round((event.clientX - rect.left) * scaleX);
-		const y = Math.round((event.clientY - rect.top) * scaleY);
+		// object-contain: video is scaled to fit, may have letterboxing
+		const rectAspect = rect.width / rect.height;
+		const videoAspect = w / h;
+		let displayW: number, displayH: number, offsetX: number, offsetY: number;
+		if (rectAspect > videoAspect) {
+			displayH = rect.height;
+			displayW = rect.height * videoAspect;
+			offsetX = (rect.width - displayW) / 2;
+			offsetY = 0;
+		} else {
+			displayW = rect.width;
+			displayH = rect.width / videoAspect;
+			offsetX = 0;
+			offsetY = (rect.height - displayH) / 2;
+		}
+		const relX = event.clientX - rect.left - offsetX;
+		const relY = event.clientY - rect.top - offsetY;
+		const x = Math.round(Math.max(0, Math.min(w - 1, (relX / displayW) * w)));
+		const y = Math.round(Math.max(0, Math.min(h - 1, (relY / displayH) * h)));
 		return { x, y };
 	}
 

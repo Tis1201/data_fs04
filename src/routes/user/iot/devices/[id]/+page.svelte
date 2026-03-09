@@ -2134,6 +2134,10 @@
                                         <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getProfileSetting('reboot_schedule_frequency', 'daily')}</span></span>
                                         {#if getProfileSetting('reboot_schedule_frequency', 'daily') === 'weekly'}
                                             <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getProfileSetting('reboot_schedule_day', 'monday')}</span></span>
+                                        {:else if getProfileSetting('reboot_schedule_frequency', 'daily') === 'monthly'}
+                                            {@const d = parseInt(getProfileSetting('reboot_schedule_day', '1')) || 1}
+                                            {@const suffix = (d % 10 === 1 && d !== 11) ? 'st' : (d % 10 === 2 && d !== 12) ? 'nd' : (d % 10 === 3 && d !== 13) ? 'rd' : 'th'}
+                                            <span class="schedule-item"><span class="schedule-label">Day:</span> {d}{suffix}</span>
                                         {/if}
                                         <span class="schedule-item"><span class="schedule-label">Time:</span> {getProfileSetting('reboot_schedule_time', '02:00')}</span>
                                     </div>
@@ -2160,6 +2164,10 @@
                                         <span class="schedule-item"><span class="schedule-label">Frequency:</span> <span style="text-transform: capitalize;">{getProfileSetting('download_schedule_frequency', 'daily')}</span></span>
                                         {#if getProfileSetting('download_schedule_frequency', 'daily') === 'weekly'}
                                             <span class="schedule-item"><span class="schedule-label">Day:</span> <span style="text-transform: capitalize;">{getProfileSetting('download_schedule_day', 'monday')}</span></span>
+                                        {:else if getProfileSetting('download_schedule_frequency', 'daily') === 'monthly'}
+                                            {@const d = parseInt(getProfileSetting('download_schedule_day', '1')) || 1}
+                                            {@const suffix = (d % 10 === 1 && d !== 11) ? 'st' : (d % 10 === 2 && d !== 12) ? 'nd' : (d % 10 === 3 && d !== 13) ? 'rd' : 'th'}
+                                            <span class="schedule-item"><span class="schedule-label">Day:</span> {d}{suffix}</span>
                                         {/if}
                                         <span class="schedule-item"><span class="schedule-label">Time:</span> {getProfileSetting('download_schedule_time', '03:00')}</span>
                                     </div>

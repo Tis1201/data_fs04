@@ -142,7 +142,12 @@
                                     maxlength={200}
                                     disabled={$submitting}
                                 />
-                                <p class="text-xs text-muted-foreground mt-1">{$form.name?.length ?? 0}/200 characters</p>
+                                <p class="text-xs mt-1" class:text-amber-600={($form.name?.length ?? 0) === 200} class:text-muted-foreground={($form.name?.length ?? 0) !== 200}>
+                                    {$form.name?.length ?? 0}/200 characters
+                                    {#if ($form.name?.length ?? 0) === 200}
+                                        — Maximum length reached
+                                    {/if}
+                                </p>
                             </FormField>
                         </FormRow>
 
@@ -160,7 +165,12 @@
                                 maxlength={200}
                                 disabled={$submitting}
                             />
-                                <p class="text-xs text-muted-foreground mt-1">{$form.description?.length ?? 0}/200 characters</p>
+                                <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === 200} class:text-muted-foreground={($form.description?.length ?? 0) !== 200}>
+                                    {$form.description?.length ?? 0}/200 characters
+                                    {#if ($form.description?.length ?? 0) === 200}
+                                        — Maximum length reached
+                                    {/if}
+                                </p>
                         </FormField>
 
                         <FormRow columns={2}>

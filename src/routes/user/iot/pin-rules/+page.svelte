@@ -60,7 +60,7 @@
         ...STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
     ];
 
-    // All and specific options (Active/Inactive/Draft) are mutually exclusive
+    // All and specific options (Active/Inactive/Draft) can be multi-selected
     function handleStatusFilterChange(e: CustomEvent<string | string[]>) {
         const val = e.detail;
         const arr = Array.isArray(val) ? val : (val ? [val] : []);
@@ -83,13 +83,22 @@
         const url = new URL($page.url);
         // TC-RDM-APR-0010: Persist full selection including __all__ so "All" is retained when reopening
         const statuses = filterStatuses.filter((s) => s !== '__all__');
-        if (statuses.includes('draft')) {
-            url.searchParams.set('isDraft', 'true');
+        // All three selected = no filter (show all)
+        const allSelected = statuses.includes('draft') && statuses.includes('true') && statuses.includes('false');
+        if (statuses.length === 0 || allSelected) {
+            url.searchParams.delete('isDraft');
             url.searchParams.delete('isActive');
+        } else if (statuses.includes('draft')) {
+            url.searchParams.set('isDraft', 'true');
+            const activeInactive = statuses.filter((s) => s === 'true' || s === 'false');
+            if (activeInactive.length > 0) {
+                url.searchParams.set('isActive', activeInactive.join(','));
+            } else {
+                url.searchParams.delete('isActive');
+            }
         } else {
             url.searchParams.delete('isDraft');
-            if (statuses.length) url.searchParams.set('isActive', statuses.join(','));
-            else url.searchParams.delete('isActive');
+            url.searchParams.set('isActive', statuses.join(','));
         }
         url.searchParams.set('page', '1');
         goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
@@ -110,10 +119,16 @@
         // TC-RDM-APR-0010: Include __all__ from URL so "All" selection is retained when reopening
         const isDraftParam = $page.url.searchParams.get('isDraft');
         const isActiveParam = $page.url.searchParams.get('isActive');
-        if (isDraftParam === 'true') {
-            filterStatuses = ['draft'];
+        const hasDraft = isDraftParam === 'true';
+        const activeVals = isActiveParam ? isActiveParam.split(',').filter(Boolean) : [];
+        if (!hasDraft && activeVals.length === 0) {
+            filterStatuses = ['__all__'];
         } else {
-            filterStatuses = isActiveParam ? isActiveParam.split(',').filter(Boolean) : ['__all__'];
+            const sel: string[] = [];
+            if (hasDraft) sel.push('draft');
+            if (activeVals.includes('true')) sel.push('true');
+            if (activeVals.includes('false')) sel.push('false');
+            filterStatuses = sel.length > 0 ? sel : ['__all__'];
         }
         showFilterModal = true;
     }
