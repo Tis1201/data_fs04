@@ -74,10 +74,27 @@ const createLogger = (defaultFilePath: string = 'unknown') => {
         return { filePath: defaultFilePath };
     };
 
+    // Serialize extra metadata fields (excludes internal filePath/lineNumber)
+    const serializeMeta = (callerInfo: CallerInfo): string => {
+        const { filePath: _fp, lineNumber: _ln, ...extra } = callerInfo;
+        if (Object.keys(extra).length === 0) return '';
+        try {
+            return ' ' + JSON.stringify(extra, (_key, value) => {
+                if (value instanceof Error) {
+                    return { message: value.message, stack: value.stack };
+                }
+                return value;
+            });
+        } catch {
+            return ' [unserializable meta]';
+        }
+    };
+
     // Create a custom format for the Winston logger
     const customFormat = winston.format.printf(({ level, message, timestamp, meta }) => {
         const callerInfo: CallerInfo = meta || {};
         const fileInfo = callerInfo.filePath ? `${callerInfo.filePath}${callerInfo.lineNumber ? `:${callerInfo.lineNumber}` : ''}` : defaultFilePath;
+        const extraStr = serializeMeta(callerInfo);
         
         // Format based on log level
         let formattedMessage = '';
@@ -85,19 +102,19 @@ const createLogger = (defaultFilePath: string = 'unknown') => {
         
         switch(level) {
             case 'debug':
-                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkBlue}[DEBUG]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkBlue}[DEBUG]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}${colors.gray}${extraStr}${colors.reset}`;
                 break;
             case 'info':
-                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkGreen}[INFO]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkGreen}[INFO]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}${colors.gray}${extraStr}${colors.reset}`;
                 break;
             case 'warn':
-                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.yellow}[WARN]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.yellow}[WARN]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}${colors.gray}${extraStr}${colors.reset}`;
                 break;
             case 'error':
-                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkRed}[ERROR]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkRed}[ERROR]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}${colors.darkRed}${extraStr}${colors.reset}`;
                 break;
             default:
-                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkGreen}[${level.toUpperCase()}]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}`;
+                formattedMessage = `${colors.gray}${ts}${colors.reset} ${colors.darkGreen}[${level.toUpperCase()}]${colors.reset} ${colors.darkCyan}[${fileInfo}]${colors.reset} ${message}${colors.gray}${extraStr}${colors.reset}`;
         }
         
         return formattedMessage;
