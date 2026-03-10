@@ -801,6 +801,8 @@ export const actions: Actions = {
                     endY: number;
                     color?: string;
                     description?: string;
+                    /** When false, zone is deactivated. Preserved on save. */
+                    active?: boolean;
                 };
                 
                 const MAX_ZONES = 5;
@@ -825,7 +827,8 @@ export const actions: Actions = {
                         endX: z.endX,
                         endY: z.endY,
                         color: z.color,
-                        description: z.description
+                        description: z.description,
+                        active: z.active
                     }));
                     const deduped = dedupeByKeyLastWins(normalized);
                     deduped.sort((a, b) => (a.zoneNumber ?? 999) - (b.zoneNumber ?? 999));
@@ -838,7 +841,8 @@ export const actions: Actions = {
                         endX: z.endX,
                         endY: z.endY,
                         color: z.color,
-                        description: z.description
+                        description: z.description,
+                        active: z.active
                     }));
                 };
 
@@ -946,6 +950,7 @@ export const actions: Actions = {
                             if (z.color !== undefined) existingZone.color = z.color;
                             if (z.zoneNumber !== undefined) existingZone.zoneNumber = z.zoneNumber;
                             if (z.description !== undefined) existingZone.description = z.description;
+                            if (z.active !== undefined) existingZone.active = z.active;
                             
                             if (typeof existingZone.zoneNumber === 'number') usedZoneNumbers.add(existingZone.zoneNumber);
                             reconciledZones.push(existingZone);
@@ -962,7 +967,8 @@ export const actions: Actions = {
                                 endX: bounds.endX,
                                 endY: bounds.endY,
                                 color: z.color,
-                                description: z.description
+                                description: z.description,
+                                active: z.active !== false
                             });
                         }
                     }

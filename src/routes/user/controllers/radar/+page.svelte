@@ -233,7 +233,7 @@
             timezone: 'UTC',
             pathTracking: true,
             dwellThreshold: '30',
-            zones: [{ id: 'zone-1', name: 'Zone 1', active: true }]
+            zones: [{ id: 'zone-1', name: 'Zone 1', active: false }] // Default disabled: users typically don't prioritize zones; avoids known bug
         };
         addDeviceZoneErrors = {};
         showAddDeviceModal = true;
@@ -341,7 +341,7 @@
         const slug = addDeviceForm.name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') || 'sensor';
         addDeviceForm.serialNumber = `RADAR-${slug}-${Date.now().toString(36)}`;
         if (!addDeviceStep2.zones?.length) {
-            addDeviceStep2.zones = [{ id: 'zone-1', name: 'Zone 1', active: true }];
+            addDeviceStep2.zones = [{ id: 'zone-1', name: 'Zone 1', active: false }]; // Default disabled when claiming
         }
         addDeviceStep = 2;
     }
