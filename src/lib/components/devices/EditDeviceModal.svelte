@@ -114,7 +114,16 @@
         if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
         return [{ id: 'daily', label: 'Daily' }, { id: 'weekly', label: 'Weekly' }, { id: 'monthly', label: 'Monthly' }];
     })();
-    $: dayOptions = (() => {
+    // Reboot day: weekly = day of week (monday..sunday), monthly = day of month (1-31)
+    $: rebootDayOptions = (() => {
+        if (editRebootFrequency === 'monthly') {
+            return Array.from({ length: 31 }, (_, i) => {
+                const n = i + 1;
+                const mod10 = n % 10, mod100 = n % 100;
+                const suffix = mod100 >= 11 && mod100 <= 13 ? 'th' : mod10 === 1 ? 'st' : mod10 === 2 ? 'nd' : mod10 === 3 ? 'rd' : 'th';
+                return { id: String(n), label: `${n}${suffix}` };
+            });
+        }
         const def = availableSettings.find((s: { key: string }) => s.key === 'reboot_schedule_day');
         if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
         return [
@@ -123,6 +132,14 @@
             { id: 'sunday', label: 'Sunday' }
         ];
     })();
+    // When switching to monthly, if current day is a weekday name, default to "1"
+    $: if (editRebootFrequency === 'monthly' && rebootDayOptions.length && !rebootDayOptions.some((o: { id: string }) => o.id === editRebootDay)) {
+        editRebootDay = '1';
+    }
+    // When switching to weekly, if current day is numeric (from monthly), default to "monday"
+    $: if (editRebootFrequency === 'weekly' && /^\d+$/.test(String(editRebootDay))) {
+        editRebootDay = 'monday';
+    }
 
     // Edit Device tabs
     const editDeviceTabs: TabItem[] = [
@@ -701,8 +718,8 @@
                 if (!editRebootFrequency) {
                     throw new Error('Reboot Schedule is enabled. Please select a Reboot Frequency.');
                 }
-                if (editRebootFrequency === 'weekly' && !editRebootDay) {
-                    throw new Error('Reboot Schedule is set to Weekly. Please select a Reboot Day.');
+                if ((editRebootFrequency === 'weekly' || editRebootFrequency === 'monthly') && !editRebootDay) {
+                    throw new Error(editRebootFrequency === 'monthly' ? 'Reboot Schedule is set to Monthly. Please select a day of the month.' : 'Reboot Schedule is set to Weekly. Please select a Reboot Day.');
                 }
                 if (!editRebootTime) {
                     throw new Error('Reboot Schedule is enabled. Please set a Reboot Time.');
@@ -1251,16 +1268,16 @@
                         />
                     </div>
                 </div>
-                {#if editRebootFrequency === 'weekly'}
+                {#if editRebootFrequency === 'weekly' || editRebootFrequency === 'monthly'}
                 <div class="config-row config-sub-row">
                     <div>
                         <p class="config-label config-sub-label">Reboot Day</p>
-                        <p class="config-description">Day of the week for scheduled reboot</p>
+                        <p class="config-description">{editRebootFrequency === 'monthly' ? 'Day of the month (1–31) for scheduled reboot' : 'Day of the week for scheduled reboot'}</p>
                     </div>
                     <div style="width: 200px;">
                         <Dropdown
                             placeholder="Select"
-                            options={dayOptions}
+                            options={rebootDayOptions}
                             value={editRebootDay}
                             on:change={(e) => {
                                 editRebootDay = String(e.detail);

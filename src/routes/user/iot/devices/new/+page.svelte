@@ -33,7 +33,7 @@
       const response = await callUserRpc<{
         flowId?: string;
         result: { factoryDeviceId: string };
-      }>('device.claim', { pin: $form.pin }, { timeoutMs: 5000 });
+      }>('device.claim', { pin: $form.pin }, { timeoutMs: 15000 });
 
       console.log('[DEVICE_FORM] MQTT claim RPC completed:', response);
 

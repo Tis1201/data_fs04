@@ -510,7 +510,7 @@
             const response = await callUserRpc<{ flowId?: string; result: { factoryDeviceId: string } }>(
                 'device.claim',
                 { pin: claimPin },
-                { timeoutMs: 5000 }
+                { timeoutMs: 15000 }
             );
             const flowId = response?.flowId;
             if (!flowId) throw new Error('Missing flowId in claim response');
