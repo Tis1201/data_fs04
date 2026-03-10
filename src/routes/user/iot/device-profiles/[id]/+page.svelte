@@ -1055,6 +1055,7 @@
         status="available"
         title="Add Device"
         confirmLabel="Add"
+        existingDeviceIds={deviceRows.map((r) => r.id)}
         on:close={closeAddDeviceModal}
         on:select={onAddDeviceSelect}
     />
