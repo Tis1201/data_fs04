@@ -13,6 +13,7 @@
     import ProfileSettingsEditor from '$lib/components/ui_components_sveltekit/form/ProfileSettingsEditor.svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
     import { goto } from "$app/navigation";
+    import { DESCRIPTION_MAX } from "$lib/constants/description";
     import { toast } from "svelte-sonner";
     
     export let data;
@@ -157,7 +158,11 @@
                                         name="description" 
                                         placeholder="Enter profile description"
                                         rows={3}
+                                        maxlength={DESCRIPTION_MAX}
                                     />
+                                    <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === DESCRIPTION_MAX} class:text-muted-foreground={($form.description?.length ?? 0) !== DESCRIPTION_MAX}>
+                                        {$form.description?.length ?? 0}/{DESCRIPTION_MAX} characters
+                                    </p>
                                 </FormField>
                             </FormRow>
                         </CardContent>

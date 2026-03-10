@@ -529,58 +529,76 @@
     );
   }
 
-  /** Push current sensor config to device via MQTT (sensor.config.push). */
+  /** Push current sensor config to device via MQTT (sensor.config.push). Increased timeout and retry for reliability. */
   async function handlePushToDevice(): Promise<void> {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) {
       toast.error("No sensor selected");
       return;
     }
+    const deviceConnected = data?.radarSensor?.controller?.device?.connected === true;
+    if (!deviceConnected) {
+      toast.error("Device is offline. Push requires the device to be online.");
+      return;
+    }
     isPushingToDevice = true;
+    const PUSH_TIMEOUT_MS = 20000;
+    const MAX_RETRIES = 2;
+    type MqttResponse = { requestId?: string; result?: { result?: { synced?: boolean; error?: string }; error?: string }; error?: string };
+    let lastError: Error | null = null;
     try {
-      await mqttStore.connect();
-      const userSub = mqttStore.subject;
-      if (!userSub) {
-        toast.error("Not connected to MQTT");
-        isPushingToDevice = false;
-        return;
-      }
-      const requestId = crypto.randomUUID();
-      const requestPayload = {
-        op: "sensor.config.push",
-        params: { sensorId },
-        requestId,
-        timestamp: new Date().toISOString(),
-      };
-      let cleanupListener: (() => void) | null = null;
-      type MqttResponse = { requestId?: string; result?: { result?: { synced?: boolean; error?: string }; error?: string }; error?: string };
-      const responsePromise = new Promise<MqttResponse>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          if (cleanupListener) cleanupListener();
-          reject(new Error("Request timed out"));
-        }, 10000);
-        cleanupListener = mqttStore.on(`user/${userSub}/response`, (msg: { payload?: unknown }) => {
-          const payload = msg.payload as MqttResponse | undefined;
-          if (payload?.requestId === requestId) {
-            clearTimeout(timeout);
-            if (cleanupListener) cleanupListener();
-            resolve(payload);
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          await mqttStore.connect();
+          const userSub = mqttStore.subject;
+          if (!userSub) {
+            toast.error("Not connected to MQTT");
+            return;
           }
-        });
-      });
-      await mqttStore.publish(`user/${userSub}/requests`, requestPayload, { qos: 1 });
-      const response = await responsePromise;
-      const nestedResult = response.result?.result;
-      const workerError = response.error ?? response.result?.error;
-      if (workerError) {
-        toast.error(typeof workerError === "string" ? workerError : "Push failed");
-      } else if (nestedResult?.synced === true) {
-        toast.success("Config pushed to device!");
-      } else {
-        toast.error(nestedResult?.error ?? "Push failed");
+          const requestId = crypto.randomUUID();
+          const requestPayload = {
+            op: "sensor.config.push",
+            params: { sensorId },
+            requestId,
+            timestamp: new Date().toISOString(),
+          };
+          let cleanupListener: (() => void) | null = null;
+          const responsePromise = new Promise<MqttResponse>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              if (cleanupListener) cleanupListener();
+              reject(new Error("Request timed out. The device may be slow to respond—try again."));
+            }, PUSH_TIMEOUT_MS);
+            cleanupListener = mqttStore.on(`user/${userSub}/response`, (msg: { payload?: unknown }) => {
+              const payload = msg.payload as MqttResponse | undefined;
+              if (payload?.requestId === requestId) {
+                clearTimeout(timeout);
+                if (cleanupListener) cleanupListener();
+                resolve(payload);
+              }
+            });
+          });
+          await mqttStore.publish(`user/${userSub}/requests`, requestPayload, { qos: 1 });
+          const response = await responsePromise;
+          const nestedResult = response.result?.result;
+          const workerError = response.error ?? response.result?.error;
+          if (workerError) {
+            toast.error(typeof workerError === "string" ? workerError : "Push failed");
+            return;
+          } else if (nestedResult?.synced === true) {
+            toast.success("Config pushed to device!");
+            return;
+          } else {
+            toast.error(nestedResult?.error ?? "Push failed");
+            return;
+          }
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
       }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Push failed");
+      toast.error(lastError?.message ?? "Request timed out. Please ensure the device is online and try again.");
     } finally {
       isPushingToDevice = false;
     }

@@ -1,6 +1,7 @@
 <script lang="ts">
     import { createEventDispatcher, tick } from 'svelte';
     import { Modal, InputField, Toggle, TabGroup, Dropdown, TextareaField, Button, Alert } from '$lib/design-system/components';
+    import { DESCRIPTION_MAX } from '$lib/constants/description';
     import type { TabItem } from '$lib/design-system/components/TabGroup.svelte';
     import { Eye, EyeOff } from 'lucide-svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
@@ -937,7 +938,11 @@
                 placeholder="Enter device description"
                 bind:value={editDeviceDescription}
                 rows={4}
+                maxlength={DESCRIPTION_MAX}
             />
+            <p class="char-count" class:char-count-limit={editDeviceDescription?.length === DESCRIPTION_MAX}>
+                {editDeviceDescription?.length ?? 0}/{DESCRIPTION_MAX} characters
+            </p>
         </div>
     {:else}
         <!-- Configuration Tab -->

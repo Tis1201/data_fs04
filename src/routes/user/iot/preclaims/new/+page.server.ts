@@ -11,12 +11,13 @@ import { createSuccessResponse, createErrorResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { DESCRIPTION_MAX } from '$lib/constants/description';
 import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // PreclaimSet upload schema (file validated in action)
 const preclaimSetSchema = z.object({
     name: z.string().min(1, { message: 'Name is required' }).max(255),
-    description: z.string().optional().nullable(),
+    description: z.string().max(DESCRIPTION_MAX, { message: `Description must be ${DESCRIPTION_MAX} characters or less` }).optional().nullable(),
     expiresAt: z.string().optional().nullable(), // yyyy-MM-dd from date picker
     profileId: z.string().optional().nullable(), // Optional device profile assignment
 });

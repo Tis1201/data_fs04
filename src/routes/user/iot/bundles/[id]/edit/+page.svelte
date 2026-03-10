@@ -19,6 +19,7 @@
     import EnhancedDatePicker from "$lib/components/ui_components_sveltekit/form/EnhancedDatePicker.svelte";
     import EnhancedTimePicker from "$lib/components/ui_components_sveltekit/form/EnhancedTimePicker.svelte";
     import type { PageData } from "./$types";
+    import { DESCRIPTION_MAX_SHORT } from "$lib/constants/description";
 
     export let data: PageData;
     const { bundle, accounts } = data;
@@ -162,12 +163,12 @@
                                 placeholder="Enter bundle description"
                                 bind:value={$form.description}
                                 rows={3}
-                                maxlength={200}
+                                maxlength={DESCRIPTION_MAX_SHORT}
                                 disabled={$submitting}
                             />
-                                <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === 200} class:text-muted-foreground={($form.description?.length ?? 0) !== 200}>
-                                    {$form.description?.length ?? 0}/200 characters
-                                    {#if ($form.description?.length ?? 0) === 200}
+                                <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === DESCRIPTION_MAX_SHORT} class:text-muted-foreground={($form.description?.length ?? 0) !== DESCRIPTION_MAX_SHORT}>
+                                    {$form.description?.length ?? 0}/{DESCRIPTION_MAX_SHORT} characters
+                                    {#if ($form.description?.length ?? 0) === DESCRIPTION_MAX_SHORT}
                                         — Maximum length reached
                                     {/if}
                                 </p>

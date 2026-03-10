@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DESCRIPTION_MAX } from '$lib/constants/description';
 
 export const PRECLAIM_SET_STATUSES = [
   { value: 'ACTIVE', label: 'Active' },
@@ -8,7 +9,7 @@ export const PRECLAIM_SET_STATUSES = [
 export const preclaimSetEditSchema = z.object({
   id: z.string(),
   name: z.string().min(1, 'Name is required'),
-  description: z.string().optional().nullable(),
+  description: z.string().max(DESCRIPTION_MAX, { message: `Description must be ${DESCRIPTION_MAX} characters or less` }).optional().nullable(),
   status: z.enum(['ACTIVE', 'INACTIVE'], { required_error: 'Status is required' }),
   // Accept string from form; server will convert to Date | null
   expiresAt: z.string().optional().nullable(),

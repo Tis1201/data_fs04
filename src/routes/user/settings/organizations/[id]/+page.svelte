@@ -14,6 +14,7 @@
     } from '$lib/design-system/components';
     import { ArrowLeft, Pencil, ToggleLeft, ToggleRight, Trash2 } from 'lucide-svelte';
     import type { PageData } from './$types';
+    import { DESCRIPTION_MAX } from '$lib/constants/description';
 
     export let data: PageData;
 
@@ -338,7 +339,11 @@
             placeholder="Enter"
             bind:value={formDescription}
             rows={4}
+            maxlength={DESCRIPTION_MAX}
         />
+        <p class="char-count" class:char-count-limit={(formDescription?.length ?? 0) === DESCRIPTION_MAX}>
+            {formDescription?.length ?? 0}/{DESCRIPTION_MAX} characters
+        </p>
     </div>
     <svelte:fragment slot="footer">
         <Button variant="outline" color="primary" size="lg" on:click={closeEditModal}>
@@ -543,5 +548,15 @@
     .field-label {
         font: var(--ds-text-sm-medium);
         color: var(--ds-text-secondary);
+    }
+
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
 </style>

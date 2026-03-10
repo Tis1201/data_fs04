@@ -16,6 +16,7 @@
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   import { PRECLAIM_SET_STATUSES } from "../schema";
+  import { DESCRIPTION_MAX } from "$lib/constants/description";
 
   export let data: PageData;
   const { preclaimSet } = data;
@@ -64,7 +65,10 @@
           </FormRow>
 
           <FormField id="description" label="Description" error={$errors.description}>
-            <Textarea id="description" name="description" placeholder="Enter description" bind:value={$form.description} rows={3} />
+            <Textarea id="description" name="description" placeholder="Enter description" bind:value={$form.description} rows={3} maxlength={DESCRIPTION_MAX} />
+            <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === DESCRIPTION_MAX} class:text-muted-foreground={($form.description?.length ?? 0) !== DESCRIPTION_MAX}>
+              {$form.description?.length ?? 0}/{DESCRIPTION_MAX} characters
+            </p>
           </FormField>
 
           <FormField id="profileId" label="Device Profile (Optional)" error={$errors.profileId}>

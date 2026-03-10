@@ -7,6 +7,7 @@
     import { Button, InputField, TextareaField, Dropdown, Alert } from "$lib/design-system/components";
 
     import type { PageData } from "./$types";
+import { DESCRIPTION_MAX } from "$lib/constants/description";
     import { radarSensorSchema } from "../../../../admin/controllers/radar/new/radar-sensor";
     import { getDetailPageFormConfig, processFormMessages } from "$lib/utils/formHelpers";
 
@@ -279,10 +280,14 @@
                         on:input={(e) => { $form.description = e.detail ?? ""; }}
                         placeholder="Optional description"
                         rows={3}
+                        maxlength={DESCRIPTION_MAX}
                         disabled={isLoading}
                         state={err(errorsRecord, "description") ? "error" : "default"}
                         helperText={String(err(errorsRecord, "description") || "")}
                     />
+                    <p class="char-count" class:char-count-limit={($form.description?.length ?? 0) === DESCRIPTION_MAX}>
+                        {$form.description?.length ?? 0}/{DESCRIPTION_MAX} characters
+                    </p>
             </div>
 
             <div class="register-radar-row">
@@ -416,6 +421,14 @@
     }
     .register-radar-spinner {
         display: inline-block;
+    }
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
 </style>
 

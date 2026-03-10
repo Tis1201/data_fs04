@@ -12,8 +12,9 @@
     import type { DropdownOption } from '$lib/design-system/components';
     import { OS_OPTIONS } from '$lib/utils/bundleUtils';
     import { toast } from '$lib/stores/alertToast';
+    import { DESCRIPTION_MAX_SHORT } from '$lib/constants/description';
 
-    const MAX_NAME_LENGTH = 200;
+    const MAX_NAME_LENGTH = DESCRIPTION_MAX_SHORT;
 
     export let open = false;
 
@@ -424,7 +425,9 @@
                     placeholder="Enter"
                     bind:value={description}
                     rows={3}
+                    maxlength={DESCRIPTION_MAX_SHORT}
                 />
+                <p class="char-count" class:char-count-limit={description.length === DESCRIPTION_MAX_SHORT}>{description.length}/{DESCRIPTION_MAX_SHORT} characters</p>
             </div>
         </div>
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { DESCRIPTION_MAX_SHORT } from '$lib/constants/description';
 
-const MAX_CHARS = 200;
+const MAX_CHARS = DESCRIPTION_MAX_SHORT;
 
 export const bundleSchema = z.object({
     name: z.string().min(1, 'Name is required').max(MAX_CHARS, `Name must be ${MAX_CHARS} characters or less`),

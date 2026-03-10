@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DESCRIPTION_MAX } from '$lib/constants/description';
 
 // Device status options
 export const DEVICE_STATUSES = [
@@ -12,7 +13,7 @@ export const DEVICE_STATUSES = [
 export const deviceEditSchema = z.object({
     id: z.string(),
     name: z.string().min(1, 'Name is required'),
-    description: z.string().optional().nullable(),
+    description: z.string().max(DESCRIPTION_MAX, { message: `Description must be ${DESCRIPTION_MAX} characters or less` }).optional().nullable(),
     status: z.string(),
     deviceType: z.string().optional().nullable(),
     model: z.string().optional().nullable(),

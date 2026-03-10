@@ -11,6 +11,7 @@ import { getUserModulePermissions } from '$lib/server/security/modulePermissions
 import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
+import { validateBounds, normalizeBounds } from '$lib/components/ui_components_sveltekit/radar/constraints';
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for updates.
 import prisma from '$lib/server/prisma';
 
@@ -404,6 +405,45 @@ async function createSensorForDevice(
     const location = (formData.get('location') as string | null)?.trim() ?? '';
     const firmware = (formData.get('firmware') as string | null)?.trim() ?? '';
     const status = ((formData.get('status') as string | null)?.trim() || 'ACTIVE') as 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+    const initConfigRaw = (formData.get('initConfig') as string | null)?.trim();
+    let initConfig: Prisma.InputJsonValue = {};
+    if (initConfigRaw) {
+        try {
+            initConfig = JSON.parse(initConfigRaw) as Prisma.InputJsonValue;
+            const cfg = initConfig as { trackingArea?: { startX?: number; startY?: number; endX?: number; endY?: number }; zones?: Array<{ startX?: number; startY?: number; endX?: number; endY?: number }> };
+            if (cfg.trackingArea) {
+                const sx = Number(cfg.trackingArea.startX);
+                const sy = Number(cfg.trackingArea.startY);
+                const ex = Number(cfg.trackingArea.endX);
+                const ey = Number(cfg.trackingArea.endY);
+                if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(ex) || !Number.isFinite(ey)) {
+                    return { type: 'error', message: 'Invalid Tracking Area: coordinates must be numbers' };
+                }
+                const ta = { startX: sx, startY: sy, endX: ex, endY: ey };
+                const taNorm = normalizeBounds(ta);
+                const taVal = validateBounds(taNorm);
+                if (!taVal.valid) return { type: 'error', message: `Invalid Tracking Area: ${taVal.errors[0] ?? 'Out of range'}` };
+            }
+            if (cfg.zones && Array.isArray(cfg.zones)) {
+                for (let i = 0; i < cfg.zones.length; i++) {
+                    const z = cfg.zones[i];
+                    const zx = Number(z?.startX);
+                    const zy = Number(z?.startY);
+                    const zex = Number(z?.endX);
+                    const zey = Number(z?.endY);
+                    if (!Number.isFinite(zx) || !Number.isFinite(zy) || !Number.isFinite(zex) || !Number.isFinite(zey)) {
+                        return { type: 'error', message: `Invalid zone ${i + 1}: coordinates must be numbers` };
+                    }
+                    const zb = { startX: zx, startY: zy, endX: zex, endY: zey };
+                    const zbNorm = normalizeBounds(zb);
+                    const zbVal = validateBounds(zbNorm);
+                    if (!zbVal.valid) return { type: 'error', message: `Invalid zone ${i + 1}: ${zbVal.errors[0] ?? 'Out of range'}` };
+                }
+            }
+        } catch (e) {
+            initConfig = {};
+        }
+    }
 
     if (!deviceId) return { type: 'error', message: 'Device ID is required' };
     if (!name) return { type: 'error', message: 'Sensor name is required' };
@@ -472,7 +512,7 @@ async function createSensorForDevice(
                     accountId: currentAccountId,
                     controllerId: controller.id,
                     createdBy: userId,
-                    config: {}
+                    config: Object.keys(initConfig as object).length > 0 ? initConfig : {}
                 }
             });
             return { controller };

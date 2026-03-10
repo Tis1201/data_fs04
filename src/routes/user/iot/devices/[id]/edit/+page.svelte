@@ -4,6 +4,7 @@
     import { Save, X } from "lucide-svelte";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
     import { createSuccessResponse } from "$lib/types/api";
+    import { DESCRIPTION_MAX } from "$lib/constants/description";
     import type { PageData } from "./$types";
 
     export let data: PageData;
@@ -97,7 +98,11 @@
                 state={descErr ? 'error' : 'default'}
                 helperText={descErr}
                 rows={3}
+                maxlength={DESCRIPTION_MAX}
             />
+            <p class="char-count" class:char-count-limit={descriptionValue?.length === DESCRIPTION_MAX}>
+                {descriptionValue?.length ?? 0}/{DESCRIPTION_MAX} characters
+            </p>
 
             <!-- Hidden fields -->
             <input type="hidden" name="id" value={$form.id} />
@@ -105,3 +110,14 @@
         </form>
     </Card>
 </div>
+
+<style>
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
+    }
+</style>

@@ -11,6 +11,7 @@
     } from '$lib/design-system/components';
     import type { UploadedFile } from '$lib/design-system/components/FileUpload.svelte';
     import { Download } from 'lucide-svelte';
+    import { DESCRIPTION_MAX } from '$lib/constants/description';
 
     export let open: boolean = false;
     export let mode: 'add' | 'edit' = 'add';
@@ -51,7 +52,8 @@
     /** Message when FileUpload rejects a file (e.g. size > 50MB, wrong type) */
     let fileRejectMessage: string | null = null;
 
-    const MAX_NAME_LENGTH = 500;
+    const MAX_NAME_LENGTH = DESCRIPTION_MAX;
+    const MAX_DESCRIPTION_LENGTH = DESCRIPTION_MAX;
     const SET_NAME_REQUIRED = 'Set name is required';
     const SET_NAME_TOO_LONG = `Set name must be ${MAX_NAME_LENGTH} characters or less`;
     const FILE_REQUIRED = 'Device upload file is required';
@@ -420,7 +422,11 @@
                     label="Description"
                     placeholder="Enter"
                     bind:value={description}
+                    maxlength={MAX_DESCRIPTION_LENGTH}
                 />
+                <p class="char-count" class:char-count-limit={description.length === MAX_DESCRIPTION_LENGTH}>
+                    {description.length}/{MAX_DESCRIPTION_LENGTH} characters
+                </p>
             </div>
 
             <div class="preclaim-field">

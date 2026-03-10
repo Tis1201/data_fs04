@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
-/** TC-TG-0021: Max description length to prevent UI layout break and excessively long inputs */
-export const TAG_DESCRIPTION_MAX = 200;
+import { DESCRIPTION_MAX_SHORT } from '$lib/constants/description';
+
+/** TC-TG-0021: Max description length to prevent UI layout break and excessively long inputs. */
+export const TAG_DESCRIPTION_MAX = DESCRIPTION_MAX_SHORT;
 
 /** TC-TG-0020: Max tag name length for consistent UI display (similar to bundles limit pattern) */
 export const TAG_NAME_MAX = 500;

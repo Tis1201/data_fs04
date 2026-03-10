@@ -21,6 +21,7 @@
     import { page } from "$app/stores";
     import { toast } from "svelte-sonner";
     import { onMount } from "svelte";
+    import { DESCRIPTION_MAX } from "$lib/constants/description";
     // MQTT handles profile updates automatically - no import needed
     
     import { getDeviceProfileEditBreadcrumbs } from "$lib/utils/navigation";
@@ -171,7 +172,11 @@
                                         name="description" 
                                         placeholder="Enter profile description"
                                         rows={3}
+                                        maxlength={DESCRIPTION_MAX}
                                     />
+                                    <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === DESCRIPTION_MAX} class:text-muted-foreground={($form.description?.length ?? 0) !== DESCRIPTION_MAX}>
+                                        {$form.description?.length ?? 0}/{DESCRIPTION_MAX} characters
+                                    </p>
                                 </FormField>
                             </FormRow>
                         </CardContent>

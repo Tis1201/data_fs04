@@ -8,6 +8,7 @@
     import { waitForClaimConfirmation } from '$lib/client/mqtt/claimFlow';
     import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
     import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
+    import { validateBounds, normalizeBounds, RADAR_CONSTRAINTS, ADD_DEVICE_TRACKING_DEFAULTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
     import type { BadgeColor, SortState } from '$lib/design-system/components';
     import { Search, Filter, Plus, Info, Trash2 } from 'lucide-svelte';
     import type { PageData } from './$types';
@@ -173,10 +174,10 @@
     const MAX_ZONES = 5;
     let addDeviceStep2 = {
         configTemplate: 'CUSTOM',
-        trackingXMin: '',
-        trackingXMax: '',
-        trackingYMin: '',
-        trackingYMax: '',
+        trackingXMin: String(ADD_DEVICE_TRACKING_DEFAULTS.X_MIN),
+        trackingXMax: String(ADD_DEVICE_TRACKING_DEFAULTS.X_MAX),
+        trackingYMin: String(ADD_DEVICE_TRACKING_DEFAULTS.Y_MIN),
+        trackingYMax: String(ADD_DEVICE_TRACKING_DEFAULTS.Y_MAX),
         deviceMode: 'LIVE_PREVIEW',
         timezone: 'UTC',
         pathTracking: true,
@@ -184,6 +185,7 @@
         zones: [] as { id: string; name: string; active: boolean }[]
     };
     let addDeviceZoneErrors: Record<string, string> = {}; // zone id -> error message
+    let addDeviceTrackingAreaErrors: { xMin?: string; yMin?: string; xMax?: string; yMax?: string } = {};
     $: if (data.currentAccountId) addDeviceForm.accountId = data.currentAccountId;
     $: if (addDeviceForm.pin !== undefined) addDevicePinError = '';
     $: if (addDeviceForm.name !== undefined) addDeviceNameError = '';
@@ -209,6 +211,7 @@
         addDeviceError = '';
         addDevicePinError = '';
         addDeviceNameError = '';
+        addDeviceTrackingAreaErrors = {};
         addDeviceStep = 1;
         addDeviceForm = {
             pin: '',
@@ -222,10 +225,10 @@
         };
         addDeviceStep2 = {
             configTemplate: 'CUSTOM',
-            trackingXMin: '',
-            trackingXMax: '',
-            trackingYMin: '',
-            trackingYMax: '',
+            trackingXMin: String(ADD_DEVICE_TRACKING_DEFAULTS.X_MIN),
+            trackingXMax: String(ADD_DEVICE_TRACKING_DEFAULTS.X_MAX),
+            trackingYMin: String(ADD_DEVICE_TRACKING_DEFAULTS.Y_MIN),
+            trackingYMax: String(ADD_DEVICE_TRACKING_DEFAULTS.Y_MAX),
             deviceMode: 'LIVE_PREVIEW',
             timezone: 'UTC',
             pathTracking: true,
@@ -242,6 +245,49 @@
         addDeviceError = '';
         addDevicePinError = '';
         addDeviceNameError = '';
+    }
+
+    // Per-field validation for Tracking Area (same pattern as EditDeviceModal, RADAR_CONSTRAINTS: X -4..4, Y 0..7)
+    function validateAddDeviceTrackingField(value: string, isXAxis: boolean): string | undefined {
+        if (value === '') return 'Required';
+        const num = parseFloat(value);
+        if (isNaN(num)) return 'Must be a valid number';
+        if (isXAxis) {
+            if (num < RADAR_CONSTRAINTS.X_MIN || num > RADAR_CONSTRAINTS.X_MAX) {
+                return `Must be between ${RADAR_CONSTRAINTS.X_MIN} and ${RADAR_CONSTRAINTS.X_MAX}`;
+            }
+        } else {
+            if (num < RADAR_CONSTRAINTS.Y_MIN || num > RADAR_CONSTRAINTS.Y_MAX) {
+                return `Must be between ${RADAR_CONSTRAINTS.Y_MIN} and ${RADAR_CONSTRAINTS.Y_MAX}`;
+            }
+        }
+        return undefined;
+    }
+
+    function validateAddDeviceTrackingArea(): boolean {
+        addDeviceTrackingAreaErrors = {
+            xMin: validateAddDeviceTrackingField(addDeviceStep2.trackingXMin?.trim() ?? '', true),
+            yMin: validateAddDeviceTrackingField(addDeviceStep2.trackingYMin?.trim() ?? '', false),
+            xMax: validateAddDeviceTrackingField(addDeviceStep2.trackingXMax?.trim() ?? '', true),
+            yMax: validateAddDeviceTrackingField(addDeviceStep2.trackingYMax?.trim() ?? '', false),
+        };
+        const hasFieldErrors = !!addDeviceTrackingAreaErrors.xMin || !!addDeviceTrackingAreaErrors.yMin ||
+            !!addDeviceTrackingAreaErrors.xMax || !!addDeviceTrackingAreaErrors.yMax;
+        if (hasFieldErrors) return false;
+        const xMin = parseFloat(addDeviceStep2.trackingXMin?.trim() ?? '');
+        const yMin = parseFloat(addDeviceStep2.trackingYMin?.trim() ?? '');
+        const xMax = parseFloat(addDeviceStep2.trackingXMax?.trim() ?? '');
+        const yMax = parseFloat(addDeviceStep2.trackingYMax?.trim() ?? '');
+        const taBounds = normalizeBounds({ startX: xMin, startY: yMin, endX: xMax, endY: yMax });
+        const taValidation = validateBounds(taBounds);
+        if (!taValidation.valid) {
+            const err = taValidation.errors[0] ?? 'Invalid bounds';
+            if (err.includes('X') && !err.includes('Y')) addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, xMax: err };
+            else if (err.includes('Y')) addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, yMax: err };
+            else addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, xMax: err };
+            return false;
+        }
+        return true;
     }
 
     // Edit Device modal – shared with Detail page (EditDeviceModal)
@@ -334,6 +380,50 @@
         addDeviceStep2 = addDeviceStep2;
     }
 
+    /** Generate ID matching server generateId() pattern (for init config compatibility with config push / API). */
+    function genId(): string {
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    }
+
+    /** Build config object from Step 2 init setup for DB storage. Format matches saveLayout/config push so API & device receive consistent structure. */
+    function buildInitConfigFromStep2(step2: typeof addDeviceStep2, sensorName: string): Record<string, unknown> {
+        const xMin = parseFloat(step2.trackingXMin);
+        const xMax = parseFloat(step2.trackingXMax);
+        const yMin = parseFloat(step2.trackingYMin);
+        const yMax = parseFloat(step2.trackingYMax);
+        const d = ADD_DEVICE_TRACKING_DEFAULTS;
+        const startX = Number.isFinite(xMin) ? xMin : d.X_MIN;
+        const endX = Number.isFinite(xMax) ? xMax : d.X_MAX;
+        const startY = Number.isFinite(yMin) ? yMin : d.Y_MIN;
+        const endY = Number.isFinite(yMax) ? yMax : d.Y_MAX;
+        const baseName = sensorName?.trim() || 'Sensor';
+        const trackingArea = {
+            id: genId(),
+            name: `${baseName} Tracking Area`,
+            startX,
+            startY,
+            endX: Math.max(startX, endX),
+            endY: Math.max(startY, endY)
+        };
+        const zones = (step2.zones || []).map((z, i) => ({
+            id: genId(),
+            name: z.name?.trim() || `Zone ${i + 1}`,
+            zoneNumber: i + 1,
+            active: z.active,
+            startX: trackingArea.startX,
+            startY: trackingArea.startY,
+            endX: trackingArea.endX,
+            endY: trackingArea.endY
+        }));
+        return {
+            trackingArea,
+            zones,
+            deviceMode: step2.deviceMode || 'LIVE_PREVIEW',
+            timezone: step2.timezone || 'UTC',
+            pathTracking: step2.pathTracking ?? true,
+            dwellThreshold: parseFloat(step2.dwellThreshold) || 30
+        };
+    }
 
     function addDeviceSubmit(input: {
         action: URL;
@@ -343,6 +433,7 @@
         submitter: HTMLElement | null;
         cancel: () => void;
     }) {
+        addDeviceTrackingAreaErrors = {};
         // Validate zone names before submit (Step 2). Default zone (zone-1) is not required per design note.
         if (addDeviceStep === 2 && addDeviceStep2.zones) {
             const errors: Record<string, string> = {};
@@ -357,6 +448,11 @@
                 return () => {};
             }
             addDeviceZoneErrors = {};
+            // Tracking Area: per-field validation (RADAR_CONSTRAINTS X -4..4, Y 0..7)
+            if (!validateAddDeviceTrackingArea()) {
+                input.cancel();
+                return () => {};
+            }
         }
         const pin = addDeviceForm.pin?.trim().replace(/\s/g, '') ?? '';
         if (!pin || pin.length < 6) {
@@ -395,6 +491,11 @@
                 fd.set('location', addDeviceForm.location ?? '');
                 fd.set('firmware', addDeviceForm.firmware ?? '');
                 fd.set('status', addDeviceForm.status || 'ACTIVE');
+                // Init setup config: tracking area, zones, device settings (saved to DB for client API)
+                const initConfig = buildInitConfigFromStep2(addDeviceStep2, addDeviceForm.name ?? '');
+                if (Object.keys(initConfig).length > 0) {
+                    fd.set('initConfig', JSON.stringify(initConfig));
+                }
                 const res = await fetch('?/createSensorForDevice', { method: 'POST', body: fd });
                 const raw = await res.text();
                 const result = typeof raw === 'string' && raw.trim() ? (deserialize(raw) as any) : {};
@@ -811,8 +912,12 @@
                                 label="X Min (m)"
                                 type="text"
                                 bind:value={addDeviceStep2.trackingXMin}
-                                placeholder="Enter"
+                                placeholder="-4 to 4"
                                 disabled={addDeviceLoading}
+                                required={true}
+                                state={addDeviceTrackingAreaErrors.xMin ? 'error' : 'default'}
+                                helperText={addDeviceTrackingAreaErrors.xMin || ''}
+                                on:blur={() => { addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, xMin: validateAddDeviceTrackingField(addDeviceStep2.trackingXMin?.trim() ?? '', true) }; }}
                             />
                         </div>
                         <div class="add-device-field">
@@ -820,8 +925,12 @@
                                 label="Y Min (m)"
                                 type="text"
                                 bind:value={addDeviceStep2.trackingYMin}
-                                placeholder="Enter"
+                                placeholder="0 to 7"
                                 disabled={addDeviceLoading}
+                                required={true}
+                                state={addDeviceTrackingAreaErrors.yMin ? 'error' : 'default'}
+                                helperText={addDeviceTrackingAreaErrors.yMin || ''}
+                                on:blur={() => { addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, yMin: validateAddDeviceTrackingField(addDeviceStep2.trackingYMin?.trim() ?? '', false) }; }}
                             />
                         </div>
                         <div class="add-device-field">
@@ -829,8 +938,12 @@
                                 label="X Max (m)"
                                 type="text"
                                 bind:value={addDeviceStep2.trackingXMax}
-                                placeholder="Enter"
+                                placeholder="-4 to 4"
                                 disabled={addDeviceLoading}
+                                required={true}
+                                state={addDeviceTrackingAreaErrors.xMax ? 'error' : 'default'}
+                                helperText={addDeviceTrackingAreaErrors.xMax || ''}
+                                on:blur={() => { addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, xMax: validateAddDeviceTrackingField(addDeviceStep2.trackingXMax?.trim() ?? '', true) }; }}
                             />
                         </div>
                         <div class="add-device-field">
@@ -838,8 +951,12 @@
                                 label="Y Max (m)"
                                 type="text"
                                 bind:value={addDeviceStep2.trackingYMax}
-                                placeholder="Enter"
+                                placeholder="0 to 7"
                                 disabled={addDeviceLoading}
+                                required={true}
+                                state={addDeviceTrackingAreaErrors.yMax ? 'error' : 'default'}
+                                helperText={addDeviceTrackingAreaErrors.yMax || ''}
+                                on:blur={() => { addDeviceTrackingAreaErrors = { ...addDeviceTrackingAreaErrors, yMax: validateAddDeviceTrackingField(addDeviceStep2.trackingYMax?.trim() ?? '', false) }; }}
                             />
                         </div>
                     </div>
@@ -1472,6 +1589,16 @@
         min-width: 0;
         background: var(--ds-color-neutral-true-50);
         border-radius: var(--ds-radius-lg);
+    }
+    .add-device-constraint-hint {
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-gray-500);
+        margin: 0 0 var(--ds-space-1) 0;
+    }
+    .add-device-tracking-area-error {
+        font-size: var(--ds-text-sm);
+        color: var(--ds-color-error-500);
+        margin: var(--ds-space-1) 0 0 0;
     }
     .add-device-section-title {
         font-family: var(--ds-font-family-primary);

@@ -11,6 +11,7 @@
     } from '$lib/design-system/components';
     import { Eye, EyeOff } from 'lucide-svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
+    import { DESCRIPTION_MAX } from '$lib/constants/description';
 
     export let open: boolean = false;
     export let mode: 'add' | 'edit' = 'add';
@@ -34,8 +35,8 @@
     $: profileNameError = errorMessage || '';
     $: if (name?.trim() && name.length <= MAX_NAME_LENGTH && (errorMessage === PROFILE_NAME_REQUIRED_MSG || errorMessage === PROFILE_NAME_TOO_LONG_MSG)) errorMessage = null;
 
-    // Description validation: 500 character limit with live count
-    const MAX_DESCRIPTION_LENGTH = 500;
+    // Description validation: character limit with live count
+    const MAX_DESCRIPTION_LENGTH = DESCRIPTION_MAX;
     const PROFILE_DESCRIPTION_TOO_LONG_MSG = `Description must be ${MAX_DESCRIPTION_LENGTH} characters or less`;
     $: descriptionError = errorMessage === PROFILE_DESCRIPTION_TOO_LONG_MSG ? PROFILE_DESCRIPTION_TOO_LONG_MSG : '';
     $: if (description.length <= MAX_DESCRIPTION_LENGTH && errorMessage === PROFILE_DESCRIPTION_TOO_LONG_MSG) errorMessage = null;

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DESCRIPTION_MAX } from '$lib/constants/description';
 
 /** PIN format: 6 characters (matches FactoryDevice.registrationPin from get.pin). Normalize: trim, uppercase. */
 const pinSchema = z.string()
@@ -16,7 +17,7 @@ export const radarSensorSchema = z.object({
         .min(1, { message: 'Serial number is required' })
         .max(100, { message: 'Serial number must be 100 characters or less' }),
     description: z.string()
-        .max(500, { message: 'Description must be 500 characters or less' })
+        .max(DESCRIPTION_MAX, { message: `Description must be ${DESCRIPTION_MAX} characters or less` })
         .optional()
         .nullable(),
     location: z.string()

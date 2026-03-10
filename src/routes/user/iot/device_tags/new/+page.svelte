@@ -21,7 +21,7 @@
   
   // Import the reusable form handler
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
-  import { TAG_NAME_MAX } from "./device-tag";
+  import { TAG_NAME_MAX, TAG_DESCRIPTION_MAX } from "./device-tag";
   import type { PageData } from "./$types";
   
   // Import page data
@@ -119,7 +119,11 @@
                   placeholder="Enter description (optional)"
                   aria-invalid={$errors.description ? 'true' : undefined}
                   disabled={$submitting}
+                  maxlength={TAG_DESCRIPTION_MAX}
                 />
+                <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === TAG_DESCRIPTION_MAX} class:text-muted-foreground={($form.description?.length ?? 0) !== TAG_DESCRIPTION_MAX}>
+                  {$form.description?.length ?? 0}/{TAG_DESCRIPTION_MAX} characters
+                </p>
               </FormField>
             </FormRow>
           </div>

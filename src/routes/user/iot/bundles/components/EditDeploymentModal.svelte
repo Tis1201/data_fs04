@@ -12,8 +12,9 @@
     import { OS_OPTIONS } from '$lib/utils/bundleUtils';
     import { toast } from '$lib/stores/alertToast';
     import type { Bundle } from '@prisma/client';
+    import { DESCRIPTION_MAX_SHORT } from '$lib/constants/description';
 
-    const MAX_NAME_LENGTH = 200;
+    const MAX_NAME_LENGTH = DESCRIPTION_MAX_SHORT;
 
     export let open = false;
     /** Bundle to edit (from list). Must be DRAFT to be editable. */
@@ -373,7 +374,8 @@
                 </div>
             {/if}
             <div class="field-full">
-                <TextareaField label="Description" placeholder="Enter" bind:value={description} rows={3} />
+                <TextareaField label="Description" placeholder="Enter" bind:value={description} rows={3} maxlength={DESCRIPTION_MAX_SHORT} />
+                <p class="char-count" class:char-count-limit={description.length === DESCRIPTION_MAX_SHORT}>{description.length}/{DESCRIPTION_MAX_SHORT} characters</p>
             </div>
         </div>
         <div class="device-behavior-section">

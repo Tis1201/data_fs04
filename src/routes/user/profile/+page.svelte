@@ -15,6 +15,7 @@
         TabGroup
     } from '$lib/design-system/components';
     import type { ColumnDef, PaginationState, BadgeColor, TabItem } from '$lib/design-system/components';
+    import { DESCRIPTION_MAX } from '$lib/constants/description';
     import { Info, Pencil, Plus, Building2 } from 'lucide-svelte';
     import type { PageData } from './$types';
 
@@ -633,7 +634,11 @@
             placeholder="Enter description"
             bind:value={profileDescription}
             rows={4}
+            maxlength={DESCRIPTION_MAX}
         />
+        <p class="char-count" class:char-count-limit={(profileDescription?.length ?? 0) === DESCRIPTION_MAX}>
+            {profileDescription?.length ?? 0}/{DESCRIPTION_MAX} characters
+        </p>
     </div>
     <svelte:fragment slot="footer">
         <Button variant="outline" color="primary" size="lg" on:click={closeEditProfileModal}>
@@ -699,7 +704,11 @@
             placeholder="Enter"
             bind:value={orgDescription}
             rows={4}
+            maxlength={DESCRIPTION_MAX}
         />
+        <p class="char-count" class:char-count-limit={(orgDescription?.length ?? 0) === DESCRIPTION_MAX}>
+            {orgDescription?.length ?? 0}/{DESCRIPTION_MAX} characters
+        </p>
     </div>
     <svelte:fragment slot="footer">
         <Button variant="outline" color="primary" size="lg" on:click={closeAddOrgModal}>
@@ -765,7 +774,11 @@
             placeholder="Enter"
             bind:value={orgDescription}
             rows={4}
+            maxlength={DESCRIPTION_MAX}
         />
+        <p class="char-count" class:char-count-limit={(orgDescription?.length ?? 0) === DESCRIPTION_MAX}>
+            {orgDescription?.length ?? 0}/{DESCRIPTION_MAX} characters
+        </p>
     </div>
     <svelte:fragment slot="footer">
         <Button variant="outline" color="primary" size="lg" on:click={closeEditOrgModal}>
@@ -966,5 +979,15 @@
     .field-label {
         font: var(--ds-text-sm-medium);
         color: var(--ds-text-secondary);
+    }
+
+    .char-count {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        color: var(--ds-color-neutral-true-500);
+    }
+
+    .char-count.char-count-limit {
+        color: var(--ds-color-amber-600, #d97706);
     }
 </style>

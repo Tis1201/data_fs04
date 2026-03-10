@@ -6,11 +6,12 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { z } from 'zod';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { DESCRIPTION_MAX } from '$lib/constants/description';
 
 // Define the form schema (settings handled as string, converted later)
 const profileSchema = z.object({
     name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
-    description: z.string().max(500, 'Description must be less than 500 characters').optional(),
+    description: z.string().max(DESCRIPTION_MAX, `Description must be less than ${DESCRIPTION_MAX} characters`).optional(),
     isActive: z.string().optional().default('true'), // Store as string for Select component
     settings: z.string().optional().default('[]') // Store as JSON string
 });
