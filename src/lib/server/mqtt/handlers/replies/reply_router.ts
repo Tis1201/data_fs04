@@ -53,8 +53,11 @@ export async function handleReplyMessage(
         // Update action log if this is a device status or progress update
         const resultObj = result as Record<string, unknown>;
         const messageType = resultObj.type as string;
-        // Extract logId - prefer operationId for device profile operations, fallback to logId for backward compatibility
-        const logId = (resultObj.operationId as string) || (resultObj.logId as string);
+        // Extract logId - from result first, then from ticket params (for config.update when device echoes different format)
+        let logId = (resultObj.operationId as string) || (resultObj.logId as string);
+        if (!logId && ctx.type === 'config.update' && ctx.params) {
+            logId = (ctx.params.logId as string) || (ctx.params.operationId as string) || '';
+        }
         const status = resultObj.status as string;
         const message = resultObj.message as string;
         const action = resultObj.action as string;
@@ -95,6 +98,35 @@ export async function handleReplyMessage(
                     logId,
                     error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
                 });
+            }
+        }
+
+        // Fallback for config.update when device sends non-device:statusUpdate format
+        // (e.g. mobile/legacy: { success, configVersion, appliedAt, message } without type/logId)
+        if (logId && !updatedLogData && ctx.type === 'config.update') {
+            const innerResult = resultObj.result as Record<string, unknown> | undefined;
+            const success = resultObj.success ?? innerResult?.success;
+            const derivedStatus = resultObj.status || (success === true ? 'success' : success === false ? 'failed' : null);
+            const derivedMessage = resultObj.message ?? innerResult?.message ?? (derivedStatus === 'success' ? 'Config applied successfully' : 'Config update failed');
+            if (derivedStatus === 'success' || derivedStatus === 'failed') {
+                logger.info('[MQTT Reply] config.update fallback: updating Action Log from non-statusUpdate format', {
+                    logId,
+                    derivedStatus,
+                    resultKeys: Object.keys(resultObj)
+                });
+                const normalisedResult = { ...resultObj, status: derivedStatus, message: derivedMessage, action: 'config.update' };
+                await handleStatusUpdate(prisma, logId, 'config.update', derivedStatus, derivedMessage, normalisedResult);
+                try {
+                    const updatedLog = await (prisma as any).deviceActionLog.findUnique({
+                        where: { id: logId },
+                        select: { durationMs: true, progress: true }
+                    });
+                    if (updatedLog) {
+                        updatedLogData = { durationMs: updatedLog.durationMs, progress: updatedLog.progress };
+                    }
+                } catch {
+                    // Ignore
+                }
             }
         }
 
