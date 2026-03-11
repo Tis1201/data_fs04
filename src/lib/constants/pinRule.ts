@@ -1,7 +1,7 @@
-import { DESCRIPTION_MAX } from './description';
+import { DESCRIPTION_MAX, NAME_MAX } from './description';
 
 /** TC-RDM-APR-0016: Max characters for pin rule name (consistent with tag name limit). */
-export const PIN_RULE_NAME_MAX = 100;
+export const PIN_RULE_NAME_MAX = NAME_MAX;
 
 /** Max characters for pin rule description (consistent with device profile description limit). */
 export const PIN_RULE_DESCRIPTION_MAX = DESCRIPTION_MAX;

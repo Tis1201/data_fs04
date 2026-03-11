@@ -3,8 +3,9 @@
     import { Button, Card, InputField, TextareaField } from "$lib/design-system/components";
     import { Save, X } from "lucide-svelte";
     import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
+    import CharacterCount from "$lib/components/ui_components_sveltekit/form/CharacterCount.svelte";
     import { createSuccessResponse } from "$lib/types/api";
-    import { DESCRIPTION_MAX } from "$lib/constants/description";
+    import { DESCRIPTION_MAX, NAME_MAX } from "$lib/constants/description";
     import type { PageData } from "./$types";
 
     export let data: PageData;
@@ -86,7 +87,9 @@
                 state={nameErr ? 'error' : 'default'}
                 helperText={nameErr}
                 required
+                maxlength={NAME_MAX}
             />
+            <CharacterCount current={$form.name?.length ?? 0} max={NAME_MAX} />
 
             <TextareaField
                 id="description"
@@ -100,9 +103,7 @@
                 rows={3}
                 maxlength={DESCRIPTION_MAX}
             />
-            <p class="char-count" class:char-count-limit={descriptionValue?.length === DESCRIPTION_MAX}>
-                {descriptionValue?.length ?? 0}/{DESCRIPTION_MAX} characters
-            </p>
+            <CharacterCount current={descriptionValue?.length ?? 0} max={DESCRIPTION_MAX} />
 
             <!-- Hidden fields -->
             <input type="hidden" name="id" value={$form.id} />
@@ -110,14 +111,3 @@
         </form>
     </Card>
 </div>
-
-<style>
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
-    }
-</style>

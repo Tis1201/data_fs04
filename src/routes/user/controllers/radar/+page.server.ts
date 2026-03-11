@@ -14,6 +14,7 @@ import type { Prisma } from '@prisma/client';
 import { validateBounds, normalizeBounds } from '$lib/components/ui_components_sveltekit/radar/constraints';
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for updates.
 import prisma from '$lib/server/prisma';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
 
 export const load = restrict(
     async ({ url, locals, cookies, depends }: AuthenticatedLoadEvent) => {
@@ -178,8 +179,34 @@ export const load = restrict(
                 if (one) editSensor = one;
             }
 
+            // Enrich radar sensors with device connection status (Redis/MQTT presence) – batch lookup
+            const deviceIds = sensors
+                .map((s: { controller?: { device?: { id: string } } }) => s.controller?.device?.id)
+                .filter((id): id is string => !!id);
+            let presenceMap = new Map<string, boolean>();
+            try {
+                presenceMap = await areDevicesOnline(deviceIds);
+            } catch (e) {
+                logger.warn(`[Radar] Failed batch device presence check: ${e}`);
+            }
+            const radarSensorsEnriched = sensors.map((sensor: { controller?: { device?: { id: string } } }) => {
+                const deviceId = sensor.controller?.device?.id;
+                const connected = deviceId ? (presenceMap.get(deviceId) ?? false) : false;
+                return {
+                    ...sensor,
+                    controller: sensor.controller
+                        ? {
+                            ...sensor.controller,
+                            device: sensor.controller.device
+                                ? { ...sensor.controller.device, connected }
+                                : undefined
+                        }
+                        : undefined
+                };
+            });
+
             return {
-                radarSensors: sensors,
+                radarSensors: radarSensorsEnriched,
                 currentAccountId,
                 meta: {
                     totalItems: totalSensors,
@@ -547,7 +574,7 @@ async function updateSensorFromList(
 
     if (!sensorId) return { type: 'error', message: 'Sensor id is required' };
     if (!name) return { type: 'error', message: 'Sensor name is required' };
-    if (name.length > 100) return { type: 'error', message: 'Name must be 100 characters or less' };
+    if (name.length > 50) return { type: 'error', message: 'Name must be 50 characters or less' };
     if (location !== null && location.length > 200) return { type: 'error', message: 'Location must be 200 characters or less' };
 
     try {

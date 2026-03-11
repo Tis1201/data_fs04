@@ -18,8 +18,9 @@
     import EnhancedSelect from "$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte";
     import EnhancedDatePicker from "$lib/components/ui_components_sveltekit/form/EnhancedDatePicker.svelte";
     import EnhancedTimePicker from "$lib/components/ui_components_sveltekit/form/EnhancedTimePicker.svelte";
+    import CharacterCount from "$lib/components/ui_components_sveltekit/form/CharacterCount.svelte";
     import type { PageData } from "./$types";
-    import { DESCRIPTION_MAX_SHORT } from "$lib/constants/description";
+    import { DESCRIPTION_MAX, NAME_MAX } from "$lib/constants/description";
 
     export let data: PageData;
     const { bundle, accounts } = data;
@@ -140,15 +141,10 @@
                                     name="name" 
                                     placeholder="Enter bundle name"
                                     bind:value={$form.name}
-                                    maxlength={200}
+                                    maxlength={NAME_MAX}
                                     disabled={$submitting}
                                 />
-                                <p class="text-xs mt-1" class:text-amber-600={($form.name?.length ?? 0) === 200} class:text-muted-foreground={($form.name?.length ?? 0) !== 200}>
-                                    {$form.name?.length ?? 0}/200 characters
-                                    {#if ($form.name?.length ?? 0) === 200}
-                                        — Maximum length reached
-                                    {/if}
-                                </p>
+                                <CharacterCount current={$form.name?.length ?? 0} max={NAME_MAX} />
                             </FormField>
                         </FormRow>
 
@@ -163,15 +159,10 @@
                                 placeholder="Enter bundle description"
                                 bind:value={$form.description}
                                 rows={3}
-                                maxlength={DESCRIPTION_MAX_SHORT}
+                                maxlength={DESCRIPTION_MAX}
                                 disabled={$submitting}
                             />
-                                <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === DESCRIPTION_MAX_SHORT} class:text-muted-foreground={($form.description?.length ?? 0) !== DESCRIPTION_MAX_SHORT}>
-                                    {$form.description?.length ?? 0}/{DESCRIPTION_MAX_SHORT} characters
-                                    {#if ($form.description?.length ?? 0) === DESCRIPTION_MAX_SHORT}
-                                        — Maximum length reached
-                                    {/if}
-                                </p>
+                                <CharacterCount current={$form.description?.length ?? 0} max={DESCRIPTION_MAX} />
                         </FormField>
 
                         <FormRow columns={2}>

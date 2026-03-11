@@ -6,6 +6,7 @@
     import { toast } from 'svelte-sonner';
     import { onMount } from 'svelte';
     import { PIN_RULE_NAME_MAX, PIN_RULE_DESCRIPTION_MAX } from '$lib/constants/pinRule';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
 
     export let rule: any;
     export let title: string;
@@ -124,12 +125,7 @@
                     placeholder="Rule name"
                     maxlength={PIN_RULE_NAME_MAX}
                 />
-                <p class="char-count" class:char-count-limit={formData.name.length === PIN_RULE_NAME_MAX}>
-                    {formData.name.length}/{PIN_RULE_NAME_MAX} characters
-                    {#if formData.name.length === PIN_RULE_NAME_MAX}
-                        — Maximum length reached
-                    {/if}
-                </p>
+                <CharacterCount current={formData.name.length} max={PIN_RULE_NAME_MAX} />
             </div>
             <div>
                 <Toggle
@@ -147,12 +143,7 @@
                     rows={3}
                     maxlength={PIN_RULE_DESCRIPTION_MAX}
                 />
-                <p class="char-count" class:char-count-limit={formData.description.length === PIN_RULE_DESCRIPTION_MAX}>
-                    {formData.description.length}/{PIN_RULE_DESCRIPTION_MAX} characters
-                    {#if formData.description.length === PIN_RULE_DESCRIPTION_MAX}
-                        — Maximum length reached
-                    {/if}
-                </p>
+                <CharacterCount current={formData.description.length} max={PIN_RULE_DESCRIPTION_MAX} />
             </div>
 
             <div>
@@ -209,12 +200,5 @@
 />
 
 <style>
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
-    }
+
 </style>

@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { NAME_MAX } from '$lib/constants/description';
 
 // Define the schema for resource creation
 export const resourceSchema = z.object({
     name: z.string()
         .min(1, { message: 'Resource name is required' })
-        .max(100, { message: 'Name must be 100 characters or less' }),
+        .max(NAME_MAX, { message: `Name must be ${NAME_MAX} characters or less` }),
     description: z.string()
         .optional(),
     type: z.string()

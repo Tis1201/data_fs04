@@ -10,8 +10,9 @@
         FileUpload
     } from '$lib/design-system/components';
     import type { UploadedFile } from '$lib/design-system/components/FileUpload.svelte';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
     import { Download } from 'lucide-svelte';
-    import { DESCRIPTION_MAX } from '$lib/constants/description';
+    import { DESCRIPTION_MAX, NAME_MAX } from '$lib/constants/description';
 
     export let open: boolean = false;
     export let mode: 'add' | 'edit' = 'add';
@@ -52,7 +53,7 @@
     /** Message when FileUpload rejects a file (e.g. size > 50MB, wrong type) */
     let fileRejectMessage: string | null = null;
 
-    const MAX_NAME_LENGTH = DESCRIPTION_MAX;
+    const MAX_NAME_LENGTH = NAME_MAX;
     const MAX_DESCRIPTION_LENGTH = DESCRIPTION_MAX;
     const SET_NAME_REQUIRED = 'Set name is required';
     const SET_NAME_TOO_LONG = `Set name must be ${MAX_NAME_LENGTH} characters or less`;
@@ -389,12 +390,7 @@
                     state={setNameError ? 'error' : 'default'}
                     helperText={setNameError}
                 />
-                <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
-                    {name.length}/{MAX_NAME_LENGTH} characters
-                    {#if name.length === MAX_NAME_LENGTH}
-                        — Maximum length reached
-                    {/if}
-                </p>
+                <CharacterCount current={name.length} max={MAX_NAME_LENGTH} />
             </div>
 
             <div class="preclaim-row">
@@ -424,9 +420,7 @@
                     bind:value={description}
                     maxlength={MAX_DESCRIPTION_LENGTH}
                 />
-                <p class="char-count" class:char-count-limit={description.length === MAX_DESCRIPTION_LENGTH}>
-                    {description.length}/{MAX_DESCRIPTION_LENGTH} characters
-                </p>
+                <CharacterCount current={description.length} max={MAX_DESCRIPTION_LENGTH} />
             </div>
 
             <div class="preclaim-field">
@@ -544,14 +538,6 @@
         gap: var(--ds-space-4);
         width: 100%;
         min-width: 0;
-    }
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
     }
     .preclaim-field {
         display: block;

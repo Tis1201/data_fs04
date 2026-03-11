@@ -8,6 +8,7 @@
 
     import type { PageData } from "./$types";
 import { DESCRIPTION_MAX } from "$lib/constants/description";
+    import CharacterCount from "$lib/components/ui_components_sveltekit/form/CharacterCount.svelte";
     import { radarSensorSchema } from "../../../../admin/controllers/radar/new/radar-sensor";
     import { getDetailPageFormConfig, processFormMessages } from "$lib/utils/formHelpers";
 
@@ -285,9 +286,7 @@ import { DESCRIPTION_MAX } from "$lib/constants/description";
                         state={err(errorsRecord, "description") ? "error" : "default"}
                         helperText={String(err(errorsRecord, "description") || "")}
                     />
-                    <p class="char-count" class:char-count-limit={($form.description?.length ?? 0) === DESCRIPTION_MAX}>
-                        {$form.description?.length ?? 0}/{DESCRIPTION_MAX} characters
-                    </p>
+                    <CharacterCount current={$form.description?.length ?? 0} max={DESCRIPTION_MAX} />
             </div>
 
             <div class="register-radar-row">

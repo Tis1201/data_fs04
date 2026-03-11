@@ -12,6 +12,7 @@
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedDatePicker from "$lib/components/ui_components_sveltekit/form/EnhancedDatePicker.svelte";
   import EnhancedFileUpload from "$lib/components/ui_components_sveltekit/form/EnhancedFileUpload.svelte";
+  import CharacterCount from "$lib/components/ui_components_sveltekit/form/CharacterCount.svelte";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
   import { addMonths, format as fmt } from "date-fns";
@@ -194,9 +195,7 @@
           <FormRow columns={1}>
             <FormField id="description" label="Description" error={$errors.description}>
               <Textarea id="description" name="description" rows={3} bind:value={$form.description} maxlength={DESCRIPTION_MAX} />
-              <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === DESCRIPTION_MAX} class:text-muted-foreground={($form.description?.length ?? 0) !== DESCRIPTION_MAX}>
-                {$form.description?.length ?? 0}/{DESCRIPTION_MAX} characters
-              </p>
+              <CharacterCount current={$form.description?.length ?? 0} max={DESCRIPTION_MAX} />
             </FormField>
           </FormRow>
 

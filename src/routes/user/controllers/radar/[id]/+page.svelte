@@ -1,7 +1,9 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
   import { browser } from "$app/environment";
+  import { onMount } from "svelte";
   import { toast } from "$lib/stores/alertToast";
+  import { initializeDeviceRealtime, deviceRealtimeStore } from "$lib/stores/deviceRealtimeStore";
   import {
     MapPin,
     Settings,
@@ -543,7 +545,7 @@
       toast.error("No sensor selected");
       return;
     }
-    const deviceConnected = data?.radarSensor?.controller?.device?.connected === true;
+    const deviceConnected = isDeviceConnectedRealtime;
     if (!deviceConnected) {
       toast.error("Device is offline. Push requires the device to be online.");
       return;
@@ -614,9 +616,24 @@
     }
   }
 
-  $: connectionStatus = data.radarSensor.controller?.device?.connected === true ? "Online" : "Offline";
-  $: connectionBadgeColor =
-    data.radarSensor.controller?.device?.connected === true ? "success" as const : "gray" as const;
+  // Real-time device connection via MQTT (same as device listing)
+  onMount(() => {
+    if (browser) initializeDeviceRealtime();
+  });
+
+  // Merge MQTT real-time store with server-loaded connected; prefer store when device is known
+  $: isDeviceConnectedRealtime = (() => {
+    const deviceId = data?.radarSensor?.controller?.device?.id;
+    const serverConnected = data?.radarSensor?.controller?.device?.connected === true;
+    if (!deviceId) return serverConnected;
+    const store = $deviceRealtimeStore;
+    if (!store) return serverConnected;
+    const known = store.getDevice(deviceId);
+    return known !== null ? store.isDeviceConnected(deviceId) : serverConnected;
+  })();
+
+  $: connectionStatus = isDeviceConnectedRealtime ? "Online" : "Offline";
+  $: connectionBadgeColor = isDeviceConnectedRealtime ? "success" as const : "gray" as const;
 
   function formatDate(d: Date | string | null | undefined): string {
     if (!d) return "—";
@@ -2019,7 +2036,7 @@
   }}
   sensorId={data.radarSensor.id || ""}
   syncStatus={data.radarSensor.syncStatus || "SYNCED"}
-  isDeviceOnline={data.radarSensor.controller?.device?.connected || false}
+  isDeviceOnline={isDeviceConnectedRealtime}
   trackingAreaForm={{ ...$trackingAreaForm, description: $trackingAreaForm.description ?? undefined }}
   zoneForm={{ ...$zoneForm, description: $zoneForm.description ?? undefined, color: $zoneForm.color ?? undefined }}
   dwellBucketForm={{ ...$dwellBucketForm, description: $dwellBucketForm.description ?? undefined }}

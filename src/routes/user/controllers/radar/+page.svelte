@@ -2,11 +2,15 @@
     import { goto, invalidate } from '$app/navigation';
     import { enhance, deserialize } from '$app/forms';
     import { page } from '$app/stores';
+    import { onMount } from 'svelte';
     import { browser } from '$app/environment';
+    import { initializeDeviceRealtime, deviceRealtimeStore } from '$lib/stores/deviceRealtimeStore';
     import { toast } from '$lib/stores/alertToast';
     import { claimDevice } from '$lib/client/mqtt/claimFlow';
     import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
     import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
+    import { NAME_MAX } from '$lib/constants/description';
     import { validateBounds, normalizeBounds, RADAR_CONSTRAINTS, ADD_DEVICE_TRACKING_DEFAULTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
     import type { BadgeColor, SortState } from '$lib/design-system/components';
     import { Search, Filter, Plus, Info, Trash2 } from 'lucide-svelte';
@@ -15,7 +19,7 @@
 
     export let data: PageData;
 
-    type SensorRow = Sensor & { controller?: { id: string } | null };
+    type SensorRow = Sensor & { controller?: { id: string; device?: { id: string; name?: string; connected?: boolean } } | null };
 
     // TODO: Re-enable ACL check when radar module ACL is turned back on.
     $: showCreateButton = !!data.user;
@@ -337,6 +341,10 @@
             addDeviceNameError = 'Sensor name is required.';
             return;
         }
+        if (addDeviceForm.name.length > NAME_MAX) {
+            addDeviceNameError = `Sensor name must be ${NAME_MAX} characters or less.`;
+            return;
+        }
         const slug = addDeviceForm.name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') || 'sensor';
         addDeviceForm.serialNumber = `RADAR-${slug}-${Date.now().toString(36)}`;
         if (!addDeviceStep2.zones?.length) {
@@ -552,8 +560,30 @@
         direction: (data.sort?.order as 'asc' | 'desc') || 'desc'
     };
 
-    // Table data
-    $: tableData = (data.radarSensors || []) as unknown as SensorRow[];
+    // Real-time device connection via MQTT
+    onMount(() => {
+        if (browser) initializeDeviceRealtime();
+    });
+
+    // Table data: merge MQTT real-time connection into radar sensors
+    $: tableDataRaw = (data.radarSensors || []) as unknown as SensorRow[];
+    $: tableData = (() => {
+        const store = $deviceRealtimeStore;
+        if (!store) return tableDataRaw;
+        return tableDataRaw.map((row: SensorRow) => {
+            const deviceId = row.controller?.device?.id;
+            const serverConnected = row.controller?.device?.connected === true;
+            const connected = deviceId && store.getDevice(deviceId) !== null
+                ? store.isDeviceConnected(deviceId)
+                : serverConnected;
+            return {
+                ...row,
+                controller: row.controller?.device
+                    ? { ...row.controller, device: { ...row.controller.device, connected } }
+                    : row.controller
+            };
+        });
+    })();
 
     // Open Edit Device modal when navigated from detail page with ?editSensorId=
     let openedEditFromQuery = false;
@@ -589,10 +619,19 @@
         return (row.controller?.id ?? row.id) as string;
     }
 
-    // Status display: design shows "Online" (green), "Offline", "Maintenance"
+    // Connection display: device MQTT online status (real-time)
+    function connectionLabel(row: SensorRow): string {
+        return row.controller?.device?.connected === true ? 'Online' : 'Offline';
+    }
+
+    function connectionColor(_value: string, row: SensorRow): BadgeColor {
+        return row.controller?.device?.connected === true ? 'success' : 'gray';
+    }
+
+    // Status display: ACTIVE/INACTIVE lifecycle (not connection)
     function statusLabel(status: string): string {
-        if (status === 'ACTIVE') return 'Online';
-        if (status === 'INACTIVE') return 'Offline';
+        if (status === 'ACTIVE') return 'Active';
+        if (status === 'INACTIVE') return 'Inactive';
         return status === 'MAINTENANCE' ? 'Maintenance' : status;
     }
 
@@ -628,6 +667,14 @@
             type: 'text' as const,
             sortable: true,
             width: '150px'
+        },
+        {
+            id: 'connection',
+            header: 'Connection',
+            accessor: (row: SensorRow) => connectionLabel(row),
+            type: 'badge' as const,
+            width: '120px',
+            statusColor: connectionColor
         },
         {
             id: 'status',
@@ -862,17 +909,12 @@
                         bind:value={addDeviceForm.name}
                         placeholder="Enter"
                         required={true}
-                        maxlength={500}
+                        maxlength={NAME_MAX}
                         disabled={addDeviceLoading}
                         state={addDeviceNameError ? 'error' : 'default'}
                         helperText={addDeviceNameError}
                     />
-                    <p class="add-device-char-count" class:add-device-char-count-limit={addDeviceForm.name.length === 500}>
-                        {addDeviceForm.name.length}/500 characters
-                        {#if addDeviceForm.name.length === 500}
-                            — Maximum length reached
-                        {/if}
-                    </p>
+                    <CharacterCount current={addDeviceForm.name.length} max={NAME_MAX} />
                 </div>
                 <div class="add-device-field add-device-field-full">
                     <InputField
@@ -1663,14 +1705,6 @@
     }
     .add-device-field-with-pin-help {
         gap: 16px;
-    }
-    .add-device-char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .add-device-char-count.add-device-char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
     }
     /* Path Tracking row – Figma: Device record 816×52, table cell text (flex 1) + table cell toggle 36×52 */
     .add-device-path-tracking-row {

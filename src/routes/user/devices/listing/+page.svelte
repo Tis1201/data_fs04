@@ -35,7 +35,7 @@
         settings?: string;
     }
 
-    type SensorRow = Sensor & { controller?: { id: string } | null };
+    type SensorRow = Sensor & { controller?: { id: string; device?: { id: string; name?: string; connected?: boolean } } | null };
 
     export let data: PageData;
     /** Route params from SvelteKit (avoids "unknown prop 'params'" warning) */
@@ -564,7 +564,25 @@
     // Sensors State
     // =========================
     $: sensorsData = data.sensorsData;
-    $: radarSensors = sensorsData?.radarSensors || [];
+    $: radarSensorsRaw = sensorsData?.radarSensors || [];
+    // Merge MQTT real-time connection into radar sensors (same pattern as displayData for devices)
+    $: radarSensors = (() => {
+        const store = $deviceRealtimeStore;
+        if (!store) return radarSensorsRaw;
+        return radarSensorsRaw.map((row: SensorRow) => {
+            const deviceId = row.controller?.device?.id;
+            const serverConnected = row.controller?.device?.connected === true;
+            const connected = deviceId && store.getDevice(deviceId) !== null
+                ? store.isDeviceConnected(deviceId)
+                : serverConnected;
+            return {
+                ...row,
+                controller: row.controller?.device
+                    ? { ...row.controller, device: { ...row.controller.device, connected } }
+                    : row.controller
+            };
+        });
+    })();
     $: sensorsMeta = sensorsData?.meta || { totalItems: 0, itemsPerPage: 10, totalPages: 0, currentPage: 1 };
     $: availableLocations = sensorsData?.availableLocations || [];
 
@@ -697,18 +715,27 @@
             width: '30%'
         },
         {
+            id: 'connection',
+            header: 'Connection',
+            type: 'badge',
+            accessor: (row: SensorRow) => (row.controller?.device?.connected === true ? 'Online' : 'Offline'),
+            width: '12%',
+            statusColor: (_value: unknown, row: SensorRow): BadgeColor =>
+                row.controller?.device?.connected === true ? 'success' : 'gray'
+        },
+        {
             id: 'status',
             header: 'Status',
             type: 'badge',
             accessor: (row: SensorRow) => {
                 const status = row.status?.toUpperCase();
-                if (status === 'ACTIVE') return 'Online';
-                if (status === 'INACTIVE') return 'Offline';
+                if (status === 'ACTIVE') return 'Active';
+                if (status === 'INACTIVE') return 'Inactive';
                 return status || 'Unknown';
             },
             sortable: true,
-            width: '15%',
-            statusColor: (_value: any, row: SensorRow): BadgeColor => {
+            width: '12%',
+            statusColor: (_value: unknown, row: SensorRow): BadgeColor => {
                 const status = row.status?.toUpperCase();
                 if (status === 'ACTIVE') return 'success';
                 if (status === 'INACTIVE') return 'gray';

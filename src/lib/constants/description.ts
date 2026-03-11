@@ -1,11 +1,11 @@
 /**
- * Standard description character limit (profile, org, preclaim, device profile, device, radar controller).
- * Used for most description fields across the app.
+ * Standard name character limit (tag, device, deployment, resource, pre-enrollment set, pin rule, profile).
+ * Used for name fields across create/edit modals.
  */
-export const DESCRIPTION_MAX = 500;
+export const NAME_MAX = 50;
 
 /**
- * Short description limit (device tags, bundle/deployment descriptions).
- * Used when a shorter description is preferred to prevent UI layout issues.
+ * Standard description character limit (profile, org, preclaim, device profile, device, radar controller).
+ * Used for all description fields across the app.
  */
-export const DESCRIPTION_MAX_SHORT = 200;
+export const DESCRIPTION_MAX = 200;

@@ -9,12 +9,13 @@
         Button
     } from '$lib/design-system/components';
     import type { DropdownOption } from '$lib/design-system/components';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
     import { OS_OPTIONS } from '$lib/utils/bundleUtils';
     import { toast } from '$lib/stores/alertToast';
     import type { Bundle } from '@prisma/client';
-    import { DESCRIPTION_MAX_SHORT } from '$lib/constants/description';
+    import { DESCRIPTION_MAX, NAME_MAX } from '$lib/constants/description';
 
-    const MAX_NAME_LENGTH = DESCRIPTION_MAX_SHORT;
+    const MAX_NAME_LENGTH = NAME_MAX;
 
     export let open = false;
     /** Bundle to edit (from list). Must be DRAFT to be editable. */
@@ -298,12 +299,7 @@
                         state={nameError ? 'error' : 'default'}
                         helperText={nameError}
                     />
-                    <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
-                        {name.length}/{MAX_NAME_LENGTH} characters
-                        {#if name.length === MAX_NAME_LENGTH}
-                            — Maximum length reached
-                        {/if}
-                    </p>
+                    <CharacterCount current={name.length} max={MAX_NAME_LENGTH} />
                 </div>
                 <div class="row-version-batch">
                     <div class="field-wrap version-field">
@@ -374,8 +370,8 @@
                 </div>
             {/if}
             <div class="field-full">
-                <TextareaField label="Description" placeholder="Enter" bind:value={description} rows={3} maxlength={DESCRIPTION_MAX_SHORT} />
-                <p class="char-count" class:char-count-limit={description.length === DESCRIPTION_MAX_SHORT}>{description.length}/{DESCRIPTION_MAX_SHORT} characters</p>
+                <TextareaField label="Description" placeholder="Enter" bind:value={description} rows={3} maxlength={DESCRIPTION_MAX} />
+                <CharacterCount current={description.length} max={DESCRIPTION_MAX} />
             </div>
         </div>
         <div class="device-behavior-section">
@@ -493,14 +489,6 @@
     .date-time-row :global(.input-field-wrapper),
     .date-time-row :global(.input-container) { width: 100%; min-width: 0; box-sizing: border-box; }
     .field-error { margin: 0; font-size: var(--ds-text-xs); color: var(--ds-color-error-600); }
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
-    }
     .device-behavior-section {
         margin-top: var(--ds-space-6);
         padding-top: var(--ds-space-4);

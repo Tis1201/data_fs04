@@ -3,6 +3,7 @@
     import { Modal, Button, InputField, TextareaField, Toggle, TabGroup, Dropdown } from '$lib/design-system/components';
     import { PIN_RULE_NAME_MAX, PIN_RULE_DESCRIPTION_MAX, FALLBACK_ACCEPT, FALLBACK_ALLOWED_MIMES, FALLBACK_ALLOWED_EXTENSIONS } from '$lib/constants/pinRule';
     import AppPickerModal from '$lib/components/shared/AppPickerModal.svelte';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
     import type { AppPickerItem } from '$lib/components/shared/AppPickerModal.svelte';
     import DeviceSelector from '$lib/components/bundles_ui/device_select/DeviceSelector.svelte';
     import { Plus, X, Download } from 'lucide-svelte';
@@ -523,12 +524,7 @@
                     helperText={descriptionError}
                     on:input={() => (descriptionError = '')}
                 />
-                <p class="char-count" class:char-count-limit={formData.description.length === PIN_RULE_DESCRIPTION_MAX}>
-                    {formData.description.length}/{PIN_RULE_DESCRIPTION_MAX} characters
-                    {#if formData.description.length === PIN_RULE_DESCRIPTION_MAX}
-                        — Maximum length reached
-                    {/if}
-                </p>
+                <CharacterCount current={formData.description.length} max={PIN_RULE_DESCRIPTION_MAX} />
             </div>
         </div>
 
@@ -846,14 +842,7 @@
         color: var(--ds-color-error-500);
         margin: 0;
     }
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
-    }
+
     /* Tab strip does not grow */
     .edit-rule-modal-body :global(.tab-group) {
         flex-shrink: 0;

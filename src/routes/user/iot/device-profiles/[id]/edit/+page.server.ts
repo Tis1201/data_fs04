@@ -10,7 +10,7 @@ import { DESCRIPTION_MAX } from '$lib/constants/description';
 
 // Define the form schema (settings handled as string, converted later)
 const profileSchema = z.object({
-    name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be less than 100 characters'),
+    name: z.string().min(1, 'Profile name is required').max(50, 'Profile name must be 50 characters or less'),
     description: z.string().max(DESCRIPTION_MAX, `Description must be less than ${DESCRIPTION_MAX} characters`).optional(),
     isActive: z.string().optional().default('true'), // Store as string for Select component
     settings: z.string().optional().default('[]') // Store as JSON string

@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { logger } from '$lib/server/logger';
 import { loadDeviceList } from '$lib/server/devices/deviceLoader';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
 import { createDeviceActions } from '$lib/server/devices/deviceActions';
 import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -146,8 +147,34 @@ export const load = restrict(
                     .filter((loc): loc is string => loc != null && loc.trim() !== '')
                     .sort((a, b) => a.localeCompare(b));
 
+                // Enrich radar sensors with device connection status (Redis/MQTT presence) – batch lookup
+                const sensorDeviceIds = sensors
+                    .map((s: { controller?: { device?: { id: string } } }) => s.controller?.device?.id)
+                    .filter((id): id is string => !!id);
+                let sensorPresenceMap = new Map<string, boolean>();
+                try {
+                    sensorPresenceMap = await areDevicesOnline(sensorDeviceIds);
+                } catch (e) {
+                    logger.warn(`[Devices] Failed batch device presence check for sensors: ${e}`);
+                }
+                const radarSensorsEnriched = sensors.map((sensor: { controller?: { device?: { id: string } } }) => {
+                    const deviceId = sensor.controller?.device?.id;
+                    const connected = deviceId ? (sensorPresenceMap.get(deviceId) ?? false) : false;
+                    return {
+                        ...sensor,
+                        controller: sensor.controller
+                            ? {
+                                ...sensor.controller,
+                                device: sensor.controller.device
+                                    ? { ...sensor.controller.device, connected }
+                                    : undefined
+                            }
+                            : undefined
+                    };
+                });
+
                 sensorsData = {
-                    radarSensors: sensors,
+                    radarSensors: radarSensorsEnriched,
                     meta: {
                         totalItems: totalSensors,
                         itemsPerPage: perPage,
@@ -409,7 +436,7 @@ export const actions: Actions = {
 
             if (!sensorId) return { type: 'error', message: 'Sensor id is required' };
             if (!name) return { type: 'error', message: 'Sensor name is required' };
-            if (name.length > 100) return { type: 'error', message: 'Name must be 100 characters or less' };
+            if (name.length > 50) return { type: 'error', message: 'Name must be 50 characters or less' };
             if (location !== null && location.length > 200) return { type: 'error', message: 'Location must be 200 characters or less' };
 
             try {

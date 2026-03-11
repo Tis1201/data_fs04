@@ -10,6 +10,8 @@
         Tooltip
     } from '$lib/design-system/components';
     import type { UploadedFile } from '$lib/design-system/components/FileUpload.svelte';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
+    import { NAME_MAX } from '$lib/constants/description';
     import { Info, Download } from 'lucide-svelte';
     import {
         parseZipFile,
@@ -73,7 +75,7 @@
 
     const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file';
     const MAX_FILE_SIZE_MB = 500;
-    const MAX_NAME_LENGTH = 500;
+    const MAX_NAME_LENGTH = NAME_MAX;
     const FILE_HELPER = `Maximum file size ${MAX_FILE_SIZE_MB} MB, and allowed file types: .zip, .cpk, .deb, .apk, .exe.`;
     const FILE_ACCEPT = '.zip,.cpk,.deb,.apk,.exe';
 
@@ -737,12 +739,7 @@
                 helperText={resourceNameError}
                 disabled={false}
             />
-            <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
-                {name.length}/{MAX_NAME_LENGTH} characters
-                {#if name.length === MAX_NAME_LENGTH}
-                    — Maximum length reached
-                {/if}
-            </p>
+            <CharacterCount current={name.length} max={MAX_NAME_LENGTH} />
         </div>
         <div class="resource-field">
             <InputField
@@ -865,14 +862,6 @@
         width: 100%;
         min-width: 0;
         font-family: var(--ds-font-family-primary);
-    }
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
     }
     .resource-form-error {
         font-size: var(--ds-text-sm);

@@ -13,7 +13,7 @@ import { AuditActionType } from '$lib/constants/system';
 import { DESCRIPTION_MAX } from '$lib/constants/description';
 
 const profileSchema = z.object({
-    name: z.string().min(1, 'Profile name is required').max(100, 'Profile name must be 100 characters or less'),
+    name: z.string().min(1, 'Profile name is required').max(50, 'Profile name must be 50 characters or less'),
     description: z.string().max(DESCRIPTION_MAX).optional(),
     isActive: z.string().optional().default('true'),
     settings: z.string().optional().default('[]'),

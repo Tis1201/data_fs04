@@ -11,7 +11,8 @@
     } from '$lib/design-system/components';
     import { Eye, EyeOff } from 'lucide-svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
-    import { DESCRIPTION_MAX } from '$lib/constants/description';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
+    import { DESCRIPTION_MAX, NAME_MAX } from '$lib/constants/description';
 
     export let open: boolean = false;
     export let mode: 'add' | 'edit' = 'add';
@@ -29,7 +30,7 @@
     let errorMessage: string | null = null;
 
     // Profile name validation error: show on InputField (below input), not at top of form
-    const MAX_NAME_LENGTH = 100;
+    const MAX_NAME_LENGTH = NAME_MAX;
     const PROFILE_NAME_REQUIRED_MSG = 'Profile name is required';
     const PROFILE_NAME_TOO_LONG_MSG = `Profile name must be ${MAX_NAME_LENGTH} characters or less`;
     $: profileNameError = errorMessage || '';
@@ -628,12 +629,7 @@
                         state={profileNameError ? 'error' : 'default'}
                         helperText={profileNameError || ''}
                     />
-                    <p class="char-count" class:char-count-limit={name.length === MAX_NAME_LENGTH}>
-                        {name.length}/{MAX_NAME_LENGTH} characters
-                        {#if name.length === MAX_NAME_LENGTH}
-                            — Maximum length reached
-                        {/if}
-                    </p>
+                    <CharacterCount current={name.length} max={MAX_NAME_LENGTH} />
                 </div>
                 <div class="profile-active-wrap">
                     <Toggle bind:checked={isActive} size="sm" />
@@ -653,12 +649,7 @@
                 state={descriptionError ? 'error' : 'default'}
                 helperText={descriptionError || ''}
             />
-            <p class="char-count" class:char-count-limit={description.length === MAX_DESCRIPTION_LENGTH}>
-                {description.length}/{MAX_DESCRIPTION_LENGTH} characters
-                {#if description.length === MAX_DESCRIPTION_LENGTH}
-                    — Maximum length reached
-                {/if}
-            </p>
+            <CharacterCount current={description.length} max={MAX_DESCRIPTION_LENGTH} />
         </div>
 
         <!-- Configuration sections (layout like Edit Device modal) -->
@@ -1204,15 +1195,6 @@
         font-size: var(--ds-text-sm);
         color: var(--ds-text-tertiary);
         pointer-events: none;
-    }
-
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
     }
 
 </style>

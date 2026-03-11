@@ -12,6 +12,7 @@ import type { PrismaClient, Prisma } from '@prisma/client';
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for config updates.
 import prisma from '$lib/server/prisma';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
+import { isDeviceOnline } from '$lib/server/device/devicePresence'; // single-device, only one sensor on this page
 
 // Type definitions for JSON Config
 interface Zone {
@@ -112,7 +113,7 @@ const dwellBucketSchema = z.object({
 });
 
 const updateSensorInfoSchema = z.object({
-    name: z.string().min(1, { message: 'Sensor name is required' }).max(100, { message: 'Name must be 100 characters or less' }),
+    name: z.string().min(1, { message: 'Sensor name is required' }).max(50, { message: 'Name must be 50 characters or less' }),
     location: z.string().max(200, { message: 'Location must be 200 characters or less' }).optional().nullable()
 });
 
@@ -230,12 +231,23 @@ export const load = restrict(
 
             const config = (sensor.config as unknown as RadarConfig) || {};
 
+            // Enrich device.connected with Redis presence (MQTT real-time) instead of raw DB value
+            let deviceWithPresence = controller.device;
+            if (controller.device?.id) {
+                try {
+                    const isOnline = await isDeviceOnline(controller.device.id);
+                    deviceWithPresence = { ...controller.device, connected: isOnline };
+                } catch (e) {
+                    logger.warn(`[Radar] Failed to check device presence for ${controller.device.id}: ${e}`);
+                }
+            }
+
             // Add controller reference to sensor object for compatibility
             const sensorWithController = {
                 ...sensor,
                 controller: {
                     ...controller,
-                    device: controller.device
+                    device: deviceWithPresence
                 }
             };
 

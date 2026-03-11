@@ -29,6 +29,22 @@ export interface CloudflareIceServersResponse {
     };
 }
 
+/**
+ * Reorder ICE server URLs so that Cloudflare TURN on port 443 comes first.
+ * Port 443 (TURNS over TLS) works better through corporate firewalls and is
+ * tried first by the device when establishing WebRTC connections.
+ */
+function reorderUrlsForPort443First(urls: string | string[]): string | string[] {
+    const arr = Array.isArray(urls) ? [...urls] : [urls];
+    if (arr.length <= 1) return urls;
+
+    const with443 = arr.filter((u) => /:443($|\?)/.test(u));
+    const without443 = arr.filter((u) => !/:443($|\?)/.test(u));
+    const reordered = [...with443, ...without443];
+
+    return Array.isArray(urls) ? reordered : (reordered[0] ?? urls);
+}
+
 export class TurnCredentialService {
     private readonly apiUrl: string;
     private readonly apiToken: string;
@@ -93,8 +109,15 @@ export class TurnCredentialService {
                 ? data.iceServers
                 : [data.iceServers];
 
+            // Reorder TURN URLs so port 443 (TURNS) comes first - works better through firewalls
+            const reorderedServers = turnServers.map((server: { urls?: string | string[]; username?: string; credential?: string }) => {
+                const urls = server.urls;
+                if (!urls) return server;
+                return { ...server, urls: reorderUrlsForPort443First(urls) };
+            });
+
             return {
-                iceServers: turnServers, // Use only Cloudflare servers (includes STUN + TURN)
+                iceServers: reorderedServers, // Use only Cloudflare servers (includes STUN + TURN)
                 expiresAt: Date.now() + (this.ttl * 1000)
             };
         } catch (error) {

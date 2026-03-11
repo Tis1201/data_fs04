@@ -18,6 +18,7 @@
   import FormRow from "$lib/components/ui_components_sveltekit/form/FormRow.svelte";
   import FormField from "$lib/components/ui_components_sveltekit/form/FormField.svelte";
   import EnhancedDatePicker from "$lib/components/ui_components_sveltekit/form/EnhancedDatePicker.svelte";
+  import CharacterCount from "$lib/components/ui_components_sveltekit/form/CharacterCount.svelte";
   
   // Import the reusable form handler
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
@@ -103,12 +104,7 @@
                   disabled={$submitting}
                   maxlength={TAG_NAME_MAX}
                 />
-                <p class="text-xs mt-1" class:text-amber-600={($form.name?.length ?? 0) === TAG_NAME_MAX} class:text-muted-foreground={($form.name?.length ?? 0) !== TAG_NAME_MAX}>
-                  {$form.name?.length ?? 0}/{TAG_NAME_MAX} characters
-                  {#if ($form.name?.length ?? 0) === TAG_NAME_MAX}
-                    — Maximum length reached
-                  {/if}
-                </p>
+                <CharacterCount current={$form.name?.length ?? 0} max={TAG_NAME_MAX} />
               </FormField>
               <FormField id="description" label="Description" error={$errors.description}>
                 <Input
@@ -121,9 +117,7 @@
                   disabled={$submitting}
                   maxlength={TAG_DESCRIPTION_MAX}
                 />
-                <p class="text-xs mt-1" class:text-amber-600={($form.description?.length ?? 0) === TAG_DESCRIPTION_MAX} class:text-muted-foreground={($form.description?.length ?? 0) !== TAG_DESCRIPTION_MAX}>
-                  {$form.description?.length ?? 0}/{TAG_DESCRIPTION_MAX} characters
-                </p>
+                <CharacterCount current={$form.description?.length ?? 0} max={TAG_DESCRIPTION_MAX} />
               </FormField>
             </FormRow>
           </div>

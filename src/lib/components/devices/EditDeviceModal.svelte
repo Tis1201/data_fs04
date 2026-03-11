@@ -1,7 +1,8 @@
 <script lang="ts">
     import { createEventDispatcher, tick } from 'svelte';
     import { Modal, InputField, Toggle, TabGroup, Dropdown, TextareaField, Button, Alert } from '$lib/design-system/components';
-    import { DESCRIPTION_MAX } from '$lib/constants/description';
+    import { DESCRIPTION_MAX, NAME_MAX } from '$lib/constants/description';
+    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
     import type { TabItem } from '$lib/design-system/components/TabGroup.svelte';
     import { Eye, EyeOff } from 'lucide-svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
@@ -901,16 +902,11 @@
                     label="Device Name"
                     placeholder="Enter device name"
                     bind:value={editDeviceName}
-                    maxlength={500}
+                    maxlength={NAME_MAX}
                     state={editDeviceError ? 'error' : 'default'}
                     helperText={editDeviceError || undefined}
                 />
-                <p class="char-count" class:char-count-limit={editDeviceName.length === 500}>
-                    {editDeviceName.length}/500 characters
-                    {#if editDeviceName.length === 500}
-                        — Maximum length reached
-                    {/if}
-                </p>
+                <CharacterCount current={editDeviceName.length} max={NAME_MAX} />
             </div>
             <div class="flex items-center gap-2" style="padding-top: var(--ds-space-6);">
                 <Toggle
@@ -957,9 +953,7 @@
                 rows={4}
                 maxlength={DESCRIPTION_MAX}
             />
-            <p class="char-count" class:char-count-limit={editDeviceDescription?.length === DESCRIPTION_MAX}>
-                {editDeviceDescription?.length ?? 0}/{DESCRIPTION_MAX} characters
-            </p>
+            <CharacterCount current={editDeviceDescription?.length ?? 0} max={DESCRIPTION_MAX} />
         </div>
     {:else}
         <!-- Configuration Tab -->
@@ -1404,14 +1398,6 @@
 </Modal>
 
 <style>
-    .char-count {
-        margin: 4px 0 0;
-        font-size: var(--ds-text-xs);
-        color: var(--ds-color-neutral-true-500);
-    }
-    .char-count.char-count-limit {
-        color: var(--ds-color-amber-600, #d97706);
-    }
     /* Edit Device Modal - Configuration blocks */
     .config-block {
         background: var(--ds-bg-secondary);
