@@ -197,14 +197,17 @@ export async function handleSensorConfigPush(
     );
 
     const transport = getMqttTransport();
-    await transport.publish(notificationTopic, JSON.stringify({ ticket }), { qos: 1 });
+    const payload = { ticket };
+    await transport.publish(notificationTopic, JSON.stringify(payload), { qos: 1 });
 
+    const replyTopic = `${recipient}/replies`;
     logger.info(`[SensorConfig] Published config.update notification`, {
         sensorId,
         deviceId,
         operationId,
         logId
     });
+    logger.info(`[SensorConfig] INTEGRATION device app: subscribe=${notificationTopic} reply=${replyTopic} ticketParams=[sensorId,controllerId,configVersion,deviceId,operationId,logId,config] replyFormat=docs/architecture/device/mqtt/controllers/SENSOR_CONFIG.md#mobile-integration`);
 
     // 6. Mark as synced (optimistic - device reply will update action log via status_update_handler)
     // In production, you might want to wait for a reply or use a callback pattern

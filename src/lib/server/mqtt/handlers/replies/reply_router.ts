@@ -63,6 +63,13 @@ export async function handleReplyMessage(
         // This updates the database and calculates durationMs
         let updatedLogData: { durationMs?: number | null; progress?: number | null } | null = null;
         if (logId && messageType === 'device:statusUpdate') {
+            logger.info('[MQTT Reply] Received device reply (waiting step)', {
+                topic,
+                action,
+                logId,
+                status,
+                message: message?.substring(0, 80)
+            });
             await handleStatusUpdate(prisma, logId, action, status, message, resultObj);
             
             // Fetch the updated log to get calculated durationMs and progress

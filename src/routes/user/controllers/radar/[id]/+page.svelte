@@ -569,6 +569,7 @@
             requestId,
             timestamp: new Date().toISOString(),
           };
+          console.log("[Push] Sending request", { requestId, sensorId, attempt });
           let cleanupListener: (() => void) | null = null;
           const responsePromise = new Promise<MqttResponse>((resolve, reject) => {
             const timeout = setTimeout(() => {
@@ -578,6 +579,7 @@
             cleanupListener = mqttStore.on(`user/${userSub}/response`, (msg: { payload?: unknown }) => {
               const payload = msg.payload as MqttResponse | undefined;
               if (payload?.requestId === requestId) {
+                console.log("[Push] Received response", { requestId, payload });
                 clearTimeout(timeout);
                 if (cleanupListener) cleanupListener();
                 resolve(payload);
@@ -600,6 +602,7 @@
           }
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
+          console.log("[Push] Error", { attempt, error: lastError.message });
           if (attempt < MAX_RETRIES) {
             await new Promise((r) => setTimeout(r, 1500));
           }
