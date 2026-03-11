@@ -510,6 +510,9 @@ class UserMqttClient {
             if (decodedType) {
               type = decodedType;
               payloadData = payload.params || {};
+              if (payload.flowId && typeof payloadData === 'object') {
+                payloadData = { ...payloadData, flowId: payload.flowId };
+              }
             } else if (!type) {
               // If JWT decoding succeeded but no type found, and no type in data, use wildcard
               type = '*';

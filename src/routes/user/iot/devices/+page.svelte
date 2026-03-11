@@ -6,8 +6,7 @@
     import { goto, invalidate } from "$app/navigation";
     import { page } from "$app/stores";
     import { Search, Filter, Plus, Tags, GitFork, Server, BookUp2, Eye, EyeOff, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info } from "lucide-svelte";
-    import { callUserRpc } from "$lib/client/mqtt/userRpc";
-    import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
+    import { claimDevice } from "$lib/client/mqtt/claimFlow";
     import type { PageData } from "./$types";
     import EditDeviceModal from "$lib/components/devices/EditDeviceModal.svelte";
     import { toast } from "$lib/stores/alertToast";
@@ -507,18 +506,9 @@
         }
         claimLoading = true;
         try {
-            const response = await callUserRpc<{ flowId?: string; result: { factoryDeviceId: string } }>(
-                'device.claim',
-                { pin: claimPin },
-                { timeoutMs: 15000 }
-            );
-            const flowId = response?.flowId;
-            if (!flowId) throw new Error('Missing flowId in claim response');
-
-            const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
+            const confirmation = await claimDevice(claimPin);
             showAddDeviceModal = false;
-            toast.success( 'Device added successfully!');
-            // give device time to reconnect with new creds
+            toast.success('Device added successfully!');
             await new Promise((r) => setTimeout(r, 1000));
             await goto(`/user/iot/devices/${confirmation.deviceId}`);
         } catch (e) {

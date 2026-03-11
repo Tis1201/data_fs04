@@ -4,8 +4,7 @@
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
     import { toast } from '$lib/stores/alertToast';
-    import { callUserRpc } from '$lib/client/mqtt/userRpc';
-    import { waitForClaimConfirmation } from '$lib/client/mqtt/claimFlow';
+    import { claimDevice } from '$lib/client/mqtt/claimFlow';
     import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
     import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
     import { validateBounds, normalizeBounds, RADAR_CONSTRAINTS, ADD_DEVICE_TRACKING_DEFAULTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
@@ -467,14 +466,7 @@
         addDevicePinError = '';
         (async () => {
             try {
-                const response = await callUserRpc<{ flowId?: string; result: { factoryDeviceId: string } }>(
-                    'device.claim',
-                    { pin },
-                    { timeoutMs: 15000 }
-                );
-                const flowId = response?.flowId;
-                if (!flowId) throw new Error('Missing flowId in claim response');
-                const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
+                const confirmation = await claimDevice(pin);
                 const deviceId = confirmation.deviceId;
                 if (!deviceId) throw new Error('Claim confirmation did not return device ID');
                 const name = addDeviceForm.name?.trim() ?? '';

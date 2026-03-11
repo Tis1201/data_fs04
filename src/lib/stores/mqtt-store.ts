@@ -308,18 +308,26 @@ export function createMQTTStore() {
                         });
                         heartbeatApi.startHeartbeat();
                         heartbeatApi.scheduleTokenRefresh();
-                        if (pendingTopics.size > 0) {
-                            const handleAuthError = () => {
-                                forceTokenRefreshOnNextConnect = true;
-                                teardownClient();
-                                connectPromise = null;
-                                scheduleReconnect();
-                            };
-                            pendingTopics.forEach(topic => {
-                                subscribeWithAuthRetry(c, topic, handleAuthError).catch(() => {});
-                            });
-                            pendingTopics.clear();
-                        }
+
+                        // Re-subscribe to ALL registered topics on every connect/reconnect.
+                        // This covers two cases:
+                        //   1. Topics added to pendingTopics while currentClient was null.
+                        //   2. Topics added to topicListeners while currentClient existed but
+                        //      the subscription failed (e.g. connection torn down mid-handshake).
+                        const handleAuthError = () => {
+                            forceTokenRefreshOnNextConnect = true;
+                            teardownClient();
+                            connectPromise = null;
+                            scheduleReconnect();
+                        };
+                        const topicsToSubscribe = new Set([
+                            ...pendingTopics,
+                            ...topicListeners.keys()
+                        ]);
+                        topicsToSubscribe.forEach(topic => {
+                            subscribeWithAuthRetry(c, topic, handleAuthError).catch(() => {});
+                        });
+                        pendingTopics.clear();
                     },
                     onMessage: handleMessage,
                     onClose: (err?: Error) => {

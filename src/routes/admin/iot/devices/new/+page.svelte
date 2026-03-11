@@ -10,8 +10,7 @@
   import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
   import UserPageLayout from "$lib/components/user/layout/UserPageLayout.svelte";
   import { deviceStore } from "$lib/stores/device-store";
-  import { callUserRpc } from "$lib/client/mqtt/userRpc";
-  import { waitForClaimConfirmation } from "$lib/client/mqtt/claimFlow";
+  import { claimDevice } from "$lib/client/mqtt/claimFlow";
   import { createFormHandler } from "$lib/components/ui_components_sveltekit/form/utils/formHandler";
   import type { PageData } from "./$types";
 
@@ -45,21 +44,9 @@
     deviceStore.setClaimStatus('claiming');
 
     try {
-      const response = await callUserRpc<{
-        flowId?: string;
-        result: { factoryDeviceId: string };
-      }>('device.claim', { pin: $form.pin }, { timeoutMs: 15000 });
-
-      console.log('[ADMIN_DEVICE_FORM] MQTT claim RPC completed:', response);
-
-      const flowId = response?.flowId;
-      if (!flowId) {
-        throw new Error('Missing flowId in claim response');
-      }
-
       toast.success('Device claim initiated, waiting for confirmation...');
 
-      const confirmation = await waitForClaimConfirmation(flowId, { timeoutMs: 20000 });
+      const confirmation = await claimDevice($form.pin);
 
       deviceStore.setClaimStatus('claimed');
       toast.success('Device claimed successfully! Redirecting...');
