@@ -3,6 +3,7 @@ import { logger } from '$lib/server/logger';
 import { checkDeviceAccess } from './shared/access_checker';
 import crypto from 'crypto';
 import type { Prisma } from '@prisma/client';
+import { ActionLogger } from '$lib/server/action-logger';
 
 /**
  * Sensor Config Save Parameters
@@ -152,11 +153,26 @@ export async function handleSensorConfigPush(
 
     logger.info(`[SensorConfig] Pushing config v${sensor.configVersion} to radar controller ${controllerType}:${controllerId} on device ${deviceId}`);
 
-    // 4. Send via radar topic (device:<id>/controller/<type>:<cid>/notifications)
+    // 4. Create action log (align with device action format for operationId/logId)
+    const userId = sub.split(':')[1] ?? sub;
+    const actionLog = await ActionLogger.createInitiated({
+        deviceId,
+        actionType: 'config_update',
+        initiatedBy: userId,
+        protocol: 'mqtt',
+        metadata: { sensorId, controllerId, controllerType },
+        initialMessage: 'Config push initiated'
+    });
+
+    const flowId = crypto.randomUUID();
+    const operationId = actionLog.id;
+    const logId = actionLog.id;
+
+    // 5. Send via radar topic (device:<id>/controller/<type>:<cid>/notifications)
     // Per CONTROLLER.md: config push goes to radar topic, not device action topic
+    // Include operationId, logId to align with device action format (refresh, reboot, etc.)
     const { createTicket } = await import('../../core/publish');
     const { getMqttTransport } = await import('../../core/transport');
-    const flowId = crypto.randomUUID();
     const recipient = `device:${deviceId}/controller/${controllerType}:${controllerId}`;
     const notificationTopic = `device:${deviceId}/controller/${controllerType}:${controllerId}/notifications`;
 
@@ -172,7 +188,10 @@ export async function handleSensorConfigPush(
             controllerType,
             configVersion: sensor.configVersion,
             deviceId,
-            config: sensor.config as Record<string, unknown>
+            config: sensor.config as Record<string, unknown>,
+            operationId,
+            logId,
+            action: 'config.update'
         },
         '5m'
     );
@@ -180,7 +199,14 @@ export async function handleSensorConfigPush(
     const transport = getMqttTransport();
     await transport.publish(notificationTopic, JSON.stringify({ ticket }), { qos: 1 });
 
-    // 5. Mark as synced (optimistic - we don't wait for controller reply here)
+    logger.info(`[SensorConfig] Published config.update notification`, {
+        sensorId,
+        deviceId,
+        operationId,
+        logId
+    });
+
+    // 6. Mark as synced (optimistic - device reply will update action log via status_update_handler)
     // In production, you might want to wait for a reply or use a callback pattern
     const now = new Date();
     await prisma.sensor.update({

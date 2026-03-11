@@ -513,14 +513,21 @@
     );
   }
 
-  function handleSaveLayout(layoutData: { arena: { startX: number; startY: number; endX: number; endY: number } | null; zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number }> }): void {
+  function handleSaveLayout(layoutData: { arena: { startX: number; startY: number; endX: number; endY: number } | null; zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number; active?: boolean }> }): void {
+    // Ensure active is explicitly sent for each zone (false must not be stripped by JSON)
+    const zonesWithActive = (layoutData.zones ?? []).map((z) => ({
+      ...z,
+      active: z.active !== undefined ? z.active : true,
+    }));
     const formData = new FormData();
-    formData.append("layout", JSON.stringify(layoutData));
+    formData.append("layout", JSON.stringify({ ...layoutData, zones: zonesWithActive }));
     fetch(`?/saveLayout`, { method: "POST", body: formData }).then(
       async (response) => {
         if (response.ok) {
           toast.success("Layout saved successfully!");
           await invalidateAll();
+          // Brief yield so SvelteKit can apply fresh data before reinit
+          await new Promise((r) => setTimeout(r, 50));
           reinitializeFromConfig();
         } else {
           toast.error("Failed to save layout");
@@ -529,7 +536,7 @@
     );
   }
 
-  /** Push current sensor config to device via MQTT (sensor.config.push). Increased timeout and retry for reliability. */
+  /** Push current sensor config to device via MQTT (sensor.config.push). No retry on timeout to avoid double-send. */
   async function handlePushToDevice(): Promise<void> {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) {
@@ -543,7 +550,7 @@
     }
     isPushingToDevice = true;
     const PUSH_TIMEOUT_MS = 20000;
-    const MAX_RETRIES = 2;
+    const MAX_RETRIES = 1; // No retry on timeout – prevents device receiving same push twice
     type MqttResponse = { requestId?: string; result?: { result?: { synced?: boolean; error?: string }; error?: string }; error?: string };
     let lastError: Error | null = null;
     try {
