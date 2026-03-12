@@ -248,10 +248,6 @@
         duplicateTarget = null;
     }
 
-    function handleRunRule(row: PinRuleRow) {
-        goto(`${basePath}/pin-rules/${row.id}`);
-    }
-
     async function confirmDuplicate() {
         if (!duplicateTarget) return;
         duplicateLoading = true;
@@ -331,9 +327,7 @@
             type: 'moreMenu' as const,
             width: '80px',
             getMenuActions: (row: PinRuleRow) => {
-                const isActive = !row.isDraft && row.isActive === true;
                 const actions: { id: string; label: string; color?: 'danger'; onClick?: () => void }[] = [
-                    ...(isActive ? [{ id: 'run', label: 'Run Rule', onClick: () => handleRunRule(row) }] : []),
                     {
                         id: 'view',
                         label: 'View',

@@ -12,6 +12,7 @@ import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import { DESCRIPTION_MAX } from '$lib/constants/description';
+import { parseExpiresAt } from '$lib/utils/preclaimUtils';
 import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCronjobManager';
 
 // PreclaimSet upload schema (file validated in action)
@@ -70,7 +71,7 @@ function parseCsv(content: string): Array<{ macId: string; name?: string; descri
         macid: header.indexOf('macid') >= 0 ? header.indexOf('macid') : header.indexOf('mac'),
         name: header.indexOf('name'),
         description: header.indexOf('description'),
-        expiresat: header.indexOf('expiresat')
+        expiresat: header.findIndex((h) => h.includes('expiresat'))
     } as const;
     if (colIndex.macid < 0) {
         throw new Error('CSV must include a macId/mac column header');
@@ -226,7 +227,30 @@ export const actions: Actions = {
                     return message(form, createErrorResponse(text), { status: 400 });
                 }
 
-                const expiresAt = form.data.expiresAt ? new Date(`${form.data.expiresAt}T00:00:00`) : null;
+                // Validate set-level expiresAt: if provided, must be valid yyyy-MM-dd
+                const expiresAt = parseExpiresAt(form.data.expiresAt);
+                if (form.data.expiresAt && !expiresAt) {
+                    return message(
+                        form,
+                        createErrorResponse(
+                            `Invalid expiry date format: "${form.data.expiresAt}". Expected yyyy-MM-dd (e.g. 2026-12-31).`
+                        ),
+                        { status: 400 }
+                    );
+                }
+
+                // Validate CSV row expiresAt: if any row has expiresAt, it must be valid yyyy-MM-dd
+                const invalidExpiryRows = rows.filter((r) => r.expiresAt && !parseExpiresAt(r.expiresAt));
+                if (invalidExpiryRows.length > 0) {
+                    const first = invalidExpiryRows[0];
+                    return message(
+                        form,
+                        createErrorResponse(
+                            `Invalid expiry date format in CSV row for MAC ${first.macId}: "${first.expiresAt}". Expected yyyy-MM-dd (e.g. 2026-12-31).`
+                        ),
+                        { status: 400 }
+                    );
+                }
 
                 try {
                     const result = await enhancedPrisma.$transaction(async (tx: any) => {
@@ -244,7 +268,7 @@ export const actions: Actions = {
 
                         const devices: any[] = [];
                         for (const r of rows) {
-                            const rowExpiresAt = r.expiresAt ? new Date(`${r.expiresAt}T00:00:00`) : null;
+                            const rowExpiresAt = parseExpiresAt(r.expiresAt);
                             const device = await tx.preclaimDevice.create({
                                 data: {
                                     macId: r.macId,
@@ -305,8 +329,8 @@ export const actions: Actions = {
                     // Optional: per-device expiration cron jobs when a row has its own expiresAt
                     for (let i = 0; i < rows.length; i++) {
                         const row = rows[i];
-                        if (row.expiresAt && result.devices[i]) {
-                            const rowExpiresAt = new Date(`${row.expiresAt}T00:00:00`);
+                        const rowExpiresAt = parseExpiresAt(row.expiresAt);
+                        if (rowExpiresAt && result.devices[i]) {
                             try {
                                 await upsertEntityExpirationCronjob(locals.prisma, {
                                     entityType: 'preclaimDevice',

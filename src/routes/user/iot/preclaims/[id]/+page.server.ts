@@ -8,6 +8,7 @@ import prisma, { getEnhancedPrisma } from '$lib/server/prisma';
 import { loadPreclaimDetail } from '$lib/server/preclaims/preclaimLoader';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { parseExpiresAt } from '$lib/utils/preclaimUtils';
 
 /** Parse CSV with header: macId/mac, optional name, description, expiresAt */
 function parsePreclaimCsv(content: string): Array<{ macId: string; name?: string; description?: string; expiresAt?: string }> {
@@ -18,7 +19,7 @@ function parsePreclaimCsv(content: string): Array<{ macId: string; name?: string
         macid: header.indexOf('macid') >= 0 ? header.indexOf('macid') : header.indexOf('mac'),
         name: header.indexOf('name'),
         description: header.indexOf('description'),
-        expiresat: header.indexOf('expiresat')
+        expiresat: header.findIndex((h) => h.includes('expiresat'))
     } as const;
     if (colIndex.macid < 0) throw new Error('CSV must include a macId or mac column.');
     const rows: Array<{ macId: string; name?: string; description?: string; expiresAt?: string }> = [];
@@ -220,10 +221,18 @@ export const actions: Actions = {
                 if (toInsert.length === 0) {
                     return fail(400, { message: 'All rows are already in this set. No new devices to import.' });
                 }
+                // Validate CSV row expiresAt: if any row has expiresAt, it must be valid yyyy-MM-dd
+                const invalidExpiryRows = toInsert.filter((r) => r.expiresAt && !parseExpiresAt(r.expiresAt));
+                if (invalidExpiryRows.length > 0) {
+                    const first = invalidExpiryRows[0];
+                    return fail(400, {
+                        message: `Invalid expiry date format in CSV row for MAC ${first.macId}: "${first.expiresAt}". Expected yyyy-MM-dd (e.g. 2026-12-31).`
+                    });
+                }
                 const created = await enhancedPrisma.$transaction(async (tx: any) => {
                     const devices: any[] = [];
                     for (const r of toInsert) {
-                        const rowExpiresAt = r.expiresAt ? new Date(`${r.expiresAt}T00:00:00`) : null;
+                        const rowExpiresAt = parseExpiresAt(r.expiresAt);
                         const device = await tx.preclaimDevice.create({
                             data: {
                                 macId: r.macId,

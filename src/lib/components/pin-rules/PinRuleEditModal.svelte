@@ -501,9 +501,10 @@
                     placeholder="Rule name"
                     maxlength={PIN_RULE_NAME_MAX}
                     state={nameError ? 'error' : 'default'}
-                    helperText={nameError || `${formData.name.length}/${PIN_RULE_NAME_MAX} characters`}
+                    helperText={nameError}
                     on:input={handleNameInput}
                 />
+                <CharacterCount current={formData.name.length} max={PIN_RULE_NAME_MAX} />
             </div>
             <div class="field toggle-field">
                 <Toggle

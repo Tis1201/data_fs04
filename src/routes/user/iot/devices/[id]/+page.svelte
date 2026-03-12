@@ -805,6 +805,7 @@
     let showPullFileModal = false;
     let pullFileSourcePath = "";
     let pullFileLoading = false;
+    let pendingPullFileId: string | null = null;
 
     // =========================
     // Push File Modal
@@ -986,7 +987,8 @@
                     actionStatus,
                     (logId) => clearPendingLogDownload('done'),
                     (logId, message) => clearPendingLogDownload('failed', message),
-                    (status, message) => status === 'failed' && addAlert('error', message)
+                    (status, message) => status === 'failed' && addAlert('error', message),
+                    () => pendingLogDownloadId || pendingPullFileId
                 );
                 mqttUnsubscribes.push(unsubActionLogs);
                 console.log('[UserDevicePage] subscribeActionLogUpdates initialized for device:', device.id);
@@ -1111,6 +1113,7 @@
             pendingLogDownloadTimeoutId = null;
         }
         pendingLogDownloadId = null;
+        pendingPullFileId = null;
         if (reloadDebounceTimer) {
             clearTimeout(reloadDebounceTimer);
             reloadDebounceTimer = null;
@@ -1346,6 +1349,7 @@
         }
 
         pullFileLoading = true;
+        pendingPullFileId = null;
         try {
             const result = await callUserRpc<{
                 success: boolean;
@@ -1357,11 +1361,16 @@
                 destinationPath: pullFileSourcePath.trim()
             }, { timeoutMs: 60000 });
 
+            const opId = (result as any)?.result?.operationId ?? (result as any)?.operationId;
+            if (opId) {
+                pendingPullFileId = opId;
+            }
             addAlert('success', result.message || 'Pull file command sent to device');
             showPullFileModal = false;
         } catch (error) {
             console.error('Pull file failed:', error);
             addAlert('error', error instanceof Error ? error.message : 'Unable to pull file. Please try again!');
+            pendingPullFileId = null;
         } finally {
             pullFileLoading = false;
         }

@@ -137,7 +137,10 @@ export class LogsHandler extends StreamActionHandler {
 
     if (status === 'complete' || status === 'success') {
       if (objectPath && logId) {
-        if (this.isDownloadTriggered(logId)) {
+        const pendingId = this.getPendingDownloadId?.();
+        if (this.getPendingDownloadId && pendingId !== logId) {
+          console.debug('[LogsHandler] Skipping download — not initiated by this client', { logId, pendingId });
+        } else if (this.isDownloadTriggered(logId)) {
           console.debug('[LogsHandler] Download already triggered', { logId });
         } else {
           this.markDownloadTriggered(logId);

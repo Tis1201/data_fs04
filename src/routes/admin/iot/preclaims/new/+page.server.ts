@@ -13,6 +13,7 @@ import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCr
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import { DESCRIPTION_MAX } from '$lib/constants/description';
+import { parseExpiresAt } from '$lib/utils/preclaimUtils';
 
 // PreclaimSet upload schema (file validated in action)
 const preclaimSetSchema = z.object({
@@ -83,7 +84,7 @@ function parseCsv(content: string): Array<{ macId: string; name?: string; descri
         macid: header.indexOf('macid') >= 0 ? header.indexOf('macid') : header.indexOf('mac'),
         name: header.indexOf('name'),
         description: header.indexOf('description'),
-        expiresat: header.indexOf('expiresat')
+        expiresat: header.findIndex((h) => h.includes('expiresat'))
     } as const;
     if (colIndex.macid < 0) {
         throw new Error('CSV must include a macId/mac column header');
@@ -224,6 +225,31 @@ export const actions: Actions = {
                     return message(form, createErrorResponse(text), { status: 400 });
                 }
 
+                // Validate set-level expiresAt: if provided, must be valid yyyy-MM-dd
+                const parsedExpiresAt = parseExpiresAt(expiresAt);
+                if (expiresAt && !parsedExpiresAt) {
+                    return message(
+                        form,
+                        createErrorResponse(
+                            `Invalid expiry date format: "${expiresAt}". Expected yyyy-MM-dd (e.g. 2026-12-31).`
+                        ),
+                        { status: 400 }
+                    );
+                }
+
+                // Validate CSV row expiresAt: if any row has expiresAt, it must be valid yyyy-MM-dd
+                const invalidExpiryRows = rows.filter((r) => r.expiresAt && !parseExpiresAt(r.expiresAt));
+                if (invalidExpiryRows.length > 0) {
+                    const first = invalidExpiryRows[0];
+                    return message(
+                        form,
+                        createErrorResponse(
+                            `Invalid expiry date format in CSV row for MAC ${first.macId}: "${first.expiresAt}". Expected yyyy-MM-dd (e.g. 2026-12-31).`
+                        ),
+                        { status: 400 }
+                    );
+                }
+
                 try {
                     const result = await locals.prisma.$transaction(async (tx: any) => {
                         const set = await tx.preclaimSet.create({
@@ -231,7 +257,7 @@ export const actions: Actions = {
                                 name,
                                 description,
                                 status: 'ACTIVE',
-                                expiresAt: expiresAt ? new Date(`${expiresAt}T00:00:00`) : null,
+                                expiresAt: parsedExpiresAt,
                                 accountId,
                                 profileId: profileId || null, // Optional profile assignment
                                 createdBy: locals.user.id
@@ -241,7 +267,7 @@ export const actions: Actions = {
                         const deviceIds: string[] = [];
                         const devices: any[] = [];
                         for (const r of rows) {
-                            const rowExpiresAt = r.expiresAt ? new Date(`${r.expiresAt}T00:00:00`) : null;
+                            const rowExpiresAt = parseExpiresAt(r.expiresAt);
                             const device = await tx.preclaimDevice.create({
                                 data: {
                                     macId: r.macId,
@@ -299,8 +325,8 @@ export const actions: Actions = {
                     // Create cronjobs for PreclaimDevice expiration (for devices with expiresAt)
                     for (let i = 0; i < rows.length; i++) {
                         const row = rows[i];
-                        if (row.expiresAt) {
-                            const rowExpiresAt = new Date(`${row.expiresAt}T00:00:00`);
+                        const rowExpiresAt = parseExpiresAt(row.expiresAt);
+                        if (rowExpiresAt) {
                             await upsertEntityExpirationCronjob(locals.prisma, {
                                 entityType: 'preclaimDevice',
                                 entityId: result.deviceIds[i],

@@ -81,7 +81,9 @@ export const POST: RequestHandler = async (event) => {
 
     try {
         const { claims, token: factoryTokenString } = await verifyFactoryJWT(locals, request);
-        const hardwareFingerprint = (claims.hw as string | undefined) ?? (claims.serialNumber as string | undefined) ?? null;
+        const hwFromJwt = (claims.hw as string | undefined) ?? (claims.serialNumber as string | undefined) ?? null;
+        const hwFromHeader = request.headers.get('x-hardware-fingerprint')?.trim().toUpperCase() || null;
+        const hardwareFingerprint = hwFromJwt ?? hwFromHeader;
         const factoryJwtId = (claims.jti as string | undefined) ?? null;
         const userAgent = request.headers.get('user-agent') ?? null;
         const clientIp = getClientIp(event);

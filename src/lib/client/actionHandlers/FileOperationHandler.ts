@@ -101,19 +101,16 @@ export class FileOperationHandler extends StreamActionHandler {
       // Use sessionStorage to prevent multiple downloads for the same logId (persists across page reloads)
       // IMPORTANT: Only trigger download for pull operations, never for push operations
       if (this.operationType === 'pull' && objectPath && logId) {
-        // Check and mark synchronously BEFORE any async operations
-        if (this.isDownloadTriggered(logId)) {
+        const pendingId = this.getPendingDownloadId?.();
+        if (this.getPendingDownloadId && pendingId !== logId) {
+          console.debug(`[${this.operationType}FileHandler] Skipping download — not initiated by this client`, { logId, pendingId });
+        } else if (this.isDownloadTriggered(logId)) {
           console.log(`[${this.operationType}FileHandler] Download already triggered for logId: ${logId}, skipping duplicate`);
         } else {
           console.log(`[${this.operationType}FileHandler] Success with objectPath, triggering download:`, { logId, objectPath });
-          // Mark immediately (synchronously) to prevent race conditions
           this.markDownloadTriggered(logId);
-          console.log(`[${this.operationType}FileHandler] Marked download as triggered in sessionStorage:`, logId);
-          
-          // Trigger download immediately (not in setTimeout to avoid race conditions)
           this.triggerPullFileDownload(logId, objectPath).catch((error) => {
             console.error(`[${this.operationType}FileHandler] Download failed, allowing retry:`, error);
-            // On error, remove from storage to allow retry
             this.clearDownloadTriggered(logId);
           });
         }

@@ -117,7 +117,7 @@
   }
 
   function downloadTemplate() {
-    const headers = ['macId', 'name', 'description', 'expiresAt'];
+    const headers = ['macId', 'name', 'description', 'expiresAt(yyyy-mm-dd)'];
     const sample = ['AA:BB:CC:DD:EE:FF', 'My Device', 'Optional description', '2030-12-31'];
     const csv = [headers.join(','), sample.join(',')].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });

@@ -19,9 +19,14 @@ interface HandlePreclaimArgs {
  *    `device.claim.confirm`.
  *  - If a claimed Device already exists for the fingerprint, log and skip.
  */
-/** Normalize MAC/fingerprint for consistent lookup (trim, uppercase). */
+/** Normalize MAC/fingerprint for consistent lookup (trim, uppercase, strip delimiters). */
 function normalizeMacOrFingerprint(value: string): string {
     return value.trim().toUpperCase();
+}
+
+/** Strip all MAC delimiters (colons, dashes, dots) so 24:1C:04 / 24-1C-04 / 241C04 all become the same value. */
+function stripMacDelimiters(value: string): string {
+    return value.replace(/[:\-. ]/g, '').toUpperCase();
 }
 
 export async function handlePreclaimAutoClaim({
@@ -65,10 +70,13 @@ export async function handlePreclaimAutoClaim({
         return;
     }
 
+    const stripped = stripMacDelimiters(hardwareFingerprint);
+    const macVariants = [normalized, hardwareFingerprint.trim(), stripped];
+
     const preclaim = await prisma.preclaimDevice.findFirst({
         where: {
             AND: [
-                { OR: [{ macId: normalized }, { macId: hardwareFingerprint.trim() }] },
+                { OR: macVariants.map(v => ({ macId: v })) },
                 { status: 'PENDING', claimedAt: null },
                 { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
                 {
@@ -84,6 +92,29 @@ export async function handlePreclaimAutoClaim({
         }
     });
 
+    // If not found, try matching preclaims whose macId (after stripping delimiters) matches
+    if (!preclaim) {
+        const allPending = await prisma.preclaimDevice.findMany({
+            where: {
+                status: 'PENDING',
+                claimedAt: null,
+                OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+                set: {
+                    status: 'ACTIVE',
+                    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }]
+                }
+            },
+            include: { set: true }
+        });
+        const fuzzyMatch = allPending.find(p => p.macId && stripMacDelimiters(p.macId) === stripped);
+        if (fuzzyMatch) {
+            logger.info(
+                `[DeviceGetPin] Fuzzy MAC match: preclaim macId="${fuzzyMatch.macId}" matched device MAC="${hardwareFingerprint}" (stripped=${stripped})`
+            );
+            return handlePreclaimMatch(prisma, factoryDeviceId, fuzzyMatch);
+        }
+    }
+
     if (!preclaim) {
         logger.debug(
             `[DeviceGetPin] No valid preclaim found for hardwareFingerprint ${hardwareFingerprint} (factoryDeviceId=${factoryDeviceId})`
@@ -95,8 +126,15 @@ export async function handlePreclaimAutoClaim({
         `[DeviceGetPin] Preclaim branch candidate found for factoryDevice ${factoryDeviceId}: preclaimDeviceId=${preclaim.id}, setId=${preclaim.setId}, accountId=${preclaim.accountId}`
     );
 
+    return handlePreclaimMatch(prisma, factoryDeviceId, preclaim);
+}
+
+async function handlePreclaimMatch(
+    prisma: PrismaClient,
+    factoryDeviceId: string,
+    preclaim: { id: string; accountId: string | null; claimedBy: string | null; set: { createdBy: string | null } }
+): Promise<void> {
     try {
-        // Resolve claiming user from preclaim (claimedBy overrides set.createdBy)
         const resolvedUserId = preclaim.claimedBy ?? preclaim.set.createdBy;
         if (!resolvedUserId) {
             logger.error(

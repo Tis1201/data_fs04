@@ -93,9 +93,23 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient; 
         }
     }
 
-    // Optional: check for pre-claim mappings by hardware fingerprint or MAC from request.
-    // Use MAC from params when factory device has no hardwareFingerprint (e.g. first connection).
+    // Backfill hardwareFingerprint on FactoryDevice when missing but MAC is available.
+    // This ensures the same physical device reuses the same FactoryDevice record on future mints.
     const macOrFingerprint = factoryDevice.hardwareFingerprint ?? macAddress ?? null;
+    if (!factoryDevice.hardwareFingerprint && macAddress) {
+        const normalizedMac = macAddress.trim().toUpperCase();
+        const conflicting = await prisma.factoryDevice.findFirst({
+            where: { hardwareFingerprint: normalizedMac, id: { not: factoryDeviceId } }
+        });
+        if (!conflicting) {
+            await prisma.factoryDevice.update({
+                where: { id: factoryDeviceId },
+                data: { hardwareFingerprint: normalizedMac }
+            });
+            logger.info(`[DeviceGetPin] Backfilled hardwareFingerprint=${normalizedMac} on factoryDevice ${factoryDeviceId}`);
+        }
+    }
+
     try {
         await handlePreclaimAutoClaim({
             prisma,

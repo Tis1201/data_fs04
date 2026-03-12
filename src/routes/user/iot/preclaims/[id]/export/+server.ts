@@ -30,7 +30,7 @@ export const GET = restrict(
             c.description ?? '',
             c.expiresAt ? new Date(c.expiresAt).toISOString().slice(0, 10) : ''
         ]);
-        const header = ['macId', 'name', 'description', 'expiresAt'];
+        const header = ['macId', 'name', 'description', 'expiresAt(yyyy-mm-dd)'];
         const csv = [header.join(','), ...rows.map((r: string[]) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))].join('\n');
 
         return new Response(csv, {

@@ -13,6 +13,7 @@ export abstract class BaseActionHandler {
   protected onLogsDownloadTriggered?: (logId: string) => void;
   protected onLogsDownloadFailed?: (logId: string, message: string) => void;
   protected onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void;
+  protected getPendingDownloadId?: () => string | null;
 
   constructor(params: ActionHandlerParams) {
     this.deviceId = params.deviceId;
@@ -25,6 +26,7 @@ export abstract class BaseActionHandler {
     this.onLogsDownloadTriggered = params.onLogsDownloadTriggered;
     this.onLogsDownloadFailed = params.onLogsDownloadFailed;
     this.onTerminalComplete = params.onTerminalComplete;
+    this.getPendingDownloadId = params.getPendingDownloadId;
   }
 
   abstract handle(evtType: string, entity: DeviceMessageEntity): void;

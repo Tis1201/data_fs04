@@ -14,7 +14,8 @@ export function subscribeActionLogUpdates(
   actionStatus: any,
   onLogsDownloadTriggered?: (logId: string) => void,
   onLogsDownloadFailed?: (logId: string, message: string) => void,
-  onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void
+  onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void,
+  getPendingDownloadId?: () => string | null
 ): () => void {
   
   const actionHandlerManager = new ActionHandlerManager({
@@ -25,6 +26,7 @@ export function subscribeActionLogUpdates(
     onLogsDownloadTriggered,
     onLogsDownloadFailed,
     onTerminalComplete,
+    getPendingDownloadId,
     onProgress: (progress: number | null, message: string, logId?: string, actionType?: string) => {
       const logs = getLogs();
       const logExists = logId ? logs.some(log => log.id === logId) : false;

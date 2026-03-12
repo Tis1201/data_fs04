@@ -4,6 +4,20 @@
  */
 
 /**
+ * Parse and validate an expiresAt date string (yyyy-MM-dd).
+ * Returns a valid Date or null for invalid/empty input.
+ * Prevents Prisma "Invalid Date" errors from malformed CSV or form data.
+ */
+export function parseExpiresAt(value: string | null | undefined): Date | null {
+    if (!value || !String(value).trim()) return null;
+    const trimmed = String(value).trim();
+    // Basic yyyy-MM-dd format check
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+    const d = new Date(`${trimmed}T00:00:00`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+/**
  * Preclaim set status labels mapping
  */
 export const PRECLAIM_STATUS_LABELS: Record<string, string> = {
@@ -67,4 +81,3 @@ export function isPreclaimExpired(expiresAt: string | Date | null | undefined): 
         return false;
     }
 }
-

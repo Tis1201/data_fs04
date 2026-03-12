@@ -26,6 +26,8 @@ export type ActionHandlerParams = {
   onLogsDownloadFailed?: (logId: string, message: string) => void;
   /** Called when TerminalHandler receives terminal session success/failure. Page can show toast. */
   onTerminalComplete?: (status: 'success' | 'failed' | 'in_progress', message: string) => void;
+  /** Returns the operationId of the pending download action initiated by THIS client, or null. Used to prevent cross-session downloads via broadcast MQTT. */
+  getPendingDownloadId?: () => string | null;
 };
 
 export type MessageData = {
