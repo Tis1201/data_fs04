@@ -23,6 +23,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     }
 
     // Initialize form with default values and default settings
+    // Keys must match deviceProfileSettings.ts and device Configuration tab (getProfileSetting)
+    // Use reboot_schedule_enabled, download_schedule_enabled (not reboot_schedule, download_schedule)
     const defaultSettings = [
         {
             key: 'kiosk_lock_mode',
@@ -81,20 +83,84 @@ export const load: PageServerLoad = async ({ locals, url }) => {
             order: 6
         },
         {
-            key: 'reboot_schedule',
+            key: 'power_on_datetime',
+            value: '',
+            dataType: 'datetime',
+            label: 'Power-On Date & Time',
+            category: 'Power',
+            order: 7
+        },
+        {
+            key: 'power_off_datetime',
+            value: '',
+            dataType: 'datetime',
+            label: 'Power-Off Date & Time',
+            category: 'Power',
+            order: 8
+        },
+        {
+            key: 'reboot_schedule_enabled',
             value: 'disabled',
             dataType: 'select',
             label: 'Reboot Schedule',
             category: 'Maintenance',
-            order: 7
+            order: 9
         },
         {
-            key: 'download_schedule',
+            key: 'reboot_schedule_frequency',
+            value: 'daily',
+            dataType: 'select',
+            label: 'Reboot Frequency',
+            category: 'Maintenance',
+            order: 10
+        },
+        {
+            key: 'reboot_schedule_day',
+            value: 'monday',
+            dataType: 'select',
+            label: 'Reboot Day',
+            category: 'Maintenance',
+            order: 11
+        },
+        {
+            key: 'reboot_schedule_time',
+            value: '02:00',
+            dataType: 'time',
+            label: 'Reboot Time',
+            category: 'Maintenance',
+            order: 12
+        },
+        {
+            key: 'download_schedule_enabled',
             value: 'disabled',
             dataType: 'select',
             label: 'Download Schedule',
             category: 'Maintenance',
-            order: 8
+            order: 13
+        },
+        {
+            key: 'download_schedule_frequency',
+            value: 'daily',
+            dataType: 'select',
+            label: 'Download Frequency',
+            category: 'Maintenance',
+            order: 14
+        },
+        {
+            key: 'download_schedule_day',
+            value: 'monday',
+            dataType: 'select',
+            label: 'Download Day',
+            category: 'Maintenance',
+            order: 15
+        },
+        {
+            key: 'download_schedule_time',
+            value: '03:00',
+            dataType: 'time',
+            label: 'Download Time',
+            category: 'Maintenance',
+            order: 16
         }
     ];
 

@@ -169,6 +169,13 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
       });
     });
 
+    const deletedOverrides = await locals.prisma.deviceProfileOverride.deleteMany({
+      where: { globalProfileId: id }
+    });
+    if (deletedOverrides.count > 0) {
+      logger.info(`Cleared ${deletedOverrides.count} device override(s) for profile ${id}`);
+    }
+
     // Auto-reapply to all assigned devices after profile update
     logger.info(`[DEBUG] Starting auto-reapply check for profile ${id}`);
     

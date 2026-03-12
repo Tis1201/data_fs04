@@ -763,6 +763,10 @@
             } else {
                 // User is editing device's own config (no profile, or __CUSTOM__ after editing fields)
                 fd.set('isCustom', 'true');
+                // When Custom with a base profile (originalProfileId), send it so server uses DeviceProfileOverride
+                if (originalProfileId && originalProfileId !== '__CUSTOM__') {
+                    fd.set('profileId', String(originalProfileId));
+                }
                 // Always include all config fields so device can have its own settings
                 fd.set('kioskLockMode', String(editKioskLockMode));
                 if (editExitLockdownPassword) {

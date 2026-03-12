@@ -300,6 +300,13 @@ export const actions: Actions = {
                 } catch (auditErr) {
                     logger.warn('Audit log failed (profile still updated):', auditErr);
                 }
+                // Profile is source of truth: updates override any custom settings saved from device page
+                const deletedOverrides = await locals.prisma.deviceProfileOverride.deleteMany({
+                    where: { globalProfileId: profileId }
+                });
+                if (deletedOverrides.count > 0) {
+                    logger.info(`Cleared ${deletedOverrides.count} device override(s) for profile ${profileId} (profile update)`);
+                }
                 const deviceProfile = await locals.prisma.deviceProfile.findUnique({
                     where: { id: profileId },
                     select: {

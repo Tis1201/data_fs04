@@ -37,35 +37,9 @@ export const deviceProfileSchema = z.object({
  */
 export async function loadDeviceProfile(prisma: any, deviceId: string) {
     try {
-        // First, try to get device-level profile (backward compatibility)
-        // @ts-ignore - deviceId will be available after schema migration
-        const deviceLevelProfile = await prisma.deviceProfile.findFirst({
-            // @ts-ignore - deviceId will be available after schema migration
-            where: {
-                deviceId: deviceId,
-                level: 'DEVICE'
-            },
-            include: {
-                settings: {
-                    orderBy: { order: 'asc' }
-                },
-                account: {
-                    select: {
-                        id: true,
-                        name: true
-                    }
-                }
-            }
-        });
-
-        if (deviceLevelProfile) {
-            console.log('[DeviceProfileLoader] Found DEVICE-level profile (legacy)', {
-                profileId: deviceLevelProfile.id,
-                deviceId
-            });
-            return deviceLevelProfile;
-        }
-
+        // Prefer assignment (global profile + overrides) over legacy DEVICE-level profile.
+        // Assignment is the source of truth when it exists — ensures config saved via
+        // DeviceProfileOverride (Custom + base profile) is displayed, not stale DEVICE-level.
         // Get GLOBAL profile from assignment (new override model)
         const assignment = await prisma.deviceProfileAssignment.findUnique({
             where: { deviceId },
@@ -87,6 +61,35 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
         });
 
         if (!assignment?.profile) {
+            // Fall back to DEVICE-level profile (legacy) when no assignment
+            // @ts-ignore - deviceId will be available after schema migration
+            const deviceLevelProfile = await prisma.deviceProfile.findFirst({
+                // @ts-ignore - deviceId will be available after schema migration
+                where: {
+                    deviceId: deviceId,
+                    level: 'DEVICE'
+                },
+                include: {
+                    settings: {
+                        orderBy: { order: 'asc' }
+                    },
+                    account: {
+                        select: {
+                            id: true,
+                            name: true
+                        }
+                    }
+                }
+            });
+
+            if (deviceLevelProfile) {
+                console.log('[DeviceProfileLoader] Found DEVICE-level profile (legacy, no assignment)', {
+                    profileId: deviceLevelProfile.id,
+                    deviceId
+                });
+                return deviceLevelProfile;
+            }
+
             console.log('[DeviceProfileLoader] No profile found for device — returning empty shell for device-level config', { deviceId });
             // Return an empty "shell" profile so the configuration form renders.
             // The device can save its own config even without a global profile.

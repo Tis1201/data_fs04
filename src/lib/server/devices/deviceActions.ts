@@ -10,7 +10,8 @@ import {
     getCurrentProfileSettings,
     saveCustomProfile,
     assignGlobalProfile,
-    reapplyIfChanged
+    reapplyIfChanged,
+    buildSettingsArray
 } from './deviceProfileActions';
 
 /**
@@ -519,10 +520,25 @@ export function createDeviceActions(options: {
                 const settingsBefore = await getCurrentProfileSettings(locals.prisma, id);
 
                 if (isCustom) {
-                    // Save custom device-level profile
-                    const result = await saveCustomProfile(locals.prisma, id, data, auth.user.id);
-                    if (!result.success) {
-                        return fail(400, { error: result.error });
+                    const baseProfileId = profileId && profileId !== '__CUSTOM__' ? profileId : null;
+                    if (baseProfileId) {
+                        // Custom overrides on top of a global profile: use DeviceProfileOverride
+                        // (keeps assignment to base profile, saves overrides so dropdown shows "Custom")
+                        await assignGlobalProfile(locals.prisma, id, baseProfileId, auth.user.id);
+                        const settings = buildSettingsArray(data);
+                        const newSettings = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+                        const { DeviceProfileService } = await import('$lib/server/device/profile/DeviceProfileService');
+                        const profileService = new DeviceProfileService(locals.prisma);
+                        const result = await profileService.updateDeviceSettings(id, newSettings, auth.user.id);
+                        if (!result.success && result.error) {
+                            return fail(400, { error: result.error });
+                        }
+                    } else {
+                        // No base profile: use legacy DEVICE-level profile (creates "device - X Config")
+                        const result = await saveCustomProfile(locals.prisma, id, data, auth.user.id);
+                        if (!result.success) {
+                            return fail(400, { error: result.error });
+                        }
                     }
                 } else if (profileId && profileId !== '__CUSTOM__') {
                     // Assign a global profile to the device

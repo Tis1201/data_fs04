@@ -120,7 +120,12 @@
     function getSettingValue(key: string): string {
         const settings = Array.isArray(data?.profile?.settings) ? data.profile.settings : [];
         if (settings.length === 0) return '';
-        const s = settings.find((x: { key: string; value?: string }) => x.key === key);
+        const legacyKeyMap: Record<string, string> = {
+            reboot_schedule_enabled: 'reboot_schedule',
+            download_schedule_enabled: 'download_schedule'
+        };
+        const altKey = legacyKeyMap[key];
+        const s = settings.find((x: { key: string; value?: string }) => x.key === key) ?? (altKey ? settings.find((x: { key: string; value?: string }) => x.key === altKey) : null);
         const v = s?.value;
         return v != null && v !== '' ? String(v) : '';
     }
@@ -1051,6 +1056,7 @@
     <DeviceSelector
         open={showAddDeviceModal}
         profileId={profileId}
+        currentProfileName={profile?.name ?? ''}
         apiPrefix="/api/v2"
         status="available"
         title="Add Device"

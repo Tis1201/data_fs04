@@ -228,6 +228,13 @@ export const PUT = unifiedEndpoint(
       });
     });
 
+    const deletedOverrides = await prisma.deviceProfileOverride.deleteMany({
+      where: { globalProfileId: id }
+    });
+    if (deletedOverrides.count > 0) {
+      logger.info(`Cleared ${deletedOverrides.count} device override(s) for profile ${id}`);
+    }
+
     // Auto-reapply to all assigned devices after profile update
     try {
       // Get all devices assigned to this profile

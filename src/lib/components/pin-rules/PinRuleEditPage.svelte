@@ -1,7 +1,7 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
     import { Button, Card, Badge, TabGroup, Modal, ActionMenu } from '$lib/design-system/components';
-    import { ArrowLeft, Plus, Trash, Copy, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-svelte';
+    import { ArrowLeft, Plus, Trash, Copy, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download } from 'lucide-svelte';
     import DeviceSelector from '$lib/components/bundles_ui/device_select/DeviceSelector.svelte';
     import AppPickerModal from '$lib/components/shared/AppPickerModal.svelte';
     import type { AppPickerItem } from '$lib/components/shared/AppPickerModal.svelte';
@@ -74,7 +74,7 @@
             const result = await response.json();
             if (result.success) {
                 toast.success('Rule updated');
-                await invalidate();
+                await invalidate('app:pin-rules');
             } else {
                 toast.error(result.message || 'Failed to update rule');
             }
@@ -313,9 +313,11 @@
     }
 
     // Tabs (same pattern as device-profiles)
+    // TC-RDM-APR-0113: Fallback Screen tab always visible (even when disabled) so users can see configuration status in View mode
     let activeTab = 'pinned_apps';
     const tabs = [
         { id: 'pinned_apps', label: 'Pinned Apps' },
+        { id: 'fallback_screen', label: 'Fallback Screen' },
         { id: 'target_devices', label: 'Target Devices' }
     ];
     function handleTabChange(e: CustomEvent<string>) {
@@ -353,6 +355,33 @@
         { id: 'all', label: 'All Devices' },
         { id: 'specific', label: 'Specific Devices' }
     ];
+
+    /** Derive display filename from object path (e.g. "pinrule/id/uuid.jpg" -> "uuid.jpg") */
+    function getFallbackFileName(url: string | null | undefined): string | null {
+        if (!url || typeof url !== 'string') return null;
+        const segments = url.split('/').filter(Boolean);
+        const last = segments.pop();
+        return last || null;
+    }
+
+    async function handleFallbackDownload() {
+        const url = rule?.fallbackScreenUrl;
+        if (!url) return;
+        const downloadFileName = getFallbackFileName(url) || 'fallback';
+        try {
+            const res = await fetch(
+                `${apiPrefix}/upload/download-url?objectPath=${encodeURIComponent(url)}&filename=${encodeURIComponent(downloadFileName)}`
+            );
+            const data = await res.json();
+            if (data?.success && data?.data?.downloadUrl) {
+                window.open(data.data.downloadUrl, '_blank', 'noopener,noreferrer');
+            } else {
+                toast.error('Could not get download link');
+            }
+        } catch {
+            toast.error('Could not get download link');
+        }
+    }
 </script>
 
 <svelte:head>
@@ -567,6 +596,56 @@
                                     <ChevronsRight size={20} />
                                 </button>
                             </div>
+                        </div>
+                    {/if}
+                </div>
+            </Card>
+        {:else if activeTab === 'fallback_screen'}
+            <!-- TC-RDM-APR-0113: Fallback Screen tab always visible (even when disabled) so users can see config status in View -->
+            <Card variant="default" padding="md" class="pin-rule-fallback-card">
+                <div class="flex flex-col gap-4">
+                    <p class="text-sm" style="color: var(--ds-color-neutral-true-600);">
+                        Enable to show a custom image or video when the kiosk app crashes.
+                    </p>
+                    <div class="flex flex-row items-center gap-3">
+                        <span class="text-sm font-medium" style="color: var(--ds-color-neutral-true-700);">Status</span>
+                        <Badge
+                            label={rule?.fallbackScreenEnabled ? 'Enabled' : 'Disabled'}
+                            color={rule?.fallbackScreenEnabled ? 'success' : 'gray'}
+                            variant="filled"
+                            size="md"
+                            showDot={rule?.fallbackScreenEnabled}
+                            interactive={false}
+                        />
+                    </div>
+                    {#if rule?.fallbackScreenEnabled && rule?.fallbackScreenUrl}
+                        {@const fallbackFileName = (rule.fallbackScreenUrl || '').split('/').filter(Boolean).pop() || 'fallback'}
+                        <div class="flex flex-row items-center gap-2">
+                            <span class="text-sm font-medium" style="color: var(--ds-color-neutral-true-700);">File</span>
+                            <Button
+                                variant="text"
+                                color="primary"
+                                size="sm"
+                                on:click={async () => {
+                                    if (!rule?.fallbackScreenUrl) return;
+                                    try {
+                                        const res = await fetch(
+                                            `${apiPrefix}/upload/download-url?objectPath=${encodeURIComponent(rule.fallbackScreenUrl)}&filename=${encodeURIComponent(fallbackFileName)}`
+                                        );
+                                        const data = await res.json();
+                                        if (data?.success && data?.data?.downloadUrl) {
+                                            window.open(data.data.downloadUrl, '_blank', 'noopener,noreferrer');
+                                        } else {
+                                            toast.error('Could not get download link');
+                                        }
+                                    } catch {
+                                        toast.error('Could not get download link');
+                                    }
+                                }}
+                            >
+                                <Download size={18} slot="icon-left" />
+                                {fallbackFileName}
+                            </Button>
                         </div>
                     {/if}
                 </div>

@@ -1154,8 +1154,13 @@
             return defaultValue;
         }
 
-        // Find the setting by key
-        const setting = settings.find((s: any) => s.key === key);
+        // Find the setting by key; support legacy keys for backward compatibility
+        const legacyKeyMap: Record<string, string> = {
+            reboot_schedule_enabled: 'reboot_schedule',
+            download_schedule_enabled: 'download_schedule'
+        };
+        const altKey = legacyKeyMap[key];
+        const setting = settings.find((s: any) => s.key === key) ?? (altKey ? settings.find((s: any) => s.key === altKey) : null);
         if (!setting) {
             return defaultValue;
         }
@@ -1169,6 +1174,13 @@
         if (setting.dataType === 'boolean') {
             const val = String(setting.value).toLowerCase();
             return (val === 'true' || val === 'enabled' || setting.value === true) ? 'Enable' : 'Disable';
+        }
+
+        // Handle select values that use 'enabled'/'disabled' (e.g. power_management_schedule, reboot_schedule_enabled, download_schedule_enabled)
+        // Profile form stores these as 'enabled'/'disabled'; display expects 'Enable'/'Disable' for schedule badge checks
+        const val = String(setting.value).toLowerCase();
+        if (val === 'enabled' || val === 'disabled') {
+            return val === 'enabled' ? 'Enable' : 'Disable';
         }
 
         // Return the setting value (already merged with overrides by loadDeviceProfile)

@@ -185,7 +185,8 @@
         } else {
             selected = [...selected, key];
         }
-        dropdownInteracting = false;
+        // TC-RDM-APR-0024: Do NOT set dropdownInteracting = false here - keeps dropdown open
+        // so user can select multiple apps. Let mouseleave handle it when user actually leaves.
     }
 
     function removeSelection(key: string) {
@@ -250,25 +251,32 @@
                 style="top: {dropdownPosition.top}px; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
                 on:mouseenter={() => (dropdownInteracting = true)}
                 on:mouseleave={() => (dropdownInteracting = false)}
+                on:mousedown|stopPropagation={() => (dropdownInteracting = true)}
             >
                 {#if optionsLoading}
                     <div class="app-picker-empty">Loading…</div>
                 {:else}
-                    {#key selected.join(',')}
                     {#each filteredOptions as app (app.id)}
                         {@const key = getSelectionKey(app)}
                         {@const isSelected = selected.includes(key)}
                         {@const alreadyInstalled = showAlreadyBadge && app.packageName && installedPackageNames.has(app.packageName.trim())}
-                        <button
-                            type="button"
+                        <!-- TC-RDM-APR-0024: Use div + visual-only Checkbox. A <button> containing <label>
+                            is invalid HTML and causes checkbox click to behave inconsistently (state
+                            updates but checkmark doesn't show). Single toggle on row click fixes this. -->
+                        <div
+                            role="button"
+                            tabindex="0"
                             class="app-picker-option"
-                            on:mousedown|preventDefault={() => toggleSelection(app)}
+                            on:click|stopPropagation={() => toggleSelection(app)}
+                            on:keydown={(e) => e.key === 'Enter' || e.key === ' ' ? (e.preventDefault(), toggleSelection(app)) : null}
                         >
-                            <Checkbox
-                                checked={isSelected}
-                                size="sm"
-                                disabled={false}
-                            />
+                            <span class="app-picker-checkbox-visual" aria-hidden="true">
+                                <Checkbox
+                                    checked={isSelected}
+                                    size="sm"
+                                    disabled={false}
+                                />
+                            </span>
                             <div class="app-picker-option-content">
                                 <span class="app-picker-option-name">{app.name}</span>
                                 <span class="app-picker-option-package">
@@ -278,10 +286,9 @@
                                     {/if}
                                 </span>
                             </div>
-                        </button>
-                    {/each}
-                    {/key}
-                    {#if filteredOptions.length === 0}
+                        </div>
+                      {/each}
+                      {#if filteredOptions.length === 0}
                         <div class="app-picker-empty">No apps found</div>
                     {/if}
                 {/if}
@@ -307,8 +314,8 @@
                         on:click={() => removeSelection(key)}
                         aria-label="Remove"
                     />
-                </div>
-            {/each}
+                        </div>
+                    {/each}
             {#if selected.length === 0}
                 <span class="app-picker-empty-state">No apps selected</span>
             {/if}
@@ -394,6 +401,12 @@
         text-align: left;
         transition: background-color 0.15s ease;
         min-height: 54px;
+    }
+
+    /* TC-RDM-APR-0024: Checkbox is visual-only. pointer-events: none ensures
+       clicks pass through to the row div so toggle works consistently everywhere. */
+    .app-picker-checkbox-visual {
+        pointer-events: none;
     }
 
     .app-picker-option:hover {
