@@ -114,3 +114,6 @@ src/routes/dev/ui
 scripts/validate-design-system.sh
 src/lib/design-system/COMPONENT_AUDIT.md
 src/lib/design-system/WORKFLOW.md
+
+# Wrangler local state
+.wrangler/
