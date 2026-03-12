@@ -27,6 +27,7 @@
     Upload,
   } from "lucide-svelte";
   import { mqttStore } from "$lib/stores/mqtt-store";
+  import { callUserRpc } from "$lib/client/mqtt/userRpc";
   import {
     Button,
     Badge,
@@ -538,7 +539,7 @@
     );
   }
 
-  /** Push current sensor config to device via MQTT (sensor.config.push). No retry on timeout to avoid double-send. */
+  /** Push current sensor config to device via MQTT (sensor.config.push). Uses callUserRpc to avoid teardown/reconnect cycle (FIX_WEB_TIMEOUT). */
   async function handlePushToDevice(): Promise<void> {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) {
@@ -552,65 +553,31 @@
     }
     isPushingToDevice = true;
     const PUSH_TIMEOUT_MS = 20000;
-    const MAX_RETRIES = 1; // No retry on timeout – prevents device receiving same push twice
-    type MqttResponse = { requestId?: string; result?: { result?: { synced?: boolean; error?: string }; error?: string }; error?: string };
-    let lastError: Error | null = null;
     try {
-      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-          await mqttStore.connect();
-          const userSub = mqttStore.subject;
-          if (!userSub) {
-            toast.error("Not connected to MQTT");
-            return;
-          }
-          const requestId = crypto.randomUUID();
-          const requestPayload = {
-            op: "sensor.config.push",
-            params: { sensorId },
-            requestId,
-            timestamp: new Date().toISOString(),
-          };
-          console.log("[Push] Sending request", { requestId, sensorId, attempt });
-          let cleanupListener: (() => void) | null = null;
-          const responsePromise = new Promise<MqttResponse>((resolve, reject) => {
-            const timeout = setTimeout(() => {
-              if (cleanupListener) cleanupListener();
-              reject(new Error("Request timed out. The device may be slow to respond—try again."));
-            }, PUSH_TIMEOUT_MS);
-            cleanupListener = mqttStore.on(`user/${userSub}/response`, (msg: { payload?: unknown }) => {
-              const payload = msg.payload as MqttResponse | undefined;
-              if (payload?.requestId === requestId) {
-                console.log("[Push] Received response", { requestId, payload });
-                clearTimeout(timeout);
-                if (cleanupListener) cleanupListener();
-                resolve(payload);
-              }
-            });
-          });
-          await mqttStore.publish(`user/${userSub}/requests`, requestPayload, { qos: 1 });
-          const response = await responsePromise;
-          const nestedResult = response.result?.result;
-          const workerError = response.error ?? response.result?.error;
-          if (workerError) {
-            toast.error(typeof workerError === "string" ? workerError : "Push failed");
-            return;
-          } else if (nestedResult?.synced === true) {
-            toast.success("Config pushed to device!");
-            return;
-          } else {
-            toast.error(nestedResult?.error ?? "Push failed");
-            return;
-          }
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.log("[Push] Error", { attempt, error: lastError.message });
-          if (attempt < MAX_RETRIES) {
-            await new Promise((r) => setTimeout(r, 1500));
-          }
-        }
+      const result = await callUserRpc<{
+        result?: { synced?: boolean; syncStatus?: string; error?: string; appliedAt?: string };
+        error?: string;
+      }>("sensor.config.push", { sensorId }, { timeoutMs: PUSH_TIMEOUT_MS });
+
+      const nestedResult = result?.result;
+      const workerError = result?.error;
+
+      if (workerError) {
+        toast.error(typeof workerError === "string" ? workerError : "Push failed");
+        return;
       }
-      toast.error(lastError?.message ?? "Request timed out. Please ensure the device is online and try again.");
+      if (!nestedResult) {
+        toast.error("Invalid response from server");
+        return;
+      }
+      if (nestedResult.synced === true) {
+        toast.success("Config pushed to device!");
+        return;
+      }
+      toast.error(nestedResult.error ?? "Push failed");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Push failed";
+      toast.error(msg);
     } finally {
       isPushingToDevice = false;
     }
