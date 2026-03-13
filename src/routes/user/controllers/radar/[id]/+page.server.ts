@@ -61,6 +61,10 @@ interface RadarConfig {
     zones?: Zone[];
     dwellBuckets?: DwellBucket[];
     alertSettings?: AlertSettings;
+    deviceMode?: string;
+    timezone?: string;
+    pathTracking?: boolean;
+    dwellThreshold?: number;
 }
 
 const trackingAreaSchema = z.object({

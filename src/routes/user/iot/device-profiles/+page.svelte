@@ -169,12 +169,11 @@
     }
 
     function clearFilter() {
-        filterStatuses = [];
+        filterStatuses = ['__all__'];
         const url = new URL($page.url);
         url.searchParams.delete('statuses');
         url.searchParams.set('page', '1');
         goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
-        showFilterModal = false;
     }
 
     function openFilterModal() {

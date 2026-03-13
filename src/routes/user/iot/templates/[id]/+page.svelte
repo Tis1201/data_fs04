@@ -823,7 +823,7 @@
                         <div class="config-label-value-list">
                             <div class="config-label-value-row">
                                 <span class="config-label">Device Mode</span>
-                                <span class="config-value">{deviceSettings?.deviceMode || '—'}</span>
+                                <span class="config-value">{deviceSettings?.deviceMode === 'BACKGROUND' ? 'Background' : deviceSettings?.deviceMode === 'LIVE_PREVIEW' ? 'Live Preview' : '—'}</span>
                             </div>
                             <div class="config-label-value-row">
                                 <span class="config-label">Timezone</span>

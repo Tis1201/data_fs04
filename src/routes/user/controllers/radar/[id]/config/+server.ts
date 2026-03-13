@@ -18,12 +18,10 @@ interface RadarConfig {
     zones?: unknown[];
     dwellBuckets?: unknown[];
     alertSettings?: unknown;
-    deviceSettings?: {
-        deviceMode?: string;
-        timezone?: string;
-        pathTracking?: boolean;
-        dwellThreshold?: number;
-    };
+    deviceMode?: string;
+    timezone?: string;
+    pathTracking?: boolean;
+    dwellThreshold?: number;
 }
 
 // Tracking area constraints: X [-4, 4], Y [0, 7]
@@ -139,12 +137,12 @@ export const PATCH: RequestHandler = async ({ request, params, locals, cookies }
             };
         }
         
-        // Update device settings if provided
+        // Update device settings at top-level (consistent with initial config structure)
         if (parsed.data.deviceSettings) {
-            config.deviceSettings = {
-                ...config.deviceSettings,
-                ...parsed.data.deviceSettings
-            };
+            if (parsed.data.deviceSettings.deviceMode !== undefined) config.deviceMode = parsed.data.deviceSettings.deviceMode;
+            if (parsed.data.deviceSettings.timezone !== undefined) config.timezone = parsed.data.deviceSettings.timezone;
+            if (parsed.data.deviceSettings.pathTracking !== undefined) config.pathTracking = parsed.data.deviceSettings.pathTracking;
+            if (parsed.data.deviceSettings.dwellThreshold !== undefined) config.dwellThreshold = parsed.data.deviceSettings.dwellThreshold;
         }
 
         await prisma.sensor.update({

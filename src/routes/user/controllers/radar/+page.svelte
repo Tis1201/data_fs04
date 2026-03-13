@@ -137,14 +137,13 @@
     }
 
     function clearFilter() {
-        filterStatuses = [];
-        filterLocations = [];
+        filterStatuses = ['__all__'];
+        filterLocations = ['__all__'];
         const url = new URL($page.url);
         url.searchParams.delete('statuses');
         url.searchParams.delete('locations');
         url.searchParams.set('page', '1');
         goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
-        showFilterModal = false;
     }
 
     function openFilterModal() {
@@ -184,7 +183,7 @@
         deviceMode: 'LIVE_PREVIEW',
         timezone: 'UTC',
         pathTracking: true,
-        dwellThreshold: '30',
+        dwellThreshold: '0',
         zones: [] as { id: string; name: string; active: boolean }[]
     };
     let addDeviceZoneErrors: Record<string, string> = {}; // zone id -> error message
@@ -235,7 +234,7 @@
             deviceMode: 'LIVE_PREVIEW',
             timezone: 'UTC',
             pathTracking: true,
-            dwellThreshold: '30',
+            dwellThreshold: '0',
             zones: [{ id: 'zone-1', name: 'Zone 1', active: false }] // Default disabled: users typically don't prioritize zones; avoids known bug
         };
         addDeviceZoneErrors = {};
@@ -295,19 +294,30 @@
 
     // Edit Device modal – shared with Detail page (EditDeviceModal)
     let sensorToEdit: SensorRow | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let sensorToEditForModal: any = null;
     let showEditDeviceModal = false;
 
     function openEditDeviceModal(row: SensorRow) {
         sensorToEdit = row;
+        sensorToEditForModal = row;
         showEditDeviceModal = true;
     }
 
     function closeEditDeviceModal() {
         showEditDeviceModal = false;
         sensorToEdit = null;
+        sensorToEditForModal = null;
     }
 
-    async function submitEditDeviceFromModal(payload: { name: string; location: string }) {
+    async function submitEditDeviceFromModal(payload: {
+        name: string;
+        location: string;
+        alertSettings?: Record<string, unknown>;
+        zones?: Array<{ id: string; name: string; active: boolean }>;
+        trackingArea?: { startX: number; startY: number; endX: number; endY: number };
+        deviceSettings?: { deviceMode: string; timezone: string; pathTracking: boolean; dwellThreshold: number };
+    }) {
         if (!sensorToEdit) return;
         const fd = new FormData();
         fd.set('sensorId', sensorToEdit.id);
@@ -315,13 +325,35 @@
         fd.set('location', payload.location);
         const res = await fetch('?/updateSensor', { method: 'POST', body: fd });
         const result = await res.json().catch(() => ({}));
-        if (result.type === 'success') {
-            toast.success('Device updated successfully!');
-            closeEditDeviceModal();
-            await invalidate('app:userControllersRadar');
-        } else {
+        if (result.type !== 'success') {
             toast.error(result.message || 'Unable to update device. Please try again!');
+            return;
         }
+        const controllerId = getControllerId(sensorToEdit);
+        if (payload.alertSettings) {
+            await fetch(`/user/controllers/radar/${controllerId}/alert-settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload.alertSettings)
+            });
+        }
+        if (payload.zones && payload.zones.length > 0) {
+            await fetch(`/user/controllers/radar/${controllerId}/zones`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload.zones)
+            });
+        }
+        if (payload.trackingArea || payload.deviceSettings) {
+            await fetch(`/user/controllers/radar/${controllerId}/config`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trackingArea: payload.trackingArea, deviceSettings: payload.deviceSettings })
+            });
+        }
+        toast.success('Device updated successfully!');
+        closeEditDeviceModal();
+        await invalidate('app:userControllersRadar');
     }
 
     function addDeviceStep1Next() {
@@ -428,7 +460,7 @@
             deviceMode: step2.deviceMode || 'LIVE_PREVIEW',
             timezone: step2.timezone || 'UTC',
             pathTracking: step2.pathTracking ?? true,
-            dwellThreshold: parseFloat(step2.dwellThreshold) || 30
+            dwellThreshold: parseFloat(step2.dwellThreshold) || 0
         };
     }
 
@@ -1079,7 +1111,7 @@
                             <Dropdown
                                 label="Device Mode"
                                 placeholder="Select"
-                                options={[{ id: 'LIVE_PREVIEW', label: 'Live Preview' }]}
+                                options={[{ id: 'LIVE_PREVIEW', label: 'Live Preview' }, { id: 'BACKGROUND', label: 'Background' }]}
                                 value={addDeviceStep2.deviceMode}
                                 width="100%"
                                 preferPlacement="bottom"
@@ -1142,13 +1174,13 @@
                                     min="0"
                                     max="60"
                                     step="1"
-                                    value={parseFloat(addDeviceStep2.dwellThreshold) || 30}
+                                    value={parseFloat(addDeviceStep2.dwellThreshold) || 0}
                                     disabled={addDeviceLoading}
                                     on:input={(e) => setDwellThresholdFromInput(e.currentTarget)}
                                 />
                             </div>
                             <div class="add-device-dwell-value-wrap">
-                                <span class="add-device-dwell-value">{addDeviceStep2.dwellThreshold || '30'}</span>
+                                <span class="add-device-dwell-value">{addDeviceStep2.dwellThreshold || '0'}</span>
                                 <span class="add-device-dwell-unit">sec</span>
                             </div>
                         </div>
@@ -1194,7 +1226,7 @@
 <!-- Edit Device modal – shared with Detail page -->
 <EditDeviceModal
     bind:open={showEditDeviceModal}
-    sensor={sensorToEdit}
+    sensor={sensorToEditForModal}
     onSave={submitEditDeviceFromModal}
     onClose={closeEditDeviceModal}
 />

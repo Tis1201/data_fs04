@@ -354,7 +354,6 @@
         filterRangeType = 'week';
         deviceOptionsList = [...sensors];
         setUrlParams({ range: 'week', sensorId: null, startTime: null, endTime: null, page: null, path_page: null });
-        filterModalOpen = false;
         if (activeTab === 'session-logs') fetchSessionLogs();
         else if (activeTab === 'path-tracking') fetchPathTracking();
     }
