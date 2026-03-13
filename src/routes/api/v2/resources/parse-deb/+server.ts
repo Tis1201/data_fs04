@@ -6,7 +6,7 @@
  */
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
-import { parseDebFromGcs, parseDebFromFilePath } from '$lib/server/parsers/deb';
+import { parseDebFromCloud, parseDebFromFilePath } from '$lib/server/parsers/deb';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -45,7 +45,7 @@ export const POST = unifiedEndpoint(
             }
 
             try {
-                const metadata = await parseDebFromGcs(objectPath, bucket);
+                const metadata = await parseDebFromCloud(objectPath, bucket);
                 return successResponse(toOut(metadata));
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);

@@ -5,11 +5,10 @@ import { createHash } from 'crypto';
 import {
     generatePresignedUrl,
     handleFileUpload,
-    getFileMetadataFromGcsUrl,
+    getFileMetadataFromCloudUrl,
     getStorageConfig,
     generateDownloadUrl
 } from '$lib/server/storage';
-import { Storage } from '@google-cloud/storage';
 
 export interface LogQueryParams {
     page?: number;
@@ -106,19 +105,13 @@ export class LogService {
         // 3. Check Cache
         try {
             // Try to generate a download URL - if it succeeds, the file likely exists?
-            // Actually storage/index.ts generateDownloadUrl doesn't strictly check existence for GCLOUD mode in all paths depending on impl
-            // But getFileMetadataFromGcsUrl DOES check existence.
             const config = getStorageConfig();
 
-            // We need to construct the full GCS URL to use the helper, or just use the object path with the helper if we modify it
-            // Let's use the low-level GCS check if possible or reuse existing helpers
             // simpler: try to get metadata
-            if (config.mode === 'GCLOUD' && config.bucket) {
-                const storage = new Storage({ projectId: config.projectId });
-                const file = storage.bucket(config.bucket).file(objectPath);
-                const [exists] = await file.exists();
+            if (config.mode === 'R2' && config.r2Bucket) {
+                const metadata = await getFileMetadataFromCloudUrl(`https://${config.r2Bucket}/${objectPath}`);
 
-                if (exists) {
+                if (metadata) {
                     logger.info(`[LogService] Cache hit for ${objectPath}`);
                     const { url } = await generateDownloadUrl(objectPath, 3600, `logs-${cacheKey}.${format}`);
                     return url;
@@ -147,23 +140,27 @@ export class LogService {
             format: formatSuffix as any // Format is handled by the query string in some clients, but here we hint it
         });
 
-        // 5. Upload to GCS
-        const stream = result.stream(); // Use stream to pipeline to GCS
+        // 5. Upload to R2
+        const stream = result.stream(); // Use stream to pipeline to R2
         const config = getStorageConfig();
 
-        if (!config.bucket) throw new Error('GCS Bucket not configured');
+        if (config.mode !== 'R2' || !config.r2Bucket) throw new Error('R2 Bucket not configured');
 
-        await new Promise<void>((resolve, reject) => {
-            const storage = new Storage({ projectId: config.projectId });
-            const file = storage.bucket(config.bucket!).file(objectPath);
-            const writeStream = file.createWriteStream({
-                contentType: format === 'csv' ? 'text/csv' : 'application/json'
-            });
+        // Note: For real world use, might need to buffer stream or use Upload utility from '@aws-sdk/lib-storage'
+        const { Upload } = await import('@aws-sdk/lib-storage');
+        const { getR2Client } = await import('$lib/server/storage/r2Client');
 
-            stream.pipe(writeStream)
-                .on('finish', resolve)
-                .on('error', reject);
+        const upload = new Upload({
+            client: getR2Client(),
+            params: {
+                Bucket: config.r2Bucket,
+                Key: objectPath,
+                Body: stream,
+                ContentType: format === 'csv' ? 'text/csv' : 'application/json'
+            }
         });
+
+        await upload.done();
 
         logger.info(`[LogService] Export uploaded to ${objectPath}`);
 

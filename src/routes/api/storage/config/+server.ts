@@ -9,7 +9,7 @@ export const GET: RequestHandler = async () => {
         // Only expose the mode to the frontend, not sensitive configuration
         return json({
             mode: config.mode,
-            requiresPresignedUrl: config.mode === 'LOCAL_CLOUD' || config.mode === 'GCLOUD'
+            requiresPresignedUrl: config.mode === 'R2'
         });
     } catch (error) {
         return json(

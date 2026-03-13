@@ -3,7 +3,7 @@ import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import prisma from '$lib/server/prisma';
-import { generateDownloadUrlGCloud, generateDownloadUrlLocalCloud, generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
+import { generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
 import path from 'path';
 
 /**
@@ -194,14 +194,14 @@ export const GET: RequestHandler = restrict(
 
             // Get storage config
             const storageConfig = getStorageConfig();
-            const storageBucket = bucket || storageConfig.bucket;
+            const storageBucket = bucket || (storageConfig.mode === 'R2' ? storageConfig.r2Bucket : null);
 
-            if (!storageBucket) {
+            if (storageConfig.mode === 'R2' && !storageBucket) {
                 return json({
                     success: false,
                     error: {
                         code: 'CONFIGURATION_ERROR',
-                        message: 'GCloud bucket not configured'
+                        message: 'R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)'
                     }
                 }, { status: 500 });
             }
@@ -218,33 +218,24 @@ export const GET: RequestHandler = restrict(
             });
 
             let downloadUrlResult;
-            
-            // Use the appropriate method based on storage mode
-            if (storageConfig.mode === 'LOCAL_CLOUD') {
-                if (!storageConfig.targetServiceAccount) {
-                    throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
-                }
-                downloadUrlResult = await generateDownloadUrlLocalCloud(
-                    storageBucket,
+
+            if (storageConfig.mode === 'R2' && storageBucket) {
+                downloadUrlResult = await generateDownloadUrl(objectPath, 3600, fileName);
+            } else if (storageConfig.mode === 'LOCAL') {
+                const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+                const pathForUrl = objectPath.startsWith('/') ? objectPath : `/uploads/iot/${objectPath}`;
+                downloadUrlResult = {
+                    url: `${baseUrl.replace(/\/$/, '')}${pathForUrl}`,
+                    bucket: 'local',
                     objectPath,
-                    storageConfig.targetServiceAccount,
-                    3600, // 1 hour expiration
-                    fileName
-                );
-            } else if (storageConfig.mode === 'GCLOUD') {
-                downloadUrlResult = await generateDownloadUrlGCloud(
-                    storageBucket,
-                    objectPath,
-                    3600, // 1 hour expiration
-                    fileName
-                );
+                    contentType: 'application/octet-stream',
+                    expires: Date.now() + 3600 * 1000
+                };
             } else {
-                // For LOCAL mode, use the generic function
-                downloadUrlResult = await generateDownloadUrl(
-                    objectPath,
-                    3600,
-                    fileName
-                );
+                return json({
+                    success: false,
+                    error: { code: 'CONFIGURATION_ERROR', message: 'Storage mode not supported for download' }
+                }, { status: 500 });
             }
 
             // Mark action log as downloaded (optional, for tracking)

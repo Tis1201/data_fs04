@@ -15,8 +15,8 @@ import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
 import {
     getStorageConfig,
     ensureResourceInResourcesFolder,
-    parseGCloudUrl,
-    isGCloudUrl
+    parseCloudStorageUrl,
+    isCloudStorageUrl
 } from '$lib/server/storage';
 
 export const load = restrict(
@@ -175,20 +175,20 @@ export const actions: Actions = {
 
                 try {
                     // Check if file has already been uploaded to cloud storage
-                    if (form.data.path && isGCloudUrl(form.data.path)) {
+                    if (form.data.path && isCloudStorageUrl(form.data.path)) {
                         logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
                         const config = getStorageConfig();
-                        if (
-                            (config.mode === 'LOCAL_CLOUD' || config.mode === 'GCLOUD') &&
-                            config.bucket
-                        ) {
-                            const parsed = parseGCloudUrl(form.data.path);
+                        if (config.mode === 'R2' && config.r2Bucket) {
+                            const parsed = parseCloudStorageUrl(form.data.path);
                             if (parsed) {
+                                const bucket = parsed.bucket || config.r2Bucket;
                                 const newObjectPath = await ensureResourceInResourcesFolder(
-                                    parsed.bucket,
+                                    bucket,
                                     parsed.objectPath
                                 );
-                                const finalPath = `https://storage.googleapis.com/${parsed.bucket}/${newObjectPath}`;
+                                const finalPath = config.r2CdnUrl
+                                    ? `${config.r2CdnUrl}/${newObjectPath}`
+                                    : `${process.env.CLOUDFLARE_R2_ENDPOINT || ''}/${bucket}/${newObjectPath}`;
                                 form.data.path = finalPath;
                                 logger.info(`[create] Resource path ensured in resources folder: ${finalPath}`);
                             }

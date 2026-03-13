@@ -267,7 +267,7 @@
         isApk = fileName.endsWith('.apk');
         const isDeb = fileName.endsWith('.deb');
         const isExe = fileName.endsWith('.exe');
-        const isCloudMode = storageConfig?.mode === 'LOCAL_CLOUD' || storageConfig?.mode === 'GCLOUD';
+        const isCloudMode = storageConfig?.mode === 'R2' || storageConfig?.mode === 'LOCAL_CLOUD' || storageConfig?.mode === 'GCLOUD';
 
         if (isSupported) {
             zipParsing = true;

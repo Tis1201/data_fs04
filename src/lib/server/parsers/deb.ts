@@ -7,9 +7,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { getStorageConfig, downloadGcsFileToPath } from '$lib/server/storage';
+import { getStorageConfig, downloadCloudFileToPath } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
-import { Storage } from '@google-cloud/storage';
 import { access } from 'fs/promises';
 import { constants } from 'fs';
 
@@ -163,12 +162,14 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
 }
 
 /**
- * Download DEB from GCS and parse metadata. Caller is responsible for cleanup of temp files.
- * In LOCAL_CLOUD mode uses impersonated target SA so the server can read objects uploaded via presigned URL.
+ * Download DEB from Cloud Storage and parse metadata. Caller is responsible for cleanup of temp files.
  */
-export async function parseDebFromGcs(objectPath: string, bucket?: string): Promise<DebMetadata> {
+export async function parseDebFromCloud(objectPath: string, bucket?: string): Promise<DebMetadata> {
     const config = getStorageConfig();
-    const targetBucket = bucket || config.bucket;
+    
+    // In R2 mode, bucket might be passed or inferred from config
+    const targetBucket = bucket || (config.mode === 'R2' ? config.r2Bucket : undefined);
+    
     if (!targetBucket) throw new Error('Bucket not configured');
 
     const tempDir = join(tmpdir(), 'deb-parser');
@@ -178,15 +179,13 @@ export async function parseDebFromGcs(objectPath: string, bucket?: string): Prom
     const tempFilePath = join(tempDir, `${Date.now()}-${objectPath.split('/').pop() || 'deb'}`);
 
     try {
-        await downloadGcsFileToPath(targetBucket, objectPath, tempFilePath, {
-            targetServiceAccount: config.mode === 'LOCAL_CLOUD' ? config.targetServiceAccount : undefined
-        });
-        logger.info('[DEB Parser] File downloaded from GCS', { tempFilePath });
+        await downloadCloudFileToPath(targetBucket, objectPath, tempFilePath);
+        logger.info('[DEB Parser] File downloaded from Cloud Storage', { tempFilePath });
         const metadata = await parseDebFile(tempFilePath, workDir);
         return metadata;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logger.error('[DEB Parser] GCS download or parse failed', { objectPath, bucket: targetBucket, error: msg });
+        logger.error('[DEB Parser] Cloud download or parse failed', { objectPath, bucket: targetBucket, error: msg });
         throw err;
     } finally {
         try {

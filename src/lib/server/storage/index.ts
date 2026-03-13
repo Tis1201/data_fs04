@@ -1,13 +1,13 @@
-import { Storage } from '@google-cloud/storage';
-import { GoogleAuth, Impersonated } from 'google-auth-library';
 import { logger } from '$lib/server/logger';
-import { join, dirname, basename } from 'path';
+import { join, basename } from 'path';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
-import { getGCloudAccessToken, isCredentialError } from './gcloudAuthUtils';
+import { getR2Client } from './r2Client';
+import { PutObjectCommand, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-export type StorageMode = 'LOCAL' | 'LOCAL_CLOUD' | 'GCLOUD';
+export type StorageMode = 'LOCAL' | 'R2';
 
 /** GCS folder for resource uploads during add-flow (before user confirms). Moved to RESOURCES_FOLDER on create. */
 export const RESOURCES_TEMP_PREFIX = 'temp/resources';
@@ -16,9 +16,8 @@ export const RESOURCES_FOLDER = 'resources';
 
 export interface StorageConfig {
     mode: StorageMode;
-    bucket?: string;
-    targetServiceAccount?: string;
-    projectId?: string;
+    r2Bucket: string;
+    r2CdnUrl?: string;
 }
 
 export interface UploadResult {
@@ -46,15 +45,19 @@ export interface FileMetadata {
  */
 export function getStorageConfig(): StorageConfig {
     const storageMode = (process.env.STORAGE as StorageMode) || 'LOCAL';
-    const bucket = process.env.GCLOUD_BUCKET;
-    const targetServiceAccount = process.env.GCLOUD_TARGET_SA;
-    const projectId = process.env.GCLOUD_PROJECT_ID || 'cs-poc-vlkpvg5seziflnwq2ni7x3l';
+    
+    // For local mode without a specific R2 bucket configured, we provide a dummy
+    let r2Bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME || '';
+    if (storageMode === 'R2' && !r2Bucket) {
+        throw new Error('CLOUDFLARE_R2_BUCKET_NAME environment variable is required for R2 mode');
+    }
+
+    const r2CdnUrl = process.env.CLOUDFLARE_R2_CDN_URL?.replace(/\/$/, '');
 
     return {
         mode: storageMode,
-        bucket,
-        targetServiceAccount,
-        projectId
+        r2Bucket,
+        r2CdnUrl
     };
 }
 
@@ -118,80 +121,12 @@ export async function saveFileLocally(file: File, filePath: string): Promise<str
     return `/uploads/iot/${filePath}`;
 }
 
-/**
- * Generate presigned URL for LOCAL_CLOUD mode (using service account impersonation)
- */
-export async function generatePresignedUrlLocalCloud(
-    bucket: string,
-    objectPath: string,
-    contentType: string,
-    targetServiceAccount: string,
-    expiresSeconds: number = 600
-): Promise<PresignedUrlResult> {
-    try {
-        const expires = Date.now() + (expiresSeconds * 1000);
-
-        logger.info(`Generating presigned URL for LOCAL_CLOUD: bucket=${bucket}, objectPath=${objectPath}, targetSA=${targetServiceAccount}`);
-
-        // Use gcloud CLI to generate presigned URL (bypasses signing issues)
-        const { execSync } = await import('child_process');
-        
-        const bucketName = bucket;
-        const fileName = objectPath;
-        const expiresInSeconds = Math.floor(expiresSeconds);
-        
-        logger.info(`Using gcloud CLI to generate presigned URL...`);
-        
-        try {
-            // Get access token using shared utility
-            logger.info(`Getting access token with impersonation...`);
-            const accessToken = getGCloudAccessToken(targetServiceAccount);
-            
-            logger.info(`Access token obtained, generating presigned URL...`);
-            
-            // Now use the access token to generate a presigned URL via HTTP API
-            const presignedUrlCommand = `curl -s -X POST "https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(fileName)}?uploadType=media" -H "Authorization: Bearer ${accessToken}" -H "Content-Type: ${contentType}" -d '{"name":"${fileName}"}'`;
-            
-            // Actually, let's use a simpler approach - create a signed URL using the access token
-            const signedUrl = `https://storage.googleapis.com/${bucketName}/${fileName}?uploadType=media&access_token=${accessToken}`;
-            
-            logger.info(`Generated signed URL with access token for: ${objectPath}`);
-
-            return {
-                url: signedUrl,
-                bucket: bucketName,
-                objectPath,
-                contentType,
-                expires
-            };
-            
-        } catch (gcloudError) {
-            logger.warn(`gcloud CLI failed, falling back to simple URL: ${gcloudError instanceof Error ? gcloudError.message : String(gcloudError)}`);
-            
-            // Fallback: create a simple upload URL
-            const uploadUrl = `https://storage.googleapis.com/${bucketName}/${fileName}?uploadType=media`;
-            
-            logger.info(`Generated fallback upload URL for: ${objectPath}`);
-
-            return {
-                url: uploadUrl,
-                bucket: bucketName,
-                objectPath,
-                contentType,
-                expires
-            };
-        }
-    } catch (error) {
-        logger.error(`Failed to generate presigned URL for LOCAL_CLOUD: ${error}`);
-        logger.error(`Error details: ${error instanceof Error ? error.stack : String(error)}`);
-        throw new Error(`Failed to generate presigned URL: ${error instanceof Error ? error.message : String(error)}`);
-    }
-}
+	// GCloud legacy generator removed!
 
 /**
- * Generate presigned URL for GCLOUD mode (using VM service account)
+ * Generate presigned URL for R2 mode
  */
-export async function generatePresignedUrlGCloud(
+export async function generatePresignedUrlR2(
     bucket: string,
     objectPath: string,
     contentType: string,
@@ -199,21 +134,17 @@ export async function generatePresignedUrlGCloud(
 ): Promise<PresignedUrlResult> {
     try {
         const expires = Date.now() + (expiresSeconds * 1000);
-        const config = getStorageConfig();
-        const storage = new Storage({ 
-            projectId: config.projectId 
-        }); // Uses VM SA; will "sign with IAM" automatically
-
-        const file = storage.bucket(bucket).file(objectPath);
+        const r2Client = getR2Client();
         
-        // Don't include contentType in the signature to avoid 403 errors
-        // The client can send any Content-Type header without signature mismatch
-        const [url] = await file.getSignedUrl({
-            version: 'v4',
-            action: 'write',
-            expires
-            // contentType is intentionally omitted to avoid signed header mismatch
+        const command = new PutObjectCommand({
+            Bucket: bucket,
+            Key: objectPath,
+            ContentType: contentType || 'application/octet-stream',
         });
+
+        const url = await getSignedUrl(r2Client, command, { expiresIn: expiresSeconds });
+
+        logger.info(`Generated presigned URL for R2: bucket=${bucket}, objectPath=${objectPath}`);
 
         return {
             url,
@@ -223,13 +154,13 @@ export async function generatePresignedUrlGCloud(
             expires
         };
     } catch (error) {
-        logger.error(`Failed to generate presigned URL for GCLOUD: ${error}`);
+        logger.error(`Failed to generate presigned URL for R2: ${error}`);
         throw new Error(`Failed to generate presigned URL: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 /**
- * Upload file contents to a presigned GCS URL (PUT with uploadType=media).
+ * Upload file contents to a presigned URL (PUT with uploadType=media).
  * Used so the server actually writes the file to GCS when in LOCAL_CLOUD/GCLOUD mode.
  */
 async function uploadFileToPresignedUrl(
@@ -274,39 +205,28 @@ export async function handleFileUpload(file: File): Promise<UploadResult> {
                 path: filePath
             };
 
-        case 'LOCAL_CLOUD':
-            if (!config.bucket || !config.targetServiceAccount) {
-                throw new Error('GCLOUD_BUCKET and GCLOUD_TARGET_SA environment variables are required for LOCAL_CLOUD mode');
-            }
-            const presignedUrlLocalCloud = await generatePresignedUrlLocalCloud(
-                config.bucket,
-                filePath,
-                file.type,
-                config.targetServiceAccount
-            );
-            await uploadFileToPresignedUrl(file, presignedUrlLocalCloud.url, presignedUrlLocalCloud.contentType);
-            const stableUrlLocalCloud = `https://storage.googleapis.com/${config.bucket}/${filePath}`;
-            return {
-                url: stableUrlLocalCloud,
-                path: filePath,
-                bucket: config.bucket
-            };
-
-        case 'GCLOUD':
-            if (!config.bucket) {
-                throw new Error('GCLOUD_BUCKET environment variable is required for GCLOUD mode');
-            }
-            const presignedUrlGCloud = await generatePresignedUrlGCloud(
-                config.bucket,
+        case 'R2':
+            const presignedUrlR2 = await generatePresignedUrlR2(
+                config.r2Bucket,
                 filePath,
                 file.type
             );
-            await uploadFileToPresignedUrl(file, presignedUrlGCloud.url, presignedUrlGCloud.contentType);
-            const stableUrlGCloud = `https://storage.googleapis.com/${config.bucket}/${filePath}`;
+            await uploadFileToPresignedUrl(file, presignedUrlR2.url, presignedUrlR2.contentType);
+            
+            const r2CdnUrl = config.r2CdnUrl;
+            let stableUrlR2: string;
+            
+            if (r2CdnUrl) {
+                stableUrlR2 = `${r2CdnUrl}/${filePath}`;
+            } else {
+                const endpoint = process.env.CLOUDFLARE_R2_ENDPOINT || '';
+                stableUrlR2 = `${endpoint}/${config.r2Bucket}/${filePath}`;
+            }
+            
             return {
-                url: stableUrlGCloud,
+                url: stableUrlR2,
                 path: filePath,
-                bucket: config.bucket
+                bucket: config.r2Bucket
             };
 
         default:
@@ -344,27 +264,13 @@ export async function generatePresignedUrl(
                 expires: Date.now() + (expiresSeconds * 1000)
             };
 
-        case 'LOCAL_CLOUD':
-            if (!config.bucket) {
-                throw new Error('GCLOUD_BUCKET environment variable is required for LOCAL_CLOUD mode');
-            }
-            if (!config.targetServiceAccount) {
-                throw new Error('GCLOUD_TARGET_SA environment variable is required for LOCAL_CLOUD mode');
-            }
-            return await generatePresignedUrlLocalCloud(
-                config.bucket,
-                objectPath,
-                contentType,
-                config.targetServiceAccount,
-                expiresSeconds
-            );
 
-        case 'GCLOUD':
-            if (!config.bucket) {
-                throw new Error('GCLOUD_BUCKET environment variable is required for GCLOUD mode');
+        case 'R2':
+            if (!config.r2Bucket) {
+                throw new Error('CLOUDFLARE_R2_BUCKET_NAME environment variable is required for R2 mode');
             }
-            return await generatePresignedUrlGCloud(
-                config.bucket,
+            return await generatePresignedUrlR2(
+                config.r2Bucket,
                 objectPath,
                 contentType,
                 expiresSeconds
@@ -385,26 +291,13 @@ export async function generateDownloadUrl(
 ): Promise<PresignedUrlResult> {
     const config = getStorageConfig();
 
-    if (!config.bucket) {
-        throw new Error('GCLOUD_BUCKET environment variable is required for download URL generation');
-    }
-
     switch (config.mode) {
-        case 'LOCAL_CLOUD':
-            if (!config.targetServiceAccount) {
-                throw new Error('GCLOUD_TARGET_SA environment variable is required for LOCAL_CLOUD mode');
+        case 'R2':
+            if (!config.r2Bucket) {
+                throw new Error('CLOUDFLARE_R2_BUCKET_NAME environment variable is required for R2 mode protocol details');
             }
-            return await generateDownloadUrlLocalCloud(
-                config.bucket,
-                objectPath,
-                config.targetServiceAccount,
-                expiresSeconds,
-                filename
-            );
-
-        case 'GCLOUD':
-            return await generateDownloadUrlGCloud(
-                config.bucket,
+            return await generateDownloadUrlR2(
+                config.r2Bucket,
                 objectPath,
                 expiresSeconds,
                 filename
@@ -416,11 +309,35 @@ export async function generateDownloadUrl(
 }
 
 /**
- * Download a file from GCS to a local path.
- * In LOCAL_CLOUD mode uses the impersonated target SA so the server can read objects
- * that were uploaded via presigned URL (client uploads as that SA).
+ * Download a file from R2 to a local path.
  */
-export async function downloadGcsFileToPath(
+export async function downloadR2FileToPath(
+    bucket: string,
+    objectPath: string,
+    destinationPath: string
+): Promise<void> {
+    const r2Client = getR2Client();
+    const command = new GetObjectCommand({
+        Bucket: bucket,
+        Key: objectPath
+    });
+    
+    const response = await r2Client.send(command);
+    if (!response.Body) {
+        throw new Error(`R2 download failed: Empty body for ${objectPath}`);
+    }
+    
+    const { pipeline } = await import('stream/promises');
+    const { createWriteStream } = await import('fs');
+    await pipeline(response.Body as any, createWriteStream(destinationPath));
+    logger.info(`[downloadR2FileToPath] Downloaded from R2 to ${destinationPath}`);
+}
+
+/**
+ * Download a file from cloud storage to a local path.
+ * In R2 mode, it dispatches to the R2 client.
+ */
+export async function downloadCloudFileToPath(
     bucket: string,
     objectPath: string,
     destinationPath: string,
@@ -428,97 +345,56 @@ export async function downloadGcsFileToPath(
 ): Promise<void> {
     const config = getStorageConfig();
 
-    if (config.mode === 'LOCAL_CLOUD' && options.targetServiceAccount) {
-        const accessToken = getGCloudAccessToken(options.targetServiceAccount);
-        const downloadUrl = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(objectPath)}?alt=media`;
-        const response = await fetch(downloadUrl, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-        });
-        if (!response.ok) {
-            const text = await response.text();
-            logger.error(`[downloadGcsFileToPath] LOCAL_CLOUD download failed`, {
-                bucket,
-                objectPath,
-                status: response.status,
-                statusText: response.statusText,
-                body: text.slice(0, 500)
-            });
-            throw new Error(`GCS download failed: ${response.status} ${response.statusText} - ${text.slice(0, 200)}`);
-        }
-        const buffer = Buffer.from(await response.arrayBuffer());
-        await writeFile(destinationPath, buffer);
-        logger.info(`[downloadGcsFileToPath] Downloaded from LOCAL_CLOUD to ${destinationPath}`);
-        return;
+    if (config.mode === 'R2') {
+        const r2Bucket = bucket || config.r2Bucket;
+        if (!r2Bucket) throw new Error('R2 bucket not provided and not in config');
+        return await downloadR2FileToPath(r2Bucket, objectPath, destinationPath);
     }
 
-    const storage = new Storage({ projectId: config.projectId });
-    const file = storage.bucket(bucket).file(objectPath);
-    await file.download({ destination: destinationPath });
-    logger.info(`[downloadGcsFileToPath] Downloaded from GCS to ${destinationPath}`);
+    throw new Error('Cloud storage download only supported in R2 mode');
 }
 
 /**
- * Copy an object in GCS (same or cross bucket). Used for moving resources from temp to resources folder.
+ * Copy an object in R2.
  */
-async function copyGcsObject(
+async function copyR2Object(
     sourceBucket: string,
     sourcePath: string,
     destBucket: string,
-    destPath: string,
-    options: { targetServiceAccount?: string } = {}
+    destPath: string
 ): Promise<void> {
-    const config = getStorageConfig();
-
-    if (config.mode === 'LOCAL_CLOUD' && options.targetServiceAccount) {
-        const accessToken = getGCloudAccessToken(options.targetServiceAccount);
-        const copyUrl = `https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(sourceBucket)}/o/${encodeURIComponent(sourcePath)}/copyTo/b/${encodeURIComponent(destBucket)}/o/${encodeURIComponent(destPath)}`;
-        const response = await fetch(copyUrl, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: '{}'
-        });
-        if (!response.ok) {
-            const text = await response.text();
-            logger.error('[copyGcsObject] LOCAL_CLOUD copy failed', {
-                sourceBucket,
-                sourcePath,
-                destPath,
-                status: response.status,
-                body: text.slice(0, 500)
-            });
-            throw new Error(`GCS copy failed: ${response.status} - ${text.slice(0, 200)}`);
-        }
-        logger.info(`[copyGcsObject] Copied to ${destBucket}/${destPath}`);
-        return;
-    }
-
-    const storage = new Storage({ projectId: config.projectId });
-    const sourceFile = storage.bucket(sourceBucket).file(sourcePath);
-    const destFile = storage.bucket(destBucket).file(destPath);
-    await sourceFile.copy(destFile);
-    logger.info(`[copyGcsObject] Copied to ${destBucket}/${destPath}`);
+    const r2Client = getR2Client();
+    const command = new CopyObjectCommand({
+        Bucket: destBucket,
+        // S3 requires CopySource to be URL-encoded, and usually /bucket/key
+        CopySource: encodeURI(`${sourceBucket}/${sourcePath}`),
+        Key: destPath
+    });
+    await r2Client.send(command);
+    logger.info(`[copyR2Object] Copied ${sourceBucket}/${sourcePath} to ${destBucket}/${destPath}`);
 }
 
 /**
- * Move object in GCS (copy then delete source). Used when moving resource from temp/resources to resources.
+ * Move object in cloud storage (copy then delete source). Used when moving resource from temp/resources to resources.
  */
-export async function moveGcsObject(
+export async function moveCloudObject(
     bucket: string,
     sourcePath: string,
     destPath: string,
     options: { targetServiceAccount?: string } = {}
 ): Promise<void> {
     const config = getStorageConfig();
-    await copyGcsObject(bucket, sourcePath, bucket, destPath, options);
-    if (config.mode === 'LOCAL_CLOUD' && options.targetServiceAccount) {
-        await deleteFileFromLocalCloud(bucket, sourcePath, options.targetServiceAccount);
-    } else {
-        await deleteFileFromGCloud(bucket, sourcePath);
+    
+    if (config.mode === 'R2') {
+        const r2Bucket = bucket || config.r2Bucket;
+        if (!r2Bucket) throw new Error('R2 bucket not configured');
+        await copyR2Object(r2Bucket, sourcePath, r2Bucket, destPath);
+        await deleteFileFromR2(r2Bucket, sourcePath);
+        logger.info(`[moveCloudObject] Moved ${sourcePath} -> ${destPath} in R2`);
+        return;
     }
-    logger.info(`[moveGcsObject] Moved ${sourcePath} -> ${destPath}`);
+
+    throw new Error('Cloud storage move only supported in R2 mode');
 }
 
 /**
@@ -538,89 +414,16 @@ export async function ensureResourceInResourcesFolder(
     }
 
     const config = getStorageConfig();
-    const opts = config.mode === 'LOCAL_CLOUD' ? { targetServiceAccount: config.targetServiceAccount } : {};
-    await moveGcsObject(bucket, normalized, resourcesPath, opts);
+    await moveCloudObject(bucket, normalized, resourcesPath);
     return resourcesPath;
 }
 
-/**
- * Generate download URL for LOCAL_CLOUD mode (using service account impersonation)
- */
-export async function generateDownloadUrlLocalCloud(
-    bucket: string,
-    objectPath: string,
-    targetServiceAccount: string,
-    expiresSeconds: number = 3600,
-    filename?: string
-): Promise<PresignedUrlResult> {
-    try {
-        const expires = Date.now() + (expiresSeconds * 1000);
-
-        logger.info(`Generating download URL for LOCAL_CLOUD: bucket=${bucket}, objectPath=${objectPath}, targetSA=${targetServiceAccount}`);
-
-        // Use gcloud CLI to generate download URL (bypasses signing issues)
-        const { execSync } = await import('child_process');
-        
-        const bucketName = bucket;
-        const fileName = objectPath;
-        const expiresInSeconds = Math.floor(expiresSeconds);
-        
-        logger.info(`Using gcloud CLI to generate download URL...`);
-        
-        try {
-            // Get access token using shared utility
-            logger.info(`Getting access token with impersonation...`);
-            const accessToken = getGCloudAccessToken(targetServiceAccount);
-            
-            logger.info(`Access token obtained, generating download URL...`);
-            
-            // Construct download URL with access token and proper filename
-            const responseDisposition = filename 
-                ? `attachment; filename="${filename}"`
-                : 'attachment';
-            
-            const downloadUrl = `https://storage.googleapis.com/${bucketName}/${fileName}?access_token=${accessToken}&response-content-disposition=${encodeURIComponent(responseDisposition)}`;
-            
-            logger.info(`Generated download URL with access token for: ${objectPath}`);
-
-            return {
-                url: downloadUrl,
-                bucket: bucketName,
-                objectPath,
-                contentType: 'application/octet-stream',
-                expires
-            };
-            
-        } catch (gcloudError) {
-            logger.warn(`gcloud CLI failed, falling back to simple URL: ${gcloudError instanceof Error ? gcloudError.message : String(gcloudError)}`);
-            
-            // Fallback: create a simple download URL
-            const responseDisposition = filename 
-                ? `attachment; filename="${filename}"`
-                : 'attachment';
-            
-            const downloadUrl = `https://storage.googleapis.com/${bucketName}/${fileName}?response-content-disposition=${encodeURIComponent(responseDisposition)}`;
-            
-            logger.info(`Generated fallback download URL for: ${objectPath}`);
-
-            return {
-                url: downloadUrl,
-                bucket: bucketName,
-                objectPath,
-                contentType: 'application/octet-stream',
-                expires
-            };
-        }
-    } catch (error) {
-        logger.error(`Failed to generate download URL for LOCAL_CLOUD: ${error}`);
-        throw new Error(`Failed to generate download URL: ${error instanceof Error ? error.message : String(error)}`);
-    }
-}
+// GCloud logic legacy removed!
 
 /**
- * Generate download URL for GCLOUD mode (using VM service account)
+ * Generate download URL for R2 mode
  */
-export async function generateDownloadUrlGCloud(
+export async function generateDownloadUrlR2(
     bucket: string,
     objectPath: string,
     expiresSeconds: number = 3600,
@@ -628,35 +431,31 @@ export async function generateDownloadUrlGCloud(
 ): Promise<PresignedUrlResult> {
     try {
         const expires = Date.now() + (expiresSeconds * 1000);
-        const config = getStorageConfig();
-        const storage = new Storage({ 
-            projectId: config.projectId 
-        }); // Uses VM SA; will "sign with IAM" automatically
-
-        const file = storage.bucket(bucket).file(objectPath);
+        const r2Client = getR2Client();
         
         const responseDisposition = filename 
             ? `attachment; filename="${filename}"`
             : 'attachment';
             
-        const [url] = await file.getSignedUrl({
-            version: 'v4',
-            action: 'read',
-            expires,
-            responseDisposition
+        const command = new GetObjectCommand({
+            Bucket: bucket,
+            Key: objectPath,
+            ResponseContentDisposition: responseDisposition
         });
+
+        const url = await getSignedUrl(r2Client, command, { expiresIn: expiresSeconds });
         
-        logger.debug(`Generated download URL for GCLOUD: ${url}`);
+        logger.debug(`Generated download URL for R2: ${url.substring(0, 50)}...`);
 
         return {
             url,
             bucket,
             objectPath,
-            contentType: 'application/octet-stream', // Default for downloads
+            contentType: 'application/octet-stream',
             expires
         };
     } catch (error) {
-        logger.error(`Failed to generate download URL for GCLOUD: ${error}`);
+        logger.error(`Failed to generate download URL for R2: ${error}`);
         throw new Error(`Failed to generate download URL: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
@@ -665,11 +464,63 @@ export async function generateDownloadUrlGCloud(
  * Delete file from cloud storage
  */
 // Export GCloud URL utilities
-export { parseGCloudUrl, isGCloudUrl, convertGCloudUrlToSignedDownloadUrl } from './gcloudUrlUtils';
+export {
+    parseGCloudUrl,
+    isGCloudUrl,
+    isR2Url,
+    isCloudStorageUrl,
+    parseR2Url,
+    parseCloudStorageUrl,
+    convertGCloudUrlToSignedDownloadUrl
+} from './gcloudUrlUtils';
+
+export async function deleteFileFromR2(
+    bucket: string,
+    objectPath: string
+): Promise<void> {
+    try {
+        const r2Client = getR2Client();
+        const command = new DeleteObjectCommand({
+            Bucket: bucket,
+            Key: objectPath
+        });
+        await r2Client.send(command);
+        logger.info(`Successfully deleted file from R2: ${objectPath}`);
+    } catch (error) {
+        logger.error(`Failed to delete file from R2: ${error}`);
+        throw new Error(`Failed to delete file from R2: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
 
 export async function deleteFileFromCloudStorage(filePath: string): Promise<void> {
     const config = getStorageConfig();
     
+    if (config.mode === 'R2') {
+        const bucket = config.r2Bucket;
+        if (!bucket) {
+            logger.warn('No R2 bucket configured for cloud storage deletion');
+            return;
+        }
+        let objectPath = filePath;
+        if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+            try {
+                objectPath = new URL(filePath).pathname.substring(1);
+                // Strip bucket name from path if needed (for non-CDN URLs)
+                if (objectPath.startsWith(`${bucket}/`)) {
+                    objectPath = objectPath.substring(bucket.length + 1);
+                }
+            } catch (e) {
+               // fallback to raw
+            }
+        }
+        try {
+            await deleteFileFromR2(bucket, objectPath);
+        } catch (error) {
+            // Already logged in deleteFileFromR2
+        }
+        return;
+    }
+
     if (config.mode === 'LOCAL') {
         // For local mode, delete from local filesystem
         const { unlinkSync } = await import('fs');
@@ -690,132 +541,62 @@ export async function deleteFileFromCloudStorage(filePath: string): Promise<void
             logger.info(`Deleted local file: ${localPath}`);
         } catch (err) {
             logger.warn(`Failed to delete local file ${localPath}: ${err}`);
-            // Don't throw error for local file deletion failures
         }
-        return;
-    }
-    
-    if (!config.bucket) {
-        logger.warn('No bucket configured for cloud storage deletion');
-        return;
-    }
-    
-    // Extract object path from the stored path
-    let objectPath = filePath;
-    
-    // Lazy import to avoid circular dependency
-    const { isGCloudUrl, parseGCloudUrl } = await import('./gcloudUrlUtils');
-    
-    if (isGCloudUrl(filePath)) {
-        // Extract the object path from the full URL
-        const parsed = parseGCloudUrl(filePath);
-        if (parsed) {
-            objectPath = parsed.objectPath;
-            logger.info(`Extracted object path from GCloud URL: ${objectPath}`);
-        } else {
-            logger.warn(`Failed to parse GCloud URL for deletion, using path as-is: ${filePath}`);
-        }
-    } else if (filePath.includes('/')) {
-        // This is already an object path
-        objectPath = filePath;
-        logger.info(`Using stored object path: ${objectPath}`);
-    } else {
-        logger.warn(`Unexpected file path format for deletion: ${filePath}`);
-        return;
-    }
-    
-    try {
-        switch (config.mode) {
-            case 'LOCAL_CLOUD':
-                await deleteFileFromLocalCloud(config.bucket, objectPath, config.targetServiceAccount!);
-                break;
-            case 'GCLOUD':
-                await deleteFileFromGCloud(config.bucket, objectPath);
-                break;
-            default:
-                logger.warn(`File deletion not supported for storage mode: ${config.mode}`);
-        }
-    } catch (error) {
-        logger.error(`Failed to delete file from cloud storage: ${error}`);
-        // Don't throw error - we don't want file deletion failures to break the resource deletion
     }
 }
 
 /**
  * List object paths under a prefix in cloud storage (for replace-in-folder behavior).
- * Prefix should end with / to list "folder" contents (e.g. "pinrule/123/").
  */
 export async function listObjectsByPrefix(prefix: string): Promise<string[]> {
     const config = getStorageConfig();
     if (config.mode === 'LOCAL') {
         const { readdirSync } = await import('fs');
-        const { join } = await import('path');
         const pathPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
         const dir = join(process.cwd(), 'static', 'uploads', 'iot', pathPrefix);
         try {
-            const names = readdirSync(dir, { withFileTypes: true })
-                .filter((e) => e.isFile())
-                .map((e) => `${pathPrefix}${e.name}`);
+            const names = (await import('fs')).readdirSync(dir, { withFileTypes: true })
+                .filter((e: any) => e.isFile())
+                .map((e: any) => `${pathPrefix}${e.name}`);
             return names;
         } catch {
             return [];
         }
     }
-    if (!config.bucket) return [];
-    const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
-    try {
-        if (config.mode === 'GCLOUD') {
-            const storage = new Storage({ projectId: config.projectId });
-            const [files] = await storage.bucket(config.bucket).getFiles({ prefix: normalizedPrefix });
-            return files.map((f) => f.name);
+    if (config.mode === 'R2' && config.r2Bucket) {
+        try {
+            const r2Client = getR2Client();
+            const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
+            const command = new ListObjectsV2Command({
+                Bucket: config.r2Bucket,
+                Prefix: normalizedPrefix
+            });
+            const response = await r2Client.send(command);
+            return (response.Contents || []).map((c) => c.Key || '').filter(Boolean);
+        } catch (err) {
+            logger.warn(`listObjectsByPrefix R2 failed: ${err}`);
         }
-        if (config.mode === 'LOCAL_CLOUD' && config.targetServiceAccount) {
-            const storage = new Storage({ projectId: config.projectId });
-            const [files] = await storage.bucket(config.bucket).getFiles({ prefix: normalizedPrefix });
-            return files.map((f) => f.name);
-        }
-    } catch (err) {
-        logger.warn(`listObjectsByPrefix failed: ${err}`);
     }
     return [];
 }
 
 /**
- * Delete all objects under a prefix so the "folder" contains at most zero files.
- * Use for pinrule/{id}/ where only one file should exist at a time.
+ * Delete all objects under a prefix.
  */
 export async function deleteFilesFromCloudStorageByPrefix(prefix: string): Promise<void> {
+    const names = await listObjectsByPrefix(prefix);
     const config = getStorageConfig();
-    if (config.mode === 'LOCAL') {
-        const { readdirSync, unlinkSync } = await import('fs');
-        const { join } = await import('path');
-        const pathPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
-        const dir = join(process.cwd(), 'static', 'uploads', 'iot', pathPrefix);
-        try {
-            readdirSync(dir, { withFileTypes: true })
-                .filter((e) => e.isFile())
-                .forEach((e) => {
-                    try {
-                        unlinkSync(join(dir, e.name));
-                    } catch {}
-                });
-        } catch {
-            // dir may not exist
-        }
-        return;
-    }
-    if (!config.bucket) return;
-    const normalizedPrefix = prefix.endsWith('/') ? prefix : `${prefix}/`;
-    const names = await listObjectsByPrefix(normalizedPrefix);
+    const bucket = config.mode === 'R2' ? config.r2Bucket : null;
     for (const objectPath of names) {
         try {
-            switch (config.mode) {
-                case 'LOCAL_CLOUD':
-                    await deleteFileFromLocalCloud(config.bucket!, objectPath, config.targetServiceAccount!);
-                    break;
-                case 'GCLOUD':
-                    await deleteFileFromGCloud(config.bucket, objectPath);
-                    break;
+            if (config.mode === 'R2' && bucket) {
+                await deleteFileFromR2(bucket, objectPath);
+            } else if (config.mode === 'LOCAL') {
+                const { unlinkSync } = await import('fs');
+                const localPath = join(process.cwd(), 'static', 'uploads', 'iot', objectPath);
+                try {
+                    unlinkSync(localPath);
+                } catch {}
             }
         } catch (e) {
             logger.warn(`Failed to delete ${objectPath}: ${e}`);
@@ -824,252 +605,44 @@ export async function deleteFilesFromCloudStorageByPrefix(prefix: string): Promi
 }
 
 /**
- * Delete file from LOCAL_CLOUD mode (using service account impersonation)
- * Uses gcloud CLI to avoid invalid_rapt errors with user credentials
+ * Get file metadata (name and size) from Cloud Storage URL
+ * Returns null if file is not in Cloud Storage or if metadata cannot be retrieved
  */
-async function deleteFileFromLocalCloud(
-    bucket: string,
-    objectPath: string,
-    targetServiceAccount: string
-): Promise<void> {
+export async function getFileMetadataFromCloudUrl(cloudUrl: string): Promise<FileMetadata | null> {
     try {
-        logger.info(`Deleting file from LOCAL_CLOUD: bucket=${bucket}, objectPath=${objectPath}, targetSA=${targetServiceAccount}`);
-
-        // Use gcloud CLI with service account impersonation (more reliable than SDK impersonation)
-        try {
-            // Get access token using shared utility
-            logger.debug(`Getting access token with impersonation...`);
-            const accessToken = getGCloudAccessToken(targetServiceAccount);
-            
-            logger.debug(`Access token obtained, deleting file via API...`);
-            
-            // Delete file using GCloud Storage API with access token
-            const deleteUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(objectPath)}`;
-            
-            // Use native fetch (Node.js 18+)
-            const response = await fetch(deleteUrl, {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`
-                }
-            });
-            
-            if (response.status === 404) {
-                logger.warn(`File does not exist in cloud storage: ${objectPath}`);
-                return; // File already deleted, consider it success
-            }
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`GCloud API error: ${response.status} ${response.statusText} - ${errorText}`);
-            }
-            
-            logger.info(`Successfully deleted file from LOCAL_CLOUD: ${objectPath}`);
-            
-        } catch (gcloudError) {
-            // If gcloud CLI fails (e.g., invalid_rapt), try SDK approach as fallback
-            const errorMessage = gcloudError instanceof Error ? gcloudError.message : String(gcloudError);
-            
-            // If it's a credential error, don't try SDK fallback (it will fail too)
-            if (isCredentialError(gcloudError)) {
-                logger.error(`Failed to delete file from LOCAL_CLOUD: Credentials need refresh. Please run 'gcloud auth application-default login'`, {
-                    error: errorMessage,
-                    objectPath,
-                    bucket,
-                    targetServiceAccount
-                });
-                // Don't throw - allow cleanup to continue with other files
-                // The file will be retried on next cleanup run
-                return;
-            }
-            
-            logger.warn(`gcloud CLI deletion failed, trying SDK approach: ${errorMessage}`);
-            
-            // Fallback to SDK approach
-            const auth = new GoogleAuth({ 
-                scopes: ['https://www.googleapis.com/auth/cloud-platform'] 
-            });
-            const sourceClient = await auth.getClient();
-            
-            logger.debug(`Source client obtained: ${sourceClient.constructor.name}`);
-
-            // Impersonate the service account
-            const impersonated = new Impersonated({
-                sourceClient,
-                targetPrincipal: targetServiceAccount,
-                lifetime: 3600,
-                delegates: [],
-                targetScopes: ['https://www.googleapis.com/auth/cloud-platform'],
-            });
-
-            logger.debug(`Impersonated client created for: ${targetServiceAccount}`);
-
-            // Use the impersonated client with Storage
-            const config = getStorageConfig();
-            const storage = new Storage({ 
-                authClient: impersonated,
-                projectId: config.projectId
-            });
-            
-            logger.debug(`Storage client created with projectId: ${config.projectId}`);
-            
-            const file = storage.bucket(bucket).file(objectPath);
-            
-            // Check if file exists before deleting
-            const [exists] = await file.exists();
-            if (!exists) {
-                logger.warn(`File does not exist in cloud storage: ${objectPath}`);
-                return;
-            }
-            
-            await file.delete();
-            logger.info(`Successfully deleted file from LOCAL_CLOUD (SDK fallback): ${objectPath}`);
-        }
-    } catch (error) {
-        // Check if it's a credential error (credentials need refresh)
-        if (isCredentialError(error)) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            logger.error(`Failed to delete file from LOCAL_CLOUD: Credentials need refresh. Please run 'gcloud auth application-default login'`, {
-                error: errorMessage,
-                objectPath,
-                bucket,
-                targetServiceAccount
-            });
-            // Don't throw - allow cleanup to continue with other files
-            // The file will be retried on next cleanup run
-            return;
-        }
-        
-        logger.error(`Failed to delete file from LOCAL_CLOUD: ${error}`);
-        throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-/**
- * Delete file from GCLOUD mode (using VM service account)
- */
-async function deleteFileFromGCloud(
-    bucket: string,
-    objectPath: string
-): Promise<void> {
-    try {
-        logger.info(`Deleting file from GCLOUD: bucket=${bucket}, objectPath=${objectPath}`);
-        
-        const config = getStorageConfig();
-        const storage = new Storage({ 
-            projectId: config.projectId 
-        }); // Uses VM SA; will "sign with IAM" automatically
-
-        const file = storage.bucket(bucket).file(objectPath);
-        
-        // Check if file exists before deleting
-        const [exists] = await file.exists();
-        if (!exists) {
-            logger.warn(`File does not exist in cloud storage: ${objectPath}`);
-            return;
-        }
-        
-        await file.delete();
-        logger.info(`Successfully deleted file from GCLOUD: ${objectPath}`);
-    } catch (error) {
-        logger.error(`Failed to delete file from GCLOUD: ${error}`);
-        throw new Error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-/**
- * Get file metadata (name and size) from GCS URL
- * Returns null if file is not in GCS or if metadata cannot be retrieved
- */
-export async function getFileMetadataFromGcsUrl(gcsUrl: string): Promise<FileMetadata | null> {
-    try {
-        // Check if URL is a GCS URL
-        if (!gcsUrl.startsWith('https://storage.googleapis.com/') && 
-            !gcsUrl.startsWith('http://storage.googleapis.com/')) {
-            logger.debug(`URL is not a GCS URL: ${gcsUrl}`);
-            return null;
-        }
-
         const config = getStorageConfig();
         if (config.mode === 'LOCAL') {
-            logger.debug(`Storage mode is LOCAL, cannot get GCS metadata`);
+            logger.debug(`Storage mode is LOCAL, cannot get cloud metadata`);
             return null;
         }
 
-        if (!config.bucket) {
-            logger.warn(`GCLOUD_BUCKET not configured`);
-            return null;
-        }
-
-        // Parse GCS URL to extract bucket and object path
-        const url = new URL(gcsUrl);
-        const pathParts = url.pathname.substring(1).split('/');
-        
-        if (pathParts.length < 2) {
-            logger.warn(`Invalid GCS URL format: ${gcsUrl}`);
-            return null;
-        }
-
-        const bucketName = pathParts[0];
-        const objectPath = pathParts.slice(1).join('/');
-
-        logger.debug(`Getting metadata for GCS file: bucket=${bucketName}, objectPath=${objectPath}`);
-
-        // Get file metadata based on storage mode
-        if (config.mode === 'GCLOUD') {
-            const storage = new Storage({ 
-                projectId: config.projectId 
-            });
-            const file = storage.bucket(bucketName).file(objectPath);
-            
-            const [exists] = await file.exists();
-            if (!exists) {
-                logger.warn(`File does not exist in GCS: ${objectPath}`);
-                return null;
-            }
-
-            const [metadata] = await file.getMetadata();
-            const fileName = metadata.name ? basename(metadata.name) : basename(objectPath);
-            const fileSize = typeof metadata.size === 'string' 
-                ? parseInt(metadata.size, 10) 
-                : (typeof metadata.size === 'number' ? metadata.size : 0);
-            
-            return {
-                name: fileName,
-                size: fileSize,
-                contentType: metadata.contentType
-            };
-        } else if (config.mode === 'LOCAL_CLOUD' && config.targetServiceAccount) {
-            // For LOCAL_CLOUD mode, use gcloud CLI to get metadata
+        if (config.mode === 'R2') {
             try {
-                const { execSync } = await import('child_process');
-                const gcloudCommand = `gcloud storage objects describe gs://${bucketName}/${objectPath} --impersonate-service-account=${config.targetServiceAccount} --format=json`;
+                const r2Bucket = config.r2Bucket;
+                if (!r2Bucket) return null;
                 
-                const output = execSync(gcloudCommand, { 
-                    encoding: 'utf8',
-                    timeout: 10000,
-                    env: { 
-                        ...process.env, 
-                        GOOGLE_APPLICATION_CREDENTIALS: '/Users/macbook/.config/gcloud/application_default_credentials.json'
+                let objectPath = '';
+                try {
+                    objectPath = new URL(cloudUrl).pathname.substring(1);
+                    if (objectPath.startsWith(`${r2Bucket}/`)) {
+                        objectPath = objectPath.substring(r2Bucket.length + 1);
                     }
-                }).trim();
-                
-                const metadata = JSON.parse(output);
-                const fileName = metadata.name ? basename(metadata.name) : basename(objectPath);
+                } catch (e) {
+                    objectPath = cloudUrl; // assume it's directly an object path
+                }
+
+                const r2Client = getR2Client();
+                const command = new HeadObjectCommand({ Bucket: r2Bucket, Key: objectPath });
+                const response = await r2Client.send(command);
                 
                 return {
-                    name: fileName,
-                    size: parseInt(metadata.size || '0', 10),
-                    contentType: metadata.contentType
+                    name: basename(objectPath),
+                    size: response.ContentLength || 0,
+                    contentType: response.ContentType
                 };
-            } catch (gcloudError) {
-                logger.warn(`Failed to get metadata via gcloud CLI: ${gcloudError}`);
-                // Fallback: extract filename from URL
-                const fileName = basename(objectPath);
-                return {
-                    name: fileName,
-                    size: 0, // Size unknown
-                };
+            } catch (error) {
+                logger.warn(`Failed to get metadata from R2: ${error}`);
+                return null;
             }
         }
 
