@@ -5,7 +5,8 @@ import { verify, hash } from '@node-rs/argon2';
 import { PrismaClient } from '@prisma/client';
 import lucia from '$lib/server/auth';
 import type { PageServerLoad, Actions } from './$types';
-import { loginSchema, forgotPasswordSchema } from '$lib/schemas/auth';
+import { loginSchema, forgotPasswordSchema, registerSchema } from '$lib/schemas/auth';
+import { validatePassword } from '$lib/server/auth/password-validation';
 import { logger } from '$lib/server/logger';
 import { logSessionActivity, logFailedLogin } from '$lib/server/session-logger';
 import { createSessionWithCronjob } from '$lib/server/auth/session-helper';
@@ -71,10 +72,12 @@ export const load = (async ({ locals, url }) => {
 
     const form = await superValidate(zod(loginSchema));
     const forgotPasswordForm = await superValidate(zod(forgotPasswordSchema));
+    const registerForm = await superValidate(zod(registerSchema));
     
     return { 
         form,
         forgotPasswordForm,
+        registerForm,
         allowRegistration,
         redirectTo: redirectTo || null
     };
@@ -353,6 +356,112 @@ export const actions: Actions = {
                 success: true,
                 message: 'If an account with that email exists, we have sent you a password reset email.'
             };
+        }
+    },
+
+    register: async ({ request, cookies, getClientAddress }) => {
+        // Check if registration is allowed
+        let allowRegistration = false;
+        try {
+            const activeSettings = await prisma.setting.findFirst({
+                where: { isActive: true },
+                select: { data: true }
+            });
+            if (activeSettings?.data) {
+                const settings = JSON.parse(activeSettings.data);
+                allowRegistration = settings.auth?.allowRegistration ?? settings.system?.allowRegistration ?? false;
+            }
+        } catch (e) {
+            logger.error('Error loading settings during registration', { error: e as Record<string, any> });
+        }
+
+        if (!allowRegistration) {
+            return fail(403, {
+                registerForm: { errors: { _errors: ['Registration is currently disabled'] } }
+            });
+        }
+
+        const form = await superValidate(request, zod(registerSchema));
+        if (!form.valid) {
+            return fail(400, { registerForm: form });
+        }
+
+        try {
+            const passwordValidation = await validatePassword(form.data.password);
+            if (!passwordValidation.valid) {
+                return fail(400, {
+                    registerForm: { ...form, errors: { password: [passwordValidation.error || 'Invalid password'] } }
+                });
+            }
+
+            const existingUser = await authPrisma.user.findUnique({ where: { email: form.data.email } });
+            if (existingUser) {
+                return fail(400, {
+                    registerForm: { ...form, errors: { email: ['An account with this email already exists'] } }
+                });
+            }
+
+            const hashedPassword = await hash(form.data.password);
+            const user = await authPrisma.user.create({
+                data: {
+                    name: form.data.name,
+                    email: form.data.email,
+                    password: hashedPassword,
+                    systemRole: 'USER',
+                    status: 'ACTIVE'
+                }
+            });
+
+            const defaultAccount = await authPrisma.account.create({
+                data: {
+                    name: `${form.data.name}'s Account`,
+                    slug: `${form.data.name.toLowerCase().replace(/\s+/g, '-')}-account`,
+                    status: 'ACTIVE',
+                    description: 'Default account created during registration'
+                }
+            });
+
+            await authPrisma.accountMembership.create({
+                data: { userId: user.id, accountId: defaultAccount.id, role: 'OWNER' }
+            });
+
+            await authPrisma.user.update({
+                where: { id: user.id },
+                data: { primaryAccountId: defaultAccount.id }
+            });
+
+            cookies.set('current_account_id', defaultAccount.id, {
+                path: '/',
+                httpOnly: true,
+                sameSite: 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 60 * 60 * 24 * 30
+            });
+
+            const session = await createSessionWithCronjob(user.id, {}, authPrisma);
+            const sessionCookie = lucia.createSessionCookie(session.id);
+            cookies.set(sessionCookie.name, sessionCookie.value, {
+                path: '.',
+                ...sessionCookie.attributes
+            });
+
+            await logSessionActivity(authPrisma, {
+                userId: user.id,
+                action: 'login',
+                sessionId: session.id,
+                ipAddress: getClientAddress(),
+                userAgent: request.headers.get('user-agent') || undefined
+            });
+
+            logger.info('User registered successfully', { userId: user.id, email: user.email });
+
+            return { registerForm: form, success: true, redirectTo: '/user' };
+
+        } catch (e) {
+            logger.error('Registration error', { error: e as Record<string, any>, email: form.data.email });
+            return fail(500, {
+                registerForm: { ...form, errors: { _errors: ['An error occurred during registration. Please try again.'] } }
+            });
         }
     }
 };
