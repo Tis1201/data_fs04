@@ -146,7 +146,7 @@ export class LogService {
 
         if (config.mode !== 'R2' || !config.r2Bucket) throw new Error('R2 Bucket not configured');
 
-        // Note: For real world use, might need to buffer stream or use Upload utility from '@aws-sdk/lib-storage'
+        // Upload utility handles streaming, multipart uploads, and retries for large exports
         const { Upload } = await import('@aws-sdk/lib-storage');
         const { getR2Client } = await import('$lib/server/storage/r2Client');
 

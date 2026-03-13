@@ -4,7 +4,7 @@ import { DeviceNotificationType, sendNotificationWithTicket } from '../../../cor
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
-import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { getStorageConfig, generatePresignedUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
 import { extractFilenameWithExtension, isCloudStorageUrl } from '$lib/server/storage/gcloudUrlUtils';
 import { broadcastDeviceActionUpdate } from '../../index';
 
