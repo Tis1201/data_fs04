@@ -1,6 +1,7 @@
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../core/publish';
+import { resolveReplyWaiter } from '../../core/pending_reply_waiter';
 import { handleStatusUpdate } from './status_update_handler';
 import { handleProgressUpdate } from './progress_update_handler';
 import { handleTerminalMessage } from './terminal_handler';
@@ -74,6 +75,9 @@ export async function handleReplyMessage(
                 message: message?.substring(0, 80)
             });
             await handleStatusUpdate(prisma, logId, action, status, message, resultObj);
+            if (ctx.type === 'config.update' && (status === 'success' || status === 'failed')) {
+                resolveReplyWaiter(logId, status === 'success', message);
+            }
             
             // Fetch the updated log to get calculated durationMs and progress
             // This ensures the JWT params include all calculated fields
@@ -116,6 +120,7 @@ export async function handleReplyMessage(
                 });
                 const normalisedResult = { ...resultObj, status: derivedStatus, message: derivedMessage, action: 'config.update' };
                 await handleStatusUpdate(prisma, logId, 'config.update', derivedStatus, derivedMessage, normalisedResult);
+                resolveReplyWaiter(logId, derivedStatus === 'success', derivedMessage);
                 try {
                     const updatedLog = await (prisma as any).deviceActionLog.findUnique({
                         where: { id: logId },

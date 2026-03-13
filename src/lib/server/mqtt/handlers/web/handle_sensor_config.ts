@@ -168,7 +168,11 @@ export async function handleSensorConfigPush(
     const operationId = actionLog.id;
     const logId = actionLog.id;
 
-    // 5. Send via radar topic (device:<id>/controller/<type>:<cid>/notifications)
+    // 5. Register waiter - wait for device reply before returning success to web client
+    const { registerReplyWaiter } = await import('../../core/pending_reply_waiter');
+    const replyPromise = registerReplyWaiter(logId, 30_000);
+
+    // 6. Send via radar topic (device:<id>/controller/<type>:<cid>/notifications)
     // Per CONTROLLER.md: config push goes to radar topic, not device action topic
     // Include operationId, logId to align with device action format (refresh, reboot, etc.)
     const { createTicket } = await import('../../core/publish');
@@ -209,8 +213,46 @@ export async function handleSensorConfigPush(
     });
     logger.info(`[SensorConfig] INTEGRATION device app: subscribe=${notificationTopic} reply=${replyTopic} ticketParams=[sensorId,controllerId,configVersion,deviceId,operationId,logId,config] replyFormat=docs/architecture/device/mqtt/controllers/SENSOR_CONFIG.md#mobile-integration`);
 
-    // 6. Mark as synced (optimistic - device reply will update action log via status_update_handler)
-    // In production, you might want to wait for a reply or use a callback pattern
+    // 7. Wait for device reply before returning to web client (prevents "success before device reply" UX bug)
+    let replyResult: { success: boolean; message?: string };
+    try {
+        replyResult = await replyPromise;
+    } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[SensorConfig] Device did not reply in time`, { sensorId, logId, error: errMsg });
+        await prisma.sensor.update({
+            where: { id: sensorId },
+            data: {
+                syncStatus: 'FAILED',
+                lastSyncError: 'Device did not reply in time'
+            }
+        });
+        return {
+            result: {
+                synced: false,
+                syncStatus: 'FAILED',
+                error: 'Device did not reply in time'
+            }
+        };
+    }
+
+    if (!replyResult.success) {
+        await prisma.sensor.update({
+            where: { id: sensorId },
+            data: {
+                syncStatus: 'FAILED',
+                lastSyncError: replyResult.message ?? 'Device reported failure'
+            }
+        });
+        return {
+            result: {
+                synced: false,
+                syncStatus: 'FAILED',
+                error: replyResult.message ?? 'Device reported failure'
+            }
+        };
+    }
+
     const now = new Date();
     await prisma.sensor.update({
         where: { id: sensorId },
@@ -221,7 +263,7 @@ export async function handleSensorConfigPush(
         }
     });
 
-    logger.info(`[SensorConfig] Config pushed successfully for sensor ${sensorId}`);
+    logger.info(`[SensorConfig] Config pushed successfully for sensor ${sensorId} (device replied)`);
 
     return {
         result: {
