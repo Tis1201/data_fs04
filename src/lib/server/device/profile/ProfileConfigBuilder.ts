@@ -69,6 +69,20 @@ export class ProfileConfigBuilder {
 
             const globalProfile = assignment.profile;
 
+            // Inactive profiles must not be applied — return empty config
+            if (!globalProfile.isActive) {
+                logger.info(`[ProfileConfigBuilder] Profile ${globalProfile.id} is inactive — returning empty config for device ${deviceId}`);
+                return {
+                    config: {} as EffectiveConfig,
+                    metadata: {
+                        profileId: globalProfile.id,
+                        profileName: globalProfile.name,
+                        hasOverrides: false,
+                        overrideCount: 0
+                    }
+                };
+            }
+
             // 2. Check for device-specific overrides
             const override = await this.prisma.deviceProfileOverride.findUnique({
                 where: {

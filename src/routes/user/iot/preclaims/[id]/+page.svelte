@@ -1,7 +1,7 @@
 <script lang="ts">
     import { goto, invalidate } from '$app/navigation';
     import { page } from '$app/stores';
-    import { Pencil, Info, HardDrive, Download } from 'lucide-svelte';
+    import { Pencil, Info, HardDrive, Download, Send } from 'lucide-svelte';
     import { Button, Card, InputField } from '$lib/design-system/components';
     import AddEditPreclaimModal from '../components/AddEditPreclaimModal.svelte';
     import PreclaimDeviceTable from '../components/PreclaimDeviceTable.svelte';
@@ -17,6 +17,7 @@
     $: profileOptions = data?.profileOptions ?? [];
 
     let showEditModal = false;
+    let publishLoading = false;
     let searchDisplayValue = '';
     let searchDebounceId: ReturnType<typeof setTimeout> | null = null;
     let skipSearchSync = false;
@@ -145,6 +146,36 @@
         : null;
     $: profileOptionsList = (profileOptions || []).map((p: { id: string; label: string }) => ({ id: p.id, label: p.label }));
     $: accountOptionsList = (data.accountOptions || []).map((a: { id: string; label: string }) => ({ id: a.id, label: a.label }));
+
+    async function handlePublish() {
+        if (!preclaimSet?.id) return;
+        publishLoading = true;
+        try {
+            const fd = new FormData();
+            fd.set('id', preclaimSet.id);
+            fd.set('status', 'ACTIVE');
+            const res = await fetch($page.url.pathname + '?/toggleStatus', { method: 'POST', body: fd });
+            let result: { type?: string; success?: boolean; error?: string | { message?: string } } = {};
+            try {
+                result = (await res.json()) as typeof result;
+            } catch {
+                /* response may not be JSON in some edge cases */
+            }
+            const ok = res.ok && (result.type === 'success' || result.success === true);
+            if (ok) {
+                toast.success('Pre-Enrollment Set published successfully!');
+                await goto($page.url.pathname, { invalidateAll: true });
+            } else {
+                const err = (result as { error?: string | { message?: string } })?.error;
+                const msg = typeof err === 'string' ? err : err?.message;
+                toast.error(msg ?? 'Unable to publish. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to publish. Please try again!');
+        } finally {
+            publishLoading = false;
+        }
+    }
 </script>
 
 <div class="preclaim-detail">
@@ -156,7 +187,19 @@
                 color="primary"
                 size="lg"
                 iconLeft={true}
+                on:click={handlePublish}
+                disabled={publishLoading}
+            >
+                <Send size={20} slot="icon-left" />
+                {publishLoading ? 'Publishing…' : 'Publish'}
+            </Button>
+            <Button
+                variant="outline"
+                color="primary"
+                size="lg"
+                iconLeft={true}
                 on:click={() => (showEditModal = true)}
+                disabled={publishLoading}
             >
                 <Pencil size={20} slot="icon-left" />
                 Edit Set
@@ -337,11 +380,13 @@
         gap: 16px;
         width: 100%;
     }
-    /* buttons: align end */
+    /* buttons: align end, row with gap */
     .detail-buttons {
         display: flex;
-        flex-direction: column;
-        align-items: flex-end;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--ds-space-2);
         width: 100%;
     }
     /* Frame 50: overview + summary row, gap 16px – responsive: stack on tablet/mobile */

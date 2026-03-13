@@ -28,6 +28,7 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 			name: true,
 			description: true,
 			accountId: true,
+			isActive: true,
 			settings: {
 				select: {
 					id: true,
@@ -93,89 +94,97 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 					where: { deviceId: deviceId }
 				});
 
-				// 3. Update assignment status to APPLYING
-				const updatedAssignment = await prisma.deviceProfileAssignment.update({
-					where: { deviceId: deviceId },
-					data: { status: 'APPLYING' }
+			// 3. Update assignment status: PENDING when profile is inactive (config not sent yet),
+			//    APPLYING when active (config will be sent immediately)
+			const assignmentStatus = deviceProfile.isActive ? 'APPLYING' : 'PENDING';
+			const updatedAssignment = await prisma.deviceProfileAssignment.update({
+				where: { deviceId: deviceId },
+				data: { status: assignmentStatus }
+			});
+
+			// 4. Log audit for assignment update
+			if (existingAssignment) {
+				await logAudit({
+					actionType: AuditActionType.UPDATE,
+					tableName: 'DeviceProfileAssignment',
+					recordId: updatedAssignment.id,
+					oldData: existingAssignment,
+					newData: updatedAssignment,
+					userId: session.user.id,
+					ipAddress: context.ipAddress,
+					prisma
 				});
+			} else {
+				// New assignment was created by assignProfile
+				await logAudit({
+					actionType: AuditActionType.INSERT,
+					tableName: 'DeviceProfileAssignment',
+					recordId: updatedAssignment.id,
+					oldData: null,
+					newData: updatedAssignment,
+					userId: session.user.id,
+					ipAddress: context.ipAddress,
+					prisma
+				});
+			}
 
-				// 4. Log audit for assignment update
-				if (existingAssignment) {
-					await logAudit({
-						actionType: AuditActionType.UPDATE,
-						tableName: 'DeviceProfileAssignment',
-						recordId: updatedAssignment.id,
-						oldData: existingAssignment,
-						newData: updatedAssignment,
-						userId: session.user.id,
-						ipAddress: context.ipAddress,
-						prisma
-					});
-				} else {
-					// New assignment was created by assignProfile
-					await logAudit({
-						actionType: AuditActionType.INSERT,
-						tableName: 'DeviceProfileAssignment',
-						recordId: updatedAssignment.id,
-						oldData: null,
-						newData: updatedAssignment,
-						userId: session.user.id,
-						ipAddress: context.ipAddress,
-						prisma
-					});
-				}
+			// Only send config to device when profile is active
+			if (!deviceProfile.isActive) {
+				logger.info(`Profile ${profileId} is inactive — device ${deviceId} assigned (PENDING), config will be sent when profile is activated`);
+				return;
+			}
 
-				// 3. Get the global profile with settings for sending config
-				const globalProfile = await prisma.deviceProfile.findUnique({
-					where: { id: profileId },
-					include: {
-						settings: {
-							orderBy: { order: 'asc' }
-						}
+			// 5. Get the global profile with settings for sending config
+			const globalProfile = await prisma.deviceProfile.findUnique({
+				where: { id: profileId },
+				include: {
+					settings: {
+						orderBy: { order: 'asc' }
 					}
-				});
-
-				if (!globalProfile) {
-					logger.error(`Profile ${profileId} not found when sending config to device ${deviceId}`);
-					return;
 				}
+			});
 
-				// 5. Send config to device using ProfileMessagingService
-				const { ProfileMessagingService, ProfileConfigBuilder } = await import(
-					'$lib/server/device/profile'
-				);
+			if (!globalProfile) {
+				logger.error(`Profile ${profileId} not found when sending config to device ${deviceId}`);
+				return;
+			}
 
-				const configBuilder = new ProfileConfigBuilder(prisma);
-				const messagingService = new ProfileMessagingService(prisma);
+			// 6. Send config to device using ProfileMessagingService
+			const { ProfileMessagingService, ProfileConfigBuilder } = await import(
+				'$lib/server/device/profile'
+			);
 
-				const config = configBuilder.buildFromGlobal(globalProfile);
+			const configBuilder = new ProfileConfigBuilder(prisma);
+			const messagingService = new ProfileMessagingService(prisma);
 
-				await messagingService.sendConfigToDevice(deviceId, config, profileId, {
-					userId: session.user.id
-				});
+			const config = configBuilder.buildFromGlobal(globalProfile);
 
-				// Timeout: if device never reports back, mark as FAILED after 3 minutes (same as reapply)
-				const ASSIGN_TIMEOUT_MS = 3 * 60 * 1000;
-				setTimeout(async () => {
-					try {
-						const assignment = await prisma.deviceProfileAssignment.findFirst({
-							where: {
-								deviceId,
-								profileId,
-								status: 'APPLYING'
-							}
+			await messagingService.sendConfigToDevice(deviceId, config, profileId, {
+				userId: session.user.id
+			});
+
+			// Timeout: if device never reports back, mark as FAILED after 3 minutes (same as reapply)
+			const ASSIGN_TIMEOUT_MS = 3 * 60 * 1000;
+			setTimeout(async () => {
+				try {
+					const assignment = await prisma.deviceProfileAssignment.findFirst({
+						where: {
+							deviceId,
+							profileId,
+							status: 'APPLYING'
+						}
+					});
+					if (assignment) {
+						await prisma.deviceProfileAssignment.update({
+							where: { id: assignment.id },
+							data: { status: 'FAILED', lastSyncAt: new Date() }
 						});
-						if (assignment) {
-							await prisma.deviceProfileAssignment.update({
-								where: { id: assignment.id },
-								data: { status: 'FAILED', lastSyncAt: new Date() }
-							});
-							logger.warn(`Assign timed out for device ${deviceId} (profile ${profileId})`);
-						}
-					} catch (timeoutErr) {
-						logger.error(`Error updating assign timeout status for device ${deviceId}:`, timeoutErr as any);
+						logger.warn(`Assign timed out for device ${deviceId} (profile ${profileId})`);
 					}
-				}, ASSIGN_TIMEOUT_MS);
+				} catch (timeoutErr) {
+					logger.error(`Error updating assign timeout status for device ${deviceId}:`, timeoutErr as any);
+				}
+			}, ASSIGN_TIMEOUT_MS);
 
 				logger.info(`Profile assigned and config sent to device ${deviceId}`, {
 					deviceId,

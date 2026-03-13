@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
+import prisma from '$lib/server/prisma';
 import { AuditActionType } from '$lib/constants/system';
 import { getStatusBeforeToggled } from '$lib/utils';
 import { superValidate } from 'sveltekit-superforms/server';
@@ -117,6 +118,18 @@ export function createDeviceActions(options: {
                 } catch (mqttErr) {
                     logger.warn(`Failed to queue device:unclaimed MQTT for ${id}: ${String(mqttErr)}`);
                 }
+
+                // Reset linked FactoryDevice so the physical device can be re-claimed
+                // Uses raw prisma (not ZenStack) since FactoryDevice policy blocks user-level updates
+                await prisma.factoryDevice.updateMany({
+                    where: { claimedDeviceId: id },
+                    data: {
+                        claimedAt: null,
+                        claimedDeviceId: null,
+                        status: 'PENDING',
+                        registrationPin: null,
+                    }
+                });
 
                 // Delete the device
                 await locals.prisma.device.delete({ where: { id } });
@@ -522,6 +535,17 @@ export function createDeviceActions(options: {
                 if (isCustom) {
                     const baseProfileId = profileId && profileId !== '__CUSTOM__' ? profileId : null;
                     if (baseProfileId) {
+                        // Verify base profile is active before assigning
+                        const baseProfile = await locals.prisma.deviceProfile.findUnique({
+                            where: { id: baseProfileId },
+                            select: { isActive: true }
+                        });
+                        if (!baseProfile) {
+                            return fail(404, { error: 'Device profile not found.' });
+                        }
+                        if (!baseProfile.isActive) {
+                            return fail(400, { error: 'Cannot assign an inactive device profile. Activate the profile first.' });
+                        }
                         // Custom overrides on top of a global profile: use DeviceProfileOverride
                         // (keeps assignment to base profile, saves overrides so dropdown shows "Custom")
                         await assignGlobalProfile(locals.prisma, id, baseProfileId, auth.user.id);
@@ -541,6 +565,17 @@ export function createDeviceActions(options: {
                         }
                     }
                 } else if (profileId && profileId !== '__CUSTOM__') {
+                    // Verify profile is active before assigning
+                    const profileToAssign = await locals.prisma.deviceProfile.findUnique({
+                        where: { id: profileId },
+                        select: { isActive: true }
+                    });
+                    if (!profileToAssign) {
+                        return fail(404, { error: 'Device profile not found.' });
+                    }
+                    if (!profileToAssign.isActive) {
+                        return fail(400, { error: 'Cannot assign an inactive device profile. Activate the profile first.' });
+                    }
                     // Assign a global profile to the device
                     await assignGlobalProfile(locals.prisma, id, profileId, auth.user.id);
                 } else {

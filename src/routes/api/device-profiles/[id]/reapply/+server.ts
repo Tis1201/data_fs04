@@ -51,6 +51,7 @@ export const POST: RequestHandler = restrict(
                     id: true,
                     name: true,
                     accountId: true,
+                    isActive: true,
                     settings: {
                         select: {
                             id: true,
@@ -93,6 +94,18 @@ export const POST: RequestHandler = restrict(
                         requestId: crypto.randomUUID()
                     }
                 }, { status: 403 });
+            }
+
+            if (!deviceProfile.isActive) {
+                return json({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_REQUEST', 
+                        message: 'Cannot reapply: device profile is inactive. Activate the profile first.',
+                        timestamp: new Date().toISOString(),
+                        requestId: crypto.randomUUID()
+                    }
+                }, { status: 400 });
             }
 
             // Verify devices exist and are assigned to this profile

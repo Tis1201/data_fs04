@@ -40,6 +40,7 @@ export const POST = unifiedEndpoint(async ({ context, params }) => {
 			id: true,
 			name: true,
 			accountId: true,
+			isActive: true,
 			assignments: true,
 			settings: {
 				select: {
@@ -75,6 +76,13 @@ export const POST = unifiedEndpoint(async ({ context, params }) => {
 				{ status: 403, code: ErrorCodes.FORBIDDEN }
 			);
 		}
+	}
+
+	if (!deviceProfile.isActive) {
+		throw Object.assign(
+			new Error('Cannot broadcast configuration: device profile is inactive. Activate the profile first.'),
+			{ status: 400, code: ErrorCodes.INVALID_INPUT }
+		);
 	}
 
 	// Get all assigned devices

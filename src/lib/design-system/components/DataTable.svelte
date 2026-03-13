@@ -549,6 +549,7 @@
                                     class="{bodyCellClasses}"
                                     class:text-center={column.align === 'center'}
                                     class:text-right={column.align === 'right'}
+                                    data-ds-col-id={column.id}
                                 >
                                     {#if column.type === 'custom' && column.render}
                                         {@html column.render(value, row, rowIndex)}

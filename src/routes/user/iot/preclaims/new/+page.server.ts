@@ -252,6 +252,26 @@ export const actions: Actions = {
                     );
                 }
 
+                // Validate: each row's expiresAt must be <= form's Valid Until (set-level expiresAt)
+                if (expiresAt) {
+                    const setExpiresTime = expiresAt.getTime();
+                    const rowsExceedingSet = rows.filter((r) => {
+                        const rowExp = parseExpiresAt(r.expiresAt);
+                        return rowExp != null && rowExp.getTime() > setExpiresTime;
+                    });
+                    if (rowsExceedingSet.length > 0) {
+                        const first = rowsExceedingSet[0];
+                        const setStr = form.data.expiresAt || '';
+                        return message(
+                            form,
+                            createErrorResponse(
+                                `CSV row expiry must be less than or equal to the set Valid Until (${setStr}). MAC ${first.macId} has "${first.expiresAt}" which is after the set date.`
+                            ),
+                            { status: 400 }
+                        );
+                    }
+                }
+
                 try {
                     const result = await enhancedPrisma.$transaction(async (tx: any) => {
                         const set = await tx.preclaimSet.create({

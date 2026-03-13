@@ -184,7 +184,7 @@ export async function loadDeviceList(
                 accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
             }
 
-            const profileWhere: any = {};
+            const profileWhere: any = { isActive: true };
             if (options?.checkOwnership && accountIds.length > 0) {
                 profileWhere.accountId = { in: accountIds };
             }

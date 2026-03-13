@@ -172,7 +172,8 @@ export class ProfileMessagingService {
             const pendingAssignments = await this.prisma.deviceProfileAssignment.findMany({
                 where: {
                     deviceId: deviceId,
-                    status: 'APPLYING'
+                    status: 'APPLYING',
+                    profile: { isActive: true }
                 },
                 include: {
                     profile: {

@@ -81,7 +81,7 @@ export function createPreclaimActions(options: {
                     prisma: prismaClient
                 });
 
-                return { success: true };
+                return { type: 'success', success: true };
             } catch (err) {
                 logger.error(`Error toggling preclaim set status: ${err}`);
                 return fail(500, { error: 'Failed to update preclaim set status' });

@@ -260,7 +260,7 @@ export async function loadDeviceDetail(
                 accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
             }
 
-            const profileWhere: any = {};
+            const profileWhere: any = { isActive: true };
             if (checkOwnership && accountIds.length > 0) {
                 profileWhere.accountId = { in: accountIds };
             }

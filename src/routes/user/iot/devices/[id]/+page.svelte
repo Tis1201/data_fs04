@@ -3615,6 +3615,41 @@
         border: none !important;
     }
 
+    /* Installed Apps: font hierarchy (app name biggest, version 2nd, package name a bit bigger than others) + word-break */
+    :global(.apps-card [data-ds-col-id="app"]) {
+        min-width: 0; /* allow word-break in fixed-width table */
+    }
+    :global(.apps-card [data-ds-col-id="app"] .flex.flex-col) {
+        min-width: 0;
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+    :global(.apps-card [data-ds-col-id="app"] .flex.flex-col > span:first-child) {
+        font-size: 15px !important;
+        font-weight: 600;
+    }
+    :global(.apps-card [data-ds-col-id="app"] .flex.flex-col > span:last-child) {
+        font-size: 13px !important;
+        font-weight: 500;
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+    /* Type, Size, Installed On - smallest so package name is "bigger than other" */
+    :global(.apps-card [data-ds-col-id="app_type"] span),
+    :global(.apps-card [data-ds-col-id="size"] span),
+    :global(.apps-card [data-ds-col-id="installed"] span) {
+        font-size: 12px !important;
+    }
+    :global(.apps-card [data-ds-col-id="version"]) {
+        min-width: 0;
+    }
+    :global(.apps-card [data-ds-col-id="version"] span) {
+        font-size: 14px !important;
+        font-weight: 500;
+        word-break: break-word;
+        overflow-wrap: break-word;
+    }
+
     .apps-icon-wrap {
         display: flex;
         justify-content: center;

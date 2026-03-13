@@ -201,15 +201,45 @@
         return 'gray';
     }
 
-    /** Draft: View, Edit, Delete. In Progress / Completed: View only. */
+    /** Draft: View, Publish, Edit, Delete. In Progress / Completed: View only. */
+    let publishLoadingId: string | null = null;
+    async function handlePublishFromList(row: PreclaimRow) {
+        publishLoadingId = row.id;
+        try {
+            const fd = new FormData();
+            fd.set('id', row.id);
+            fd.set('status', 'ACTIVE');
+            const res = await fetch($page.url.pathname + '?/toggleStatus', { method: 'POST', body: fd });
+            let result: { type?: string; success?: boolean; error?: string | { message?: string } } = {};
+            try {
+                result = (await res.json()) as typeof result;
+            } catch {
+                /* response may not be JSON in some edge cases */
+            }
+            const ok = res.ok && (result.type === 'success' || result.success === true);
+            if (ok) {
+                toast.success('Pre-Enrollment Set published successfully!');
+                await goto($page.url.pathname + $page.url.search, { invalidateAll: true });
+            } else {
+                const err = (result as { error?: string | { message?: string } })?.error;
+                const msg = typeof err === 'string' ? err : err?.message;
+                toast.error(msg ?? 'Unable to publish. Please try again!');
+            }
+        } catch {
+            toast.error('Unable to publish. Please try again!');
+        } finally {
+            publishLoadingId = null;
+        }
+    }
     function getActionsForRow(row: PreclaimRow) {
         const s = (row.status || '').toUpperCase();
         const isDraft = s === 'INACTIVE';
-        const actions: { id: string; label: string; onClick: () => void; color?: 'danger' }[] = [
+        const actions: { id: string; label: string; onClick: () => void; color?: 'danger'; disabled?: boolean }[] = [
             { id: 'view', label: 'View', onClick: () => goto(`${basePath}/${row.id}`) }
         ];
         if (isDraft) {
             actions.push(
+                { id: 'publish', label: 'Publish', onClick: () => handlePublishFromList(row), disabled: publishLoadingId === row.id },
                 { id: 'edit', label: 'Edit', onClick: () => openEditModal(row) },
                 { id: 'delete', label: 'Delete', color: 'danger', onClick: () => openDeleteModal(row) }
             );

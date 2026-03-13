@@ -486,7 +486,11 @@ class UserMqttClient {
         clearTimeout(pending.timer);
         this.pendingRequests.delete(requestId);
         try {
-          pending.resolve(data);
+          if (data?.error != null && data.error !== '') {
+            pending.reject(new Error(typeof data.error === 'string' ? data.error : String(data.error)));
+          } else {
+            pending.resolve(data);
+          }
         } catch {
           // ignore
         }

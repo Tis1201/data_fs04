@@ -6,6 +6,7 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import prisma, { getEnhancedPrisma } from '$lib/server/prisma';
 import { loadPreclaimDetail } from '$lib/server/preclaims/preclaimLoader';
+import { createPreclaimActions } from '$lib/server/preclaims/preclaimActions';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import { parseExpiresAt } from '$lib/utils/preclaimUtils';
@@ -125,7 +126,18 @@ export const load = restrict(
     [SystemRole.USER] // Only allow user role to access this route
 ) satisfies PageServerLoad;
 
+const preclaimActions = createPreclaimActions({
+    checkOwnership: true,
+    useEnhancedPrisma: true
+});
+
 export const actions: Actions = {
+    toggleStatus: restrict(
+        async ({ request, locals }: AuthenticatedEvent) => {
+            return await preclaimActions.toggleStatus({ request, locals });
+        },
+        [SystemRole.USER]
+    ),
     importDevices: restrict(
         async (event: AuthenticatedEvent) => {
             const { request, params, locals, auth, cookies } = event;
@@ -174,7 +186,7 @@ export const actions: Actions = {
                 // Verify preclaim set belongs to current account
                 const set = await prismaClient.preclaimSet.findFirst({
                     where: { id: setId, accountId: currentAccountId },
-                    select: { id: true, accountId: true }
+                    select: { id: true, accountId: true, expiresAt: true }
                 });
                 if (!set) {
                     return fail(404, { message: 'Pre-claim set not found.' });
@@ -228,6 +240,21 @@ export const actions: Actions = {
                     return fail(400, {
                         message: `Invalid expiry date format in CSV row for MAC ${first.macId}: "${first.expiresAt}". Expected yyyy-MM-dd (e.g. 2026-12-31).`
                     });
+                }
+                // Validate: each row's expiresAt must be <= set's Valid Until (expiresAt)
+                if (set.expiresAt) {
+                    const setExpiresTime = new Date(set.expiresAt).getTime();
+                    const rowsExceedingSet = toInsert.filter((r) => {
+                        const rowExp = parseExpiresAt(r.expiresAt);
+                        return rowExp != null && rowExp.getTime() > setExpiresTime;
+                    });
+                    if (rowsExceedingSet.length > 0) {
+                        const first = rowsExceedingSet[0];
+                        const setStr = set.expiresAt ? new Date(set.expiresAt).toISOString().slice(0, 10) : '';
+                        return fail(400, {
+                            message: `CSV row expiry must be less than or equal to the set Valid Until (${setStr}). MAC ${first.macId} has "${first.expiresAt}" which is after the set date.`
+                        });
+                    }
                 }
                 const created = await enhancedPrisma.$transaction(async (tx: any) => {
                     const devices: any[] = [];

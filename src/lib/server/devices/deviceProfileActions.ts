@@ -308,6 +308,7 @@ export async function reapplyIfChanged(
                 select: {
                     id: true,
                     name: true,
+                    isActive: true,
                     settings: {
                         select: {
                             id: true,
@@ -324,6 +325,11 @@ export async function reapplyIfChanged(
 
     if (!currentAssignment?.profile) {
         logger.info('[deviceProfileActions] No profile assigned after update, skipping reapply', { deviceId });
+        return;
+    }
+
+    if (!currentAssignment.profile.isActive) {
+        logger.info('[deviceProfileActions] Profile is inactive, skipping reapply', { deviceId, profileId: currentAssignment.profileId });
         return;
     }
 

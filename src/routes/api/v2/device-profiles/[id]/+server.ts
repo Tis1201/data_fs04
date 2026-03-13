@@ -248,7 +248,7 @@ export const PUT = unifiedEndpoint(
         select: { id: true, name: true }
       });
 
-      if (assignedDevices.length > 0) {
+      if (updatedProfile?.isActive && assignedDevices.length > 0) {
         logger.info(`Auto-reapplying profile ${id} to ${assignedDevices.length} assigned devices`);
 
         // Import messaging services
