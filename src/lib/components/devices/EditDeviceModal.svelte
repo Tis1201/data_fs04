@@ -6,6 +6,7 @@
     import type { TabItem } from '$lib/design-system/components/TabGroup.svelte';
     import { Eye, EyeOff } from 'lucide-svelte';
     import { availableSettings } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
+    import { timezoneOptions } from '$lib/utils/timezoneOptions';
 
     // ==========================================================================
     // TYPES
@@ -142,6 +143,33 @@
         editRebootDay = 'monday';
     }
 
+    // Download day: weekly = day of week (monday..sunday), monthly = day of month (1-31) — same as Reboot
+    $: downloadDayOptions = (() => {
+        if (editDownloadFrequency === 'monthly') {
+            return Array.from({ length: 31 }, (_, i) => {
+                const n = i + 1;
+                const mod10 = n % 10, mod100 = n % 100;
+                const suffix = mod100 >= 11 && mod100 <= 13 ? 'th' : mod10 === 1 ? 'st' : mod10 === 2 ? 'nd' : mod10 === 3 ? 'rd' : 'th';
+                return { id: String(n), label: `${n}${suffix}` };
+            });
+        }
+        const def = availableSettings.find((s: { key: string }) => s.key === 'download_schedule_day');
+        if (def?.options) return def.options.map((o: { value: string; label: string }) => ({ id: o.value, label: o.label }));
+        return [
+            { id: 'monday', label: 'Monday' }, { id: 'tuesday', label: 'Tuesday' }, { id: 'wednesday', label: 'Wednesday' },
+            { id: 'thursday', label: 'Thursday' }, { id: 'friday', label: 'Friday' }, { id: 'saturday', label: 'Saturday' },
+            { id: 'sunday', label: 'Sunday' }
+        ];
+    })();
+    // When switching to monthly, if current day is a weekday name, default to "1"
+    $: if (editDownloadFrequency === 'monthly' && downloadDayOptions.length && !downloadDayOptions.some((o: { id: string }) => o.id === editDownloadDay)) {
+        editDownloadDay = '1';
+    }
+    // When switching to weekly, if current day is numeric (from monthly), default to "monday"
+    $: if (editDownloadFrequency === 'weekly' && /^\d+$/.test(String(editDownloadDay))) {
+        editDownloadDay = 'monday';
+    }
+
     // Edit Device tabs
     const editDeviceTabs: TabItem[] = [
         { id: 'details', label: 'Details' },
@@ -188,30 +216,6 @@
         }
         return [];
     })();
-
-    // Timezone options - common timezones
-    $: timezoneOptions = [
-        { id: 'UTC', label: 'UTC' },
-        { id: 'Asia/Ho_Chi_Minh', label: 'Asia/Ho_Chi_Minh' },
-        { id: 'Asia/Bangkok', label: 'Asia/Bangkok' },
-        { id: 'Asia/Singapore', label: 'Asia/Singapore' },
-        { id: 'Asia/Jakarta', label: 'Asia/Jakarta' },
-        { id: 'Asia/Manila', label: 'Asia/Manila' },
-        { id: 'Asia/Tokyo', label: 'Asia/Tokyo' },
-        { id: 'Asia/Seoul', label: 'Asia/Seoul' },
-        { id: 'Asia/Shanghai', label: 'Asia/Shanghai' },
-        { id: 'Asia/Hong_Kong', label: 'Asia/Hong_Kong' },
-        { id: 'Asia/Dubai', label: 'Asia/Dubai' },
-        { id: 'Europe/London', label: 'Europe/London' },
-        { id: 'Europe/Paris', label: 'Europe/Paris' },
-        { id: 'Europe/Berlin', label: 'Europe/Berlin' },
-        { id: 'America/New_York', label: 'America/New_York' },
-        { id: 'America/Los_Angeles', label: 'America/Los_Angeles' },
-        { id: 'America/Chicago', label: 'America/Chicago' },
-        { id: 'America/Toronto', label: 'America/Toronto' },
-        { id: 'Australia/Sydney', label: 'Australia/Sydney' },
-        { id: 'Australia/Melbourne', label: 'Australia/Melbourne' }
-    ];
 
     // ==========================================================================
     // FUNCTIONS
@@ -730,8 +734,8 @@
                 if (!editDownloadFrequency) {
                     throw new Error('Download Schedule is enabled. Please select a Download Frequency.');
                 }
-                if (editDownloadFrequency === 'weekly' && !editDownloadDay) {
-                    throw new Error('Download Schedule is set to Weekly. Please select a Download Day.');
+                if ((editDownloadFrequency === 'weekly' || editDownloadFrequency === 'monthly') && !editDownloadDay) {
+                    throw new Error(editDownloadFrequency === 'monthly' ? 'Download Schedule is set to Monthly. Please select a day of the month.' : 'Download Schedule is set to Weekly. Please select a Download Day.');
                 }
                 if (!editDownloadTime) {
                     throw new Error('Download Schedule is enabled. Please set a Download Time.');
@@ -1331,16 +1335,16 @@
                         />
                     </div>
                 </div>
-                {#if editDownloadFrequency === 'weekly'}
+                {#if editDownloadFrequency === 'weekly' || editDownloadFrequency === 'monthly'}
                 <div class="config-row config-sub-row">
                     <div>
                         <p class="config-label config-sub-label">Download Day</p>
-                        <p class="config-description">Day of the week for scheduled downloads</p>
+                        <p class="config-description">{editDownloadFrequency === 'monthly' ? 'Day of the month (1–31) for scheduled downloads' : 'Day of the week for scheduled downloads'}</p>
                     </div>
                     <div style="width: 200px;">
                         <Dropdown
                             placeholder="Select"
-                            options={dayOptions}
+                            options={downloadDayOptions}
                             value={editDownloadDay}
                             on:change={(e) => {
                                 editDownloadDay = String(e.detail);

@@ -212,6 +212,9 @@ export class DeviceAppService {
         case 'modified':
           orderBy = `created_at ${sortOrder.toUpperCase()}`;
           break;
+        case 'app_type':
+          orderBy = `app_type ${sortOrder.toUpperCase()}`;
+          break;
       }
 
       // First, get the latest sync time for this device

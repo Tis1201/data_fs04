@@ -34,9 +34,16 @@ function sortApps(apps: any[], sortBy: string, sortOrder: string) {
 		if (a.isPinned && !b.isPinned) return -1;
 		if (!a.isPinned && b.isPinned) return 1;
 		const dir = sortOrder === 'desc' ? -1 : 1;
-		if (sortBy === 'name') return a.app_name.localeCompare(b.app_name) * dir;
-		if (sortBy === 'package_name') return a.package_name.localeCompare(b.package_name) * dir;
-		if (sortBy === 'app_type') return a.app_type.localeCompare(b.app_type) * dir;
+		if (sortBy === 'name') return (a.app_name || '').localeCompare(b.app_name || '') * dir;
+		if (sortBy === 'package' || sortBy === 'package_name') return (a.package_name || '').localeCompare(b.package_name || '') * dir;
+		if (sortBy === 'app_type') return (a.app_type || '').localeCompare(b.app_type || '') * dir;
+		if (sortBy === 'version') return (a.version || '').localeCompare(b.version || '') * dir;
+		if (sortBy === 'size') return ((a.size_bytes ?? 0) - (b.size_bytes ?? 0)) * dir;
+		if (sortBy === 'modified') {
+			const ta = new Date(a.created_at || a.last_modified || 0).getTime();
+			const tb = new Date(b.created_at || b.last_modified || 0).getTime();
+			return (ta - tb) * dir;
+		}
 		return 0;
 	});
 }

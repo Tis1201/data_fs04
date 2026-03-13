@@ -106,6 +106,7 @@
     let appsPageSize = 10;
     let appsTotalPages = 1;
     let appsSearchTerm = '';
+    let appsSort = { field: 'app' as string | null, direction: 'asc' as 'asc' | 'desc' | null };
 
     // Alert notifications (design-system Alert instead of toast)
     type AlertSeverity = 'info' | 'success' | 'warning' | 'error';
@@ -568,6 +569,18 @@
                 limit: String(appsPageSize)
             });
             if (appsSearchTerm) params.set('search', appsSearchTerm);
+            // Map column id to API sortBy: app->name, app_type->app_type, version->version, size->size, installed->modified
+            const sortByMap: Record<string, string> = {
+                app: 'name',
+                app_type: 'app_type',
+                version: 'version',
+                size: 'size',
+                installed: 'modified'
+            };
+            const sortBy = appsSort.field ? (sortByMap[appsSort.field] ?? 'name') : 'name';
+            const sortOrder = appsSort.direction ?? 'asc';
+            params.set('sortBy', sortBy);
+            params.set('sortOrder', sortOrder);
             const res = await fetch(`/api/v2/devices/${device.id}/apps-with-pins?${params.toString()}`);
             if (!res.ok) throw new Error(`Failed to load apps: ${res.statusText}`);
             const result = await res.json();
@@ -709,9 +722,9 @@
     // DataTable columns for Installed Apps (design-system DataTable) - pin/moreMenu non-sortable by convention
     $: appsColumns = [
         { id: 'pin', header: '', type: 'pin', pinField: 'is_pinned', /* onPin: (row: DeviceApp, _newVal: boolean) => togglePinApp(row), */ width: '48px' },
-        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', minWidth: '200px' },
+        { id: 'app', header: 'App', type: 'textWithSupporting', accessor: 'app_name', supportingField: 'package_name', width: '280px' },
         { id: 'app_type', header: 'Type', type: 'text', accessor: 'app_type', width: '100px' },
-        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '80px' },
+        { id: 'version', header: 'Version', type: 'text', accessor: 'version', width: '160px' },
         { id: 'size', header: 'Size', type: 'text', accessor: (row: DeviceApp) => formatBytes(row.size_bytes), width: '80px' },
         { id: 'installed', header: 'Installed On', type: 'text', accessor: (row: DeviceApp) => row.install_date || row.last_modified || 'N/A', width: '120px' },
         { id: 'actions', header: 'Actions', type: 'moreMenu', align: 'right', width: '80px', getMenuActions: (row: DeviceApp) => [
@@ -2253,6 +2266,11 @@
                         data={apps}
                         keyField="package_name"
                         sortable={true}
+                        bind:sort={appsSort}
+                        on:sort={() => {
+                            appsCurrentPage = 1;
+                            loadApps();
+                        }}
                         paginated={true}
                         pagination={{
                             page: appsCurrentPage,
