@@ -58,9 +58,9 @@
     let dropdownOpen = false;
     let dropdownInteracting = false;
     let inputContainer: HTMLDivElement;
-    let dropdownPosition = { top: 0, left: 0, width: 0 };
     let options: AppPickerItem[] = [];
     let optionsLoading = false;
+    const listboxId = 'app-picker-listbox';
 
     // ==========================================================================
     // REACTIVE
@@ -98,14 +98,12 @@
         await tick();
         if (inputContainer) {
             dropdownOpen = true;
-            updateDropdownPosition();
         } else {
             // Fallback: wait for container to be bound
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
                     if (inputContainer) {
                         dropdownOpen = true;
-                        updateDropdownPosition();
                     }
                 });
             });
@@ -135,21 +133,9 @@
         }
     }
 
-    function updateDropdownPosition() {
-        if (inputContainer) {
-            const rect = inputContainer.getBoundingClientRect();
-            dropdownPosition = {
-                top: rect.bottom + 4,
-                left: rect.left,
-                width: rect.width
-            };
-        }
-    }
-
     async function handleFocus() {
         dropdownOpen = true;
         await tick();
-        updateDropdownPosition();
     }
 
     function handleBlur() {
@@ -162,7 +148,6 @@
 
     function handleInputClick() {
         dropdownOpen = true;
-        tick().then(() => updateDropdownPosition());
     }
 
     /** Close dropdown when clicking outside the search/dropdown area (e.g. Selected section or footer) */
@@ -227,9 +212,18 @@
         style="margin-bottom: var(--ds-space-4);"
         bind:this={inputContainer}
         role="combobox"
+        aria-controls={listboxId}
         aria-expanded={dropdownOpen}
         aria-haspopup="listbox"
+        tabindex="0"
         on:click={handleInputClick}
+        on:keydown={(e) => {
+            if (e.target !== inputContainer) return;
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleInputClick();
+            }
+        }}
     >
         <InputField
             type="text"
@@ -245,10 +239,10 @@
         </InputField>
         {#if dropdownOpen}
             <div
+                id={listboxId}
                 role="listbox"
                 tabindex="-1"
                 class="app-picker-dropdown"
-                style="top: {dropdownPosition.top}px; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
                 on:mouseenter={() => (dropdownInteracting = true)}
                 on:mouseleave={() => (dropdownInteracting = false)}
                 on:mousedown|stopPropagation={() => (dropdownInteracting = true)}
@@ -295,7 +289,7 @@
             </div>
         {/if}
     </div>
-    <div class="w-full">
+    <div class="w-full app-picker-selected-section">
         <p class="app-picker-selected-label">Selected ({selected.length} items)</p>
         <div class="app-picker-selected-container">
             {#each selected as key}
@@ -359,7 +353,12 @@
     }
 
     .app-picker-dropdown {
-        position: fixed;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        width: 100%;
+        margin-top: var(--ds-space-1);
         background: var(--ds-bg-primary);
         border: 1px solid var(--ds-border-default);
         border-radius: var(--ds-radius-lg);
@@ -372,7 +371,6 @@
         padding: var(--ds-space-1);
         display: flex;
         flex-direction: column;
-        margin-top: var(--ds-space-1);
     }
 
     .app-picker-dropdown::-webkit-scrollbar {
@@ -464,6 +462,8 @@
         display: flex;
         flex-direction: column;
         gap: 0;
+        height: 160px;
+        overflow-y: auto;
     }
 
     .app-picker-selected-item {

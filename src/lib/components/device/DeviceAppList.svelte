@@ -32,6 +32,8 @@
     size_bytes: number;
     is_pinned?: boolean;
     is_system_app: boolean;
+    /** False when app is in pin rule but not yet installed on device (placeholder) */
+    isInstalled?: boolean;
     is_pinned_rule?: boolean;
     permissions: string[];
     metadata: Record<string, string>;
@@ -313,7 +315,8 @@
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   }
 
-  function formatDate(dateString: string): string {
+  function formatDate(dateString: string | null | undefined): string {
+    if (dateString == null) return '-';
     return new Date(dateString).toLocaleString();
   }
 
@@ -415,7 +418,7 @@
       const errMsg = err instanceof Error ? err.message : String(err);
       
       actionStatus.set({ 
-        action: action === 'restart' ? 'restartApp' : action, 
+        action: action === 'restart_app' ? 'restartApp' : action, 
         status: 'error', 
         message: errMsg, 
         packageName 
@@ -580,47 +583,53 @@
                     {/if}
 
                     <div class="flex items-center space-x-3 ml-2">
-                      <!-- Uninstall -->
-                      <button
-                        on:click={() => handleUninstallClick(app.app_name, app.package_name)}
-                        disabled={actionLoading[`${app.package_name}-uninstall_app`] || app.is_system_app}
-                        class="px-2.5 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
-                        title={app.is_system_app ? 'Cannot uninstall system app' : 'Uninstall app'}
-                      >
-                        {#if actionLoading[`${app.package_name}-uninstall_app`]}
-                          <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-red-700"></div>
-                        {:else}
-                          <span class="text-base">🗑️</span>
-                        {/if}
-                      </button>
+                      {#if app.isInstalled === false}
+                        <span class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded" title="Pinned but not yet installed – use Install New App to install">
+                          Not installed
+                        </span>
+                      {:else}
+                        <!-- Uninstall -->
+                        <button
+                          on:click={() => handleUninstallClick(app.app_name, app.package_name)}
+                          disabled={!!(actionLoading[`${app.package_name}-uninstall_app`] || app.is_system_app)}
+                          class="px-2.5 py-1.5 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
+                          title={app.is_system_app ? 'Cannot uninstall system app' : 'Uninstall app'}
+                        >
+                          {#if actionLoading[`${app.package_name}-uninstall_app`]}
+                            <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-red-700"></div>
+                          {:else}
+                            <span class="text-base">🗑️</span>
+                          {/if}
+                        </button>
 
-                      <!-- Restart -->
-                      <button
-                        on:click={() => sendDeviceAction('restart_app', app.package_name)}
-                        disabled={actionLoading[`${app.package_name}-restart_app`]}
-                        class="px-2.5 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
-                        title="Restart App"
-                      >
-                        {#if actionLoading[`${app.package_name}-restart_app`]}
-                          <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-blue-700"></div>
-                        {:else}
-                          <span class="text-base">🔄</span>
-                        {/if}
-                      </button>
+                        <!-- Restart -->
+                        <button
+                          on:click={() => sendDeviceAction('restart_app', app.package_name)}
+                          disabled={!!actionLoading[`${app.package_name}-restart_app`]}
+                          class="px-2.5 py-1.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
+                          title="Restart App"
+                        >
+                          {#if actionLoading[`${app.package_name}-restart_app`]}
+                            <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-blue-700"></div>
+                          {:else}
+                            <span class="text-base">🔄</span>
+                          {/if}
+                        </button>
 
-                      <!-- Config -->
-                      <button
-                        on:click={() => sendDeviceAction('config_app', app.package_name)}
-                        disabled={actionLoading[`${app.package_name}-config_app`]}
-                        class="px-2.5 py-1.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
-                        title="Configure app"
-                      >
-                        {#if actionLoading[`${app.package_name}-config_app`]}
-                          <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-green-700"></div>
-                        {:else}
-                          <span class="text-base">⚙️</span>
-                        {/if}
-                      </button>
+                        <!-- Config -->
+                        <button
+                          on:click={() => sendDeviceAction('config_app', app.package_name)}
+                          disabled={!!actionLoading[`${app.package_name}-config_app`]}
+                          class="px-2.5 py-1.5 text-xs bg-green-100 text-green-700 rounded hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-w-[36px] h-8 flex items-center justify-center"
+                          title="Configure app"
+                        >
+                          {#if actionLoading[`${app.package_name}-config_app`]}
+                            <div class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-green-700"></div>
+                          {:else}
+                            <span class="text-base">⚙️</span>
+                          {/if}
+                        </button>
+                      {/if}
                     </div>
                   </div>
                 </td>

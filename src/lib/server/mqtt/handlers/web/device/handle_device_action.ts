@@ -4,8 +4,8 @@ import { DeviceNotificationType, sendNotificationWithTicket } from '../../../cor
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
-import { getStorageConfig, generatePresignedUrl, generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
-import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
+import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { extractFilenameWithExtension, isGCloudUrl } from '$lib/server/storage/gcloudUrlUtils';
 import { broadcastDeviceActionUpdate } from '../../index';
 
 interface DeviceActionParams {
@@ -233,20 +233,31 @@ export async function handleInstallApp(
 
     // Extract filename with extension from path
     const filename = extractFilenameWithExtension(resource.path, resource.name);
-    
-    // Generate signed download URL for the app file
-    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, filename);
-    
-    if (!result) {
-        throw new Error('Failed to generate download URL for resource');
+
+    // Generate download URL: LOCAL mode uses static file URL; GCloud uses signed URL
+    const storageConfig = getStorageConfig();
+    let downloadUrl: string;
+
+    if (storageConfig.mode === 'LOCAL' && !isGCloudUrl(resource.path)) {
+        // LOCAL storage: file is in static/uploads/iot/ - build direct URL
+        const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+        const pathForUrl = resource.path.startsWith('/') ? resource.path : `/uploads/iot/${resource.path}`;
+        downloadUrl = `${baseUrl.replace(/\/$/, '')}${pathForUrl}`;
+        logger.info('[WebInstall App] Using LOCAL storage URL', { path: resource.path, downloadUrl });
+    } else {
+        const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, filename);
+        if (!result) {
+            throw new Error('Failed to generate download URL for resource');
+        }
+        downloadUrl = result.downloadUrl;
     }
 
-    logger.info(`[WebInstall App] Generated signed download URL`, {
+    logger.info(`[WebInstall App] Generated download URL`, {
         resourceId,
         resourceName: resource.name,
         packageName: params.packageName,
         packageSize: resource.size,
-        signedDownloadUrl: result.downloadUrl
+        downloadUrl
     });
 
     return executeDeviceAction(
@@ -258,7 +269,7 @@ export async function handleInstallApp(
             action: 'install_app',
             packageName: params.packageName,
             resourceId: params.resourceId,
-            downloadUrl: result.downloadUrl,
+            downloadUrl,
             packageSize: resource.size
         }
     );

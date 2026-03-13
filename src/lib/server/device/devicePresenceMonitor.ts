@@ -21,24 +21,28 @@ export class DevicePresenceMonitor {
     }
 
     try {
-      // Create a separate Redis connection for pub/sub
-      // Note: duplicate() doesn't accept options - we'll handle errors separately
-      this.subscriber = this.redis.duplicate();
+      // Create a separate Redis connection for pub/sub with enableReadyCheck: false
+      // Prevents ioredis from running INFO (which Redis rejects in subscriber mode)
+      this.subscriber = this.redis.duplicate({ enableReadyCheck: false });
 
       // Suppress errors from ready check attempts in subscriber mode
       // This error is expected when a connection enters subscriber mode
+      // ioredis runs INFO/ready checks which Redis rejects: "ERR Can't execute 'info': only (P|S)SUBSCRIBE..."
       this.subscriber.on('error', (err) => {
-        // Ignore "Connection in subscriber mode" errors - this is expected behavior
-        // ioredis tries to run ready checks (like INFO) which fail in subscriber mode
-        if (err.message && (
-          err.message.includes('subscriber mode') ||
-          err.message.includes('only (P)SUBSCRIBE') ||
-          err.message.includes('only subscriber commands')
-        )) {
-          // Silently ignore - this is expected when connection is in subscriber mode
-          return;
+        const msg = String(err?.message ?? err ?? '').toLowerCase();
+        // Redis rejects INFO/etc when connection is in subscriber mode - ioredis triggers this
+        // Match: "ERR Can't execute 'info': only (P|S)SUBSCRIBE / ... RESET are allowed in this context"
+        const isSubscriberModeError =
+          msg.includes('subscriber mode') ||
+          msg.includes('only subscriber commands') ||
+          msg.includes('allowed in this context') ||
+          msg.includes('reset are allowed') ||
+          (msg.includes('subscribe') && msg.includes('allowed')) ||
+          (msg.includes("can't execute") && msg.includes('info')) ||
+          /only\s*\([p|s]*\)\s*subscribe/i.test(msg);
+        if (isSubscriberModeError) {
+          return; // Silently ignore - expected when connection is in subscriber mode
         }
-        // Log other errors
         logger.error('[PresenceMonitor] Subscriber connection error', {
           error: err.message,
           stack: err.stack

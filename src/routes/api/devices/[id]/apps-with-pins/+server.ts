@@ -125,8 +125,34 @@ export const GET: RequestHandler = restrict(
         );
       }
 
-      // Fetch apps from ClickHouse (source does not know 'pinned'/'unpinned')
-      // Check if ClickHouse is available first
+      // ---------------- Rule selection FIRST (TC-RDM-APR-0118: pass pinnedPackages to CH) ----------------
+      const systemRole: SystemRole = auth.user.systemRole;
+
+      const applicableRules = await prisma.pinRule.findMany({
+        where:
+          systemRole === 'ADMIN'
+            ? {
+                isActive: true,
+                OR: [{ ruleType: 'admin_default' }, { ruleType: 'admin_custom' }]
+              }
+            : {
+                isActive: true,
+                OR: [
+                  { ruleType: 'admin_default' },
+                  { ruleType: 'user_default', accountId: device.accountId },
+                  { ruleType: 'user_custom', accountId: device.accountId, createdBy: auth.user.id }
+                ]
+              }
+      });
+
+      const sortedRules = applicableRules.sort(
+        sortByPrecedenceThenCreatedAtDesc(systemRole)
+      );
+
+      const topRule = sortedRules[0] || null;
+      const topRuleApps: string[] = (topRule?.apps as string[]) || [];
+
+      // Fetch apps from ClickHouse - pass pinnedPackages so pinned apps appear first on page 1
       let appData: { apps: any[]; total: number; page: number; limit: number };
       
       if (!deviceAppService.isAvailable()) {
@@ -138,10 +164,10 @@ export const GET: RequestHandler = restrict(
           search,
           filter: sourceFilter,
           sortBy,
-          sortOrder
+          sortOrder,
+          pinnedPackages: topRuleApps
         });
 
-        // Basic validation & diagnostic
         if (!appData || !Array.isArray(appData.apps)) {
           logger.error(`[AppsWithPinsAPI] Invalid app data:`, { appData, type: typeof appData });
           appData = { apps: [], total: 0, page, limit };
@@ -165,34 +191,6 @@ export const GET: RequestHandler = restrict(
         );
       } catch {}
 
-      // ---------------- Rule selection (SINGLE HIGHEST-TIER RULE ONLY) ----------------
-      // Build applicable rules
-      const systemRole: SystemRole = auth.user.systemRole;
-
-      const applicableRules = await prisma.pinRule.findMany({
-        where:
-          systemRole === 'ADMIN'
-            ? {
-                isActive: true,
-                OR: [{ ruleType: 'admin_default' }, { ruleType: 'admin_custom' }]
-              }
-            : {
-                isActive: true,
-                OR: [
-                  { ruleType: 'admin_default' },
-                  { ruleType: 'user_default', accountId: device.accountId },
-                  { ruleType: 'user_custom', accountId: device.accountId, createdBy: auth.user.id }
-                ]
-              }
-      });
-
-      // Sort by precedence & createdAt DESC, then PICK ONLY THE FIRST ONE
-      const sortedRules = applicableRules.sort(
-        sortByPrecedenceThenCreatedAtDesc(systemRole)
-      );
-
-      const topRule = sortedRules[0] || null;
-
       logger.info(
         `[AppsWithPinsAPI] Selected top rule: ${
           topRule
@@ -208,7 +206,6 @@ export const GET: RequestHandler = restrict(
 
       // Build pin map ONLY from the selected top rule
       const pinStatusMap = new Map<string, any>();
-      const topRuleApps: string[] = (topRule?.apps as string[]) || [];
 
       for (const pkg of topRuleApps) {
         if (typeof pkg === 'string' && pkg.length > 0 && !pinStatusMap.has(pkg)) {

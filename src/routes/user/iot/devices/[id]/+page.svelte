@@ -623,13 +623,8 @@
             });
             if (!res.ok) throw new Error('Failed to toggle pin');
 
-            // Update local state
-            apps = apps.map(a =>
-                a.package_name === app.package_name
-                    ? { ...a, is_pinned: !a.is_pinned }
-                    : a
-            );
             addAlert('success', app.is_pinned ? 'App unpinned' : 'App pinned');
+            await loadApps();
         } catch (e) {
             addAlert('error', `Failed to toggle pin: ${e instanceof Error ? e.message : 'Unknown error'}`);
         }
@@ -774,7 +769,10 @@
                 addAlert('success', 'Install app command sent to device');
                 // App list will reload when we receive device:statusUpdate success (MQTT handler, debounced)
             } else {
-                addAlert('error', 'Some app installations failed. Please try again.');
+                const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+                const errMsg = rejected[0]?.reason instanceof Error ? rejected[0].reason.message : String(rejected[0]?.reason ?? 'Unknown error');
+                console.error('[Install App] Failed:', rejected.map(r => r.reason));
+                addAlert('error', `Some app installations failed: ${errMsg}`);
             }
         } catch (e) {
             addAlert('error', 'Unable to install app. Please try again!');
@@ -1818,7 +1816,7 @@
                             <div class="info-row-detail">
                                 <span class="label">Assigned Profile</span>
                                 {#if data.deviceProfile?.name}
-                                    <a href="/user/iot/profiles/{data.deviceProfile.id}" class="value link">{data.deviceProfile.name}</a>
+                                    <a href="/user/iot/device-profiles/{data.deviceProfile.id}" class="value link">{data.deviceProfile.name}</a>
                                 {:else}
                                     <span class="value">None</span>
                                 {/if}
@@ -2277,6 +2275,13 @@
                             pageSize: appsPageSize,
                             totalItems: appsTotalCount,
                             totalPages: appsTotalPages
+                        }}
+                        on:sort={(e) => {
+                            const { field, direction } = e.detail;
+                            appsSortField = field;
+                            appsSortOrder = (direction === 'asc' || direction === 'desc') ? direction : 'asc';
+                            appsCurrentPage = 1;
+                            loadApps();
                         }}
                         on:pageChange={(e) => {
                             appsCurrentPage = e.detail;

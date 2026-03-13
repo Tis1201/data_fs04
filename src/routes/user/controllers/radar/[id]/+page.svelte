@@ -62,6 +62,13 @@
       email?: { enabled: boolean; address: string };
       webhook?: { enabled: boolean; url: string };
     };
+    deviceSettings?: {
+      deviceMode?: string;
+      timezone?: string;
+      pathTracking?: boolean;
+      dwellThreshold?: number;
+      dataReportingInterval?: number;
+    };
   }
 
   $: config = (data.radarSensor.config as RadarConfig) || null;
@@ -1319,7 +1326,7 @@
             <div class="config-label-value-list">
               <div class="config-label-value-row">
                 <span class="config-label">Device Mode</span>
-                <span class="config-value">Live Preview</span>
+                <span class="config-value">{config?.deviceSettings?.deviceMode === 'BACKGROUND' ? 'Background' : 'Live Preview'}</span>
               </div>
               <div class="config-label-value-row">
                 <span class="config-label">Timezone</span>
@@ -1816,7 +1823,7 @@
                 width={400}
                 height={400}
                 trackingArea={config?.trackingArea || null}
-                zones={config?.zones || []}
+                zones={(config?.zones || []).filter(z => z.active !== false)}
                 showOverlay={true}
                 on:frame={onLivePreviewFrame}
                 on:stateChange={(e) => { isLivePreviewStreaming = e.detail?.streaming ?? false; }}

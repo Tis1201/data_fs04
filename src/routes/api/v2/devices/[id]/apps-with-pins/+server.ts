@@ -34,14 +34,14 @@ function sortApps(apps: any[], sortBy: string, sortOrder: string) {
 		if (a.isPinned && !b.isPinned) return -1;
 		if (!a.isPinned && b.isPinned) return 1;
 		const dir = sortOrder === 'desc' ? -1 : 1;
-		if (sortBy === 'name') return (a.app_name || '').localeCompare(b.app_name || '') * dir;
+		if (sortBy === 'name' || sortBy === 'app') return (a.app_name || '').localeCompare(b.app_name || '') * dir;
 		if (sortBy === 'package' || sortBy === 'package_name') return (a.package_name || '').localeCompare(b.package_name || '') * dir;
 		if (sortBy === 'app_type') return (a.app_type || '').localeCompare(b.app_type || '') * dir;
 		if (sortBy === 'version') return (a.version || '').localeCompare(b.version || '') * dir;
 		if (sortBy === 'size') return ((a.size_bytes ?? 0) - (b.size_bytes ?? 0)) * dir;
-		if (sortBy === 'modified') {
-			const ta = new Date(a.created_at || a.last_modified || 0).getTime();
-			const tb = new Date(b.created_at || b.last_modified || 0).getTime();
+		if (sortBy === 'modified' || sortBy === 'installed') {
+			const ta = new Date(a.last_modified || a.created_at || 0).getTime();
+			const tb = new Date(b.last_modified || b.created_at || 0).getTime();
 			return (ta - tb) * dir;
 		}
 		return 0;
@@ -86,22 +86,80 @@ export const GET = unifiedEndpoint(
 			createdBy: device.createdBy
 		});
 
-		// Fetch apps from ClickHouse (source does not know pinned/unpinned)
-		// Check if ClickHouse is available first
+		// Build applicable rules FIRST so we can pass pinnedPackages to getDeviceApps (TC-RDM-APR-0118)
+		// Exclude draft rules and apply targetType/targetValue (specific devices) filter
+		const systemRole: SystemRole = context.session.user.systemRole;
+		const roleWhere =
+			systemRole === 'ADMIN'
+				? {
+						isActive: true,
+						isDraft: false,
+						OR: [{ ruleType: 'admin_default' }, { ruleType: 'admin_custom' }]
+				  }
+				: {
+						isActive: true,
+						isDraft: false,
+						OR: [
+							{ ruleType: 'admin_default' },
+							{ ruleType: 'user_default', accountId: device.accountId },
+							{ ruleType: 'user_custom', accountId: device.accountId, createdBy: context.session.user.id }
+						]
+				  };
+
+		const allApplicableRules = await context.prisma.pinRule.findMany({
+			where: roleWhere,
+			select: { id: true, ruleType: true, name: true, apps: true, targetType: true, targetValue: true, createdAt: true, createdBy: true }
+		});
+
+		// Filter by device target:
+		// - 'all' applies to all devices
+		// - 'specific' (from Pin Rules UI "Apply To → Specific Devices") and 'devices' (from manual Pin/Unpin API) apply when deviceId is in targetValue
+		const applicableRules = allApplicableRules.filter((r) => {
+			const targetType = r.targetType || 'all';
+			if (targetType === 'all') return true;
+			if ((targetType === 'specific' || targetType === 'devices') && Array.isArray(r.targetValue)) {
+				return r.targetValue.includes(deviceId);
+			}
+			return false;
+		});
+
+		const sortedRules = applicableRules.sort(sortByPrecedenceThenCreatedAtDesc(systemRole));
+		const topRule = sortedRules[0] || null;
+		// Merge apps from ALL applicable rules (per PIN_APP_DATA.md: apply all matching rules)
+		// For each package, use pinInfo from the first (highest precedence) rule that contains it
+		const topRuleAppsSet = new Set<string>();
+		for (const r of sortedRules) {
+			const apps = (r.apps as string[]) || [];
+			for (const pkg of apps) {
+				if (typeof pkg === 'string' && pkg.length > 0) topRuleAppsSet.add(pkg);
+			}
+		}
+		const topRuleApps: string[] = Array.from(topRuleAppsSet);
+
+		// Fetch apps from ClickHouse - pass pinnedPackages so pinned apps appear first on page 1 (TC-RDM-APR-0118)
+		// Use larger limit to fetch enough for merge + in-memory pagination when we add pin-rule placeholders
+		const CH_FETCH_LIMIT = 500;
 		let appData: { apps: any[]; total: number; page: number; limit: number };
-		
+
 		if (!deviceAppService.isAvailable()) {
 			logger.warn('[AppsWithPinsV2] ClickHouse not available, returning empty list');
 			appData = { apps: [], total: 0, page, limit };
 		} else {
 			try {
 				const sourceFilter = filter === 'pinned' || filter === 'unpinned' ? 'all' : filter;
-				appData = await deviceAppService.getDeviceApps(deviceId, page, limit, {
-					search,
-					filter: sourceFilter,
-					sortBy,
-					sortOrder
-				});
+				// For page > 1 with placeholders, we need offset override - computed after we know placeholder count
+				appData = await deviceAppService.getDeviceApps(
+					deviceId,
+					1,
+					CH_FETCH_LIMIT,
+					{
+						search,
+						filter: sourceFilter,
+						sortBy,
+						sortOrder,
+						pinnedPackages: topRuleApps
+					}
+				);
 
 				if (!appData || !Array.isArray(appData.apps)) {
 					logger.error(`[AppsWithPinsV2] Invalid app data`, { appData });
@@ -116,59 +174,96 @@ export const GET = unifiedEndpoint(
 			}
 		}
 
-		// Build applicable rules
-		const systemRole: SystemRole = context.session.user.systemRole;
-		const applicableRules = await context.prisma.pinRule.findMany({
-			where:
-				systemRole === 'ADMIN'
-					? {
-							isActive: true,
-							OR: [{ ruleType: 'admin_default' }, { ruleType: 'admin_custom' }]
-					  }
-					: {
-							isActive: true,
-							OR: [
-								{ ruleType: 'admin_default' },
-								{ ruleType: 'user_default', accountId: device.accountId },
-								{ ruleType: 'user_custom', accountId: device.accountId, createdBy: context.session.user.id }
-							]
-					  }
-		});
-
-		const sortedRules = applicableRules.sort(sortByPrecedenceThenCreatedAtDesc(systemRole));
-		const topRule = sortedRules[0] || null;
-		const topRuleApps: string[] = (topRule?.apps as string[]) || [];
-
 		const pinStatusMap = new Map<string, any>();
-		for (const pkg of topRuleApps) {
-			if (typeof pkg === 'string' && pkg.length > 0 && !pinStatusMap.has(pkg)) {
-				pinStatusMap.set(pkg, {
-					isPinned: true,
-					pinnedBy: topRule?.name,
-					ruleType: topRule?.ruleType,
-					pinnedAt: new Date().toISOString(),
-					ruleId: topRule?.id,
-					createdBy: topRule?.createdBy
-				});
+		// TC-RDM-APR-0118: Case-insensitive lookup (rule may have different casing than ClickHouse/device report)
+		// For merged rules: assign pinInfo from the first (highest precedence) rule that contains each package
+		const pinStatusMapByLower = new Map<string, any>();
+		for (const r of sortedRules) {
+			const apps = (r.apps as string[]) || [];
+			for (const pkg of apps) {
+				if (typeof pkg !== 'string' || pkg.length === 0) continue;
+				const keyLower = pkg.toLowerCase();
+				if (!pinStatusMap.has(pkg) && !pinStatusMapByLower.has(keyLower)) {
+					const pinInfo = {
+						isPinned: true,
+						pinnedBy: r.name,
+						ruleType: r.ruleType,
+						pinnedAt: new Date().toISOString(),
+						ruleId: r.id,
+						createdBy: r.createdBy
+					};
+					pinStatusMap.set(pkg, pinInfo);
+					pinStatusMapByLower.set(keyLower, pinInfo);
+				}
 			}
 		}
 
+		// Add apps from pin rule that are NOT yet installed (so they appear in list for "Install" action)
+		// Case-insensitive: device report (CH) may have different casing than rule
+		const installedPackageLower = new Set(appData.apps.map((a: any) => (a.package_name || '').toLowerCase()));
+		const pinnedNotInstalled = topRuleApps.filter(
+			(p: string) => typeof p === 'string' && p.length > 0 && !installedPackageLower.has(p.toLowerCase())
+		);
+
+		let placeholders: any[] = [];
+		if (pinnedNotInstalled.length > 0) {
+			const pkgToName = new Map<string, string>();
+			if (device.accountId) {
+				const resources = await context.prisma.resource.findMany({
+					where: {
+						accountId: device.accountId,
+						packageName: { in: pinnedNotInstalled }
+					},
+					select: { packageName: true, name: true }
+				});
+				for (const r of resources) {
+					if (r.packageName && !pkgToName.has(r.packageName)) {
+						pkgToName.set(r.packageName, r.name || r.packageName);
+					}
+				}
+			}
+			placeholders = pinnedNotInstalled.map((pkg: string) => {
+				const pinInfo = pinStatusMap.get(pkg);
+				return {
+					device_id: deviceId,
+					package_name: pkg,
+					app_name: pkgToName.get(pkg) || pkg,
+					version: '-',
+					app_type: 'Normal',
+					metadata: '{}',
+					created_at: null,
+					last_modified: null,
+					size_bytes: 0,
+					isPinned: true,
+					pinInfo,
+					is_system_app: false,
+					isInstalled: false
+				};
+			});
+		}
+
 		const appsWithPins = appData.apps.map((app: any) => {
-			const pinInfo = pinStatusMap.get(app.package_name) || null;
-			return { ...app, isPinned: !!pinInfo, pinInfo };
+			const pinInfo =
+				pinStatusMap.get(app.package_name) ||
+				pinStatusMapByLower.get((app.package_name || '').toLowerCase()) ||
+				null;
+			return { ...app, isPinned: !!pinInfo, pinInfo, isInstalled: true };
 		});
 
-		const sortedApps = sortApps(appsWithPins, sortBy, sortOrder);
+		const mergedApps = [...placeholders, ...appsWithPins];
+		const sortedApps = sortApps(mergedApps, sortBy, sortOrder);
 		const isPinnedOnly = filter === 'pinned';
 		const filteredApps = isPinnedOnly ? sortedApps.filter((a) => a.isPinned) : sortedApps;
 
-		const totalPinned = appsWithPins.filter((a) => a.isPinned).length;
-		const pinnedByUserCustom = appsWithPins.filter((a) => a.pinInfo && a.pinInfo.ruleType === 'user_custom').length;
+		// In-memory pagination after merge
+		const effectiveTotal = filteredApps.length;
+		const totalPages = Math.ceil(effectiveTotal / limit);
+		const paginatedApps = filteredApps.slice((page - 1) * limit, page * limit);
+
+		const totalPinned = mergedApps.filter((a) => a.isPinned).length;
+		const pinnedByUserCustom = mergedApps.filter((a) => a.pinInfo && a.pinInfo.ruleType === 'user_custom').length;
 		const pinnedByRule = totalPinned - pinnedByUserCustom;
 		const manualPins = pinnedByUserCustom;
-
-		const effectiveTotal = isPinnedOnly ? totalPinned : appData.total;
-		const totalPages = Math.ceil(effectiveTotal / appData.limit);
 
 		return successResponse(
 			{
@@ -179,25 +274,22 @@ export const GET = unifiedEndpoint(
 					status: device.status,
 					accountId: device.accountId
 				},
-				apps: filteredApps,
+				apps: paginatedApps,
 				pagination: {
-					page: appData.page,
-					limit: appData.limit,
+					page,
+					limit,
 					total: effectiveTotal,
 					totalPages,
-					hasNext: appData.page < totalPages,
-					hasPrev: appData.page > 1
+					hasNext: page < totalPages,
+					hasPrev: page > 1
 				},
 				pinStats: {
 					totalPinned,
 					pinnedByRule,
 					manualPins,
 					pinRate:
-						(isPinnedOnly ? filteredApps.length : appData.total) > 0
-							? (
-									(totalPinned / (isPinnedOnly ? filteredApps.length : appData.total)) *
-									100
-							  ).toFixed(1)
+						mergedApps.length > 0
+							? ((totalPinned / mergedApps.length) * 100).toFixed(1)
 							: '0.0'
 				},
 				rule: topRule

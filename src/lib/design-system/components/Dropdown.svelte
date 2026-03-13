@@ -41,7 +41,7 @@
     export let helperText: string = '';
     export let maxHeight: number = 300;
     export let width: string = '100%';
-    export let clearable: boolean = true; // Show clear button when value is selected
+    export let clearable: boolean = false; // Show clear button when value is selected
     export let displayText: string | undefined = undefined; // Custom display text (overrides displayValue, useful for toggle type)
     /** 'auto' = flip based on space, 'bottom' = always below trigger, 'top' = always above trigger (e.g. in modals) */
     export let preferPlacement: 'auto' | 'bottom' | 'top' = 'auto';

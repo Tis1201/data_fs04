@@ -96,6 +96,29 @@
     let editAudioVolume = 100;
     let editTimezone = "";
     let editHomeLauncher = "";
+
+    // Packages for Home/Launcher dropdown (same as AddEditProfileModal)
+    interface PackageOption { id: string; label: string; }
+    let availablePackages: PackageOption[] = [];
+    let packagesLoading = false;
+
+    async function loadAvailablePackages() {
+        packagesLoading = true;
+        try {
+            const res = await fetch('/api/v2/resources/packages/all');
+            if (!res.ok) throw new Error('Failed to load packages');
+            const data = await res.json();
+            const allPackages = data.data?.packages || [];
+            availablePackages = allPackages.map((pkg: any) => ({
+                id: pkg.packageName,
+                label: pkg.displayName ? `${pkg.displayName} (${pkg.packageName})` : pkg.packageName
+            }));
+        } catch {
+            availablePackages = [];
+        } finally {
+            packagesLoading = false;
+        }
+    }
     let editPowerManagementSchedule = false;
     let editPowerOnDatetime = "";
     let editPowerOffDatetime = "";
@@ -518,6 +541,11 @@
     // Track last loaded device+open state to avoid unnecessary reloads
     let lastLoadedState: string | null = null;
     
+    // Load packages when modal opens
+    $: if (open) {
+        loadAvailablePackages();
+    }
+
     // Load device data when modal opens or device changes
     $: if (open && device) {
         const currentState = `${device.id}-${open}`;
@@ -624,13 +652,19 @@
             editDisplayResolution = fullDeviceData.displayResolution || displayResolutionSetting?.defaultValue || "1920x1080";
             const currentOrientation = fullDeviceData.screenOrientation ? String(fullDeviceData.screenOrientation).toLowerCase() : null;
             editScreenOrientation = currentOrientation || screenOrientationSetting?.defaultValue || "landscape";
-            editBrightnessLevel = typeof fullDeviceData.brightnessLevel === 'string' 
-                ? parseInt(fullDeviceData.brightnessLevel, 10) || 100
-                : (fullDeviceData.brightnessLevel ?? 100);
+            editBrightnessLevel = (() => {
+                const v = fullDeviceData.brightnessLevel;
+                if (v == null) return 100;
+                const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
+                return !isNaN(n) ? n : 100;
+            })();
             editAudioEnabled = fullDeviceData.audioEnabled === 'enabled' || fullDeviceData.audioEnabled === true || fullDeviceData.audioEnabled === 'true';
-            editAudioVolume = typeof fullDeviceData.audioVolume === 'string'
-                ? parseInt(fullDeviceData.audioVolume, 10) || 100
-                : (fullDeviceData.audioVolume ?? 100);
+            editAudioVolume = (() => {
+                const v = fullDeviceData.audioVolume;
+                if (v == null) return 100;
+                const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
+                return !isNaN(n) ? n : 100;
+            })();
             editTimezone = fullDeviceData.timezone || "UTC";
             editHomeLauncher = fullDeviceData.homeLauncher || "";
             editPowerManagementSchedule = fullDeviceData.powerManagementSchedule === 'enabled' || fullDeviceData.powerManagementSchedule === true || fullDeviceData.powerManagementSchedule === 'true';
@@ -973,6 +1007,7 @@
                 placeholder="Select"
                 options={profileOptionsWithCustom}
                 value={editAssignedProfile}
+                clearable={false}
                 on:change={handleProfileChange}
             />
 
@@ -1181,16 +1216,14 @@
                         <p class="config-label">Home/ Launcher</p>
                         <p class="config-description">Default home screen launcher</p>
                     </div>
-                    <div class="config-launcher-preview">
-                        {#if editHomeLauncher}
-                            <img src={editHomeLauncher} alt="Launcher" style="width: 100%; height: 100%; object-fit: cover;" />
-                        {:else}
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <rect x="3" y="3" width="18" height="18" rx="2" stroke="#98A2B3" stroke-width="2"/>
-                                <circle cx="8.5" cy="8.5" r="1.5" fill="#98A2B3"/>
-                                <path d="M21 15L16 10L5 21" stroke="#98A2B3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        {/if}
+                    <div style="width: 200px;">
+                        <Dropdown
+                            placeholder={packagesLoading ? 'Loading...' : 'Select launcher'}
+                            options={availablePackages}
+                            value={editHomeLauncher}
+                            disabled={packagesLoading}
+                            on:change={(e) => { editHomeLauncher = String(e.detail ?? ''); switchToCustom(); }}
+                        />
                     </div>
                 </div>
             </div>
@@ -1554,18 +1587,5 @@
         font-size: var(--ds-text-sm);
         color: var(--ds-text-tertiary);
         pointer-events: none; /* Allow clicks to pass through to input */
-    }
-
-    /* Edit Device Modal - Launcher preview */
-    .config-launcher-preview {
-        width: 64px;
-        height: 64px;
-        background: var(--ds-bg-primary);
-        border: 1px solid var(--ds-border-default);
-        border-radius: var(--ds-radius-lg);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
     }
 </style>

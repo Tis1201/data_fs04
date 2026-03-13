@@ -169,16 +169,21 @@ export class DeviceAppService {
 
   /**
    * Get current app data for a device with pagination
+   * @param offsetOverride - Optional override for OFFSET (used when merging pin-rule placeholders)
    */
   async getDeviceApps(deviceId: string, page: number = 1, limit: number = 10, filters: {
     search?: string;
     filter?: string;
     sortBy?: string;
     sortOrder?: string;
+    /** TC-RDM-APR-0118: Package names from pin rule - these are ordered first on page 1 */
+    pinnedPackages?: string[];
+    /** Override pagination offset (when merging with pin-rule placeholders) */
+    offsetOverride?: number;
   } = {}): Promise<{apps: DeviceAppData[], total: number, page: number, limit: number}> {
     try {
-      const offset = (page - 1) * limit;
-      const { search = '', filter = 'all', sortBy = 'name', sortOrder = 'asc' } = filters;
+      const offset = filters.offsetOverride ?? (page - 1) * limit;
+      const { search = '', filter = 'all', sortBy = 'name', sortOrder = 'asc', pinnedPackages = [] } = filters;
       
       // Build WHERE conditions
       let whereConditions = 'device_id = {deviceId:String}';
@@ -198,6 +203,7 @@ export class DeviceAppService {
       let orderBy = 'app_name ASC';
       switch (sortBy) {
         case 'name':
+        case 'app':
           orderBy = `app_name ${sortOrder.toUpperCase()}`;
           break;
         case 'package':
@@ -209,7 +215,11 @@ export class DeviceAppService {
         case 'size':
           orderBy = `size_bytes ${sortOrder.toUpperCase()}`;
           break;
+        case 'app_type':
+          orderBy = `app_type ${sortOrder.toUpperCase()}`;
+          break;
         case 'modified':
+        case 'installed':
           orderBy = `created_at ${sortOrder.toUpperCase()}`;
           break;
         case 'app_type':
@@ -224,11 +234,19 @@ export class DeviceAppService {
           FROM mv_device_apps
           WHERE device_id = {deviceId:String}
         `,
-        query_params: { deviceId }
+        query_params: { deviceId },
+        format: 'JSONEachRow'
       });
 
-      const latestTimeResponse = await latestTimeResult.json();
-      const latestTime = (latestTimeResponse?.data?.[0] as any)?.latest_time;
+      const latestTimeRows = await latestTimeResult.json();
+      // JSONEachRow returns array of row objects; JSON default returns { data: [[...]] } (array of arrays)
+      const firstRow = Array.isArray(latestTimeRows) ? latestTimeRows[0] : (latestTimeRows as any)?.data?.[0];
+      const latestTime =
+        firstRow && typeof firstRow === 'object' && !Array.isArray(firstRow)
+          ? (firstRow as Record<string, unknown>).latest_time
+          : Array.isArray(firstRow)
+            ? firstRow[0]
+            : undefined;
 
       if (!latestTime) {
         // No apps found for this device
@@ -244,6 +262,15 @@ export class DeviceAppService {
       whereConditions += ' AND created_at = {latestTime:String}';
       queryParams.latestTime = latestTime;
 
+      // TC-RDM-APR-0118: Order pinned apps first so they appear on page 1
+      const pinnedFirst =
+        pinnedPackages.length > 0
+          ? `has({pinnedPackages:Array(String)}, package_name) DESC, ${orderBy}`
+          : orderBy;
+      if (pinnedPackages.length > 0) {
+        queryParams.pinnedPackages = pinnedPackages;
+      }
+
       // Get total count (all apps from latest sync)
       const countResult = await this.clickhouse.query({
         query: `
@@ -251,13 +278,17 @@ export class DeviceAppService {
           FROM mv_device_apps 
           WHERE ${whereConditions}
         `,
-        query_params: queryParams
+        query_params: queryParams,
+        format: 'JSONEachRow'
       });
 
-      const countResponse = await countResult.json();
-      const total = Number((countResponse?.data?.[0] as any)?.total || 0);
+      const countRows = await countResult.json();
+      const countFirst = Array.isArray(countRows) ? countRows[0] : (countRows as any)?.data?.[0];
+      const total = Number(
+        (countFirst && typeof countFirst === 'object' && !Array.isArray(countFirst) ? (countFirst as any).total : Array.isArray(countFirst) ? countFirst[0] : 0) || 0
+      );
 
-      // Get paginated apps (all apps from latest sync)
+      // Get paginated apps (all apps from latest sync) - mv_device_apps has no installed_on column
       const result = await this.clickhouse.query({
         query: `
           SELECT 
@@ -269,19 +300,19 @@ export class DeviceAppService {
             metadata,
             created_at,
             last_modified,
-            size_bytes,
-            installed_on
+            size_bytes
           FROM mv_device_apps 
           WHERE ${whereConditions}
-          ORDER BY ${orderBy}
+          ORDER BY ${pinnedFirst}
           LIMIT {limit:UInt32} OFFSET {offset:UInt32}
         `,
-        query_params: { ...queryParams, limit, offset }
+        query_params: { ...queryParams, limit, offset },
+        format: 'JSONEachRow'
       });
 
       const response = await result.json();
-      // Extract the actual data array from the response
-      const data = response?.data || [];
+      // With format JSONEachRow, response is array directly; otherwise { data: [...] }
+      const data = Array.isArray(response) ? response : ((response as { data?: unknown[] })?.data || []);
       
       // Transform the data to match the expected format
       const transformedData = data.map((app: any) => ({
@@ -294,7 +325,7 @@ export class DeviceAppService {
         metadata: app.metadata || {},
         created_at: app.created_at,
         last_modified: app.last_modified || app.created_at,
-        install_date: app.installed_on || app.install_date || app.created_at,
+        install_date: app.installed_on ?? app.install_date ?? app.created_at,
         // Parse size_bytes: if it's a string like "30MB", convert to bytes
         size_bytes: typeof app.size_bytes === 'string' 
           ? parseSizeString(app.size_bytes) 

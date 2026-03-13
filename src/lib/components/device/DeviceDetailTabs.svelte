@@ -500,7 +500,7 @@
             {actionLogs}
             {isLoading}
             {actionStatus}
-            endpoint={`/api/v2/devices/${device.id}/apps`}
+            endpoint={`/api/v2/devices/${device.id}/apps-with-pins`}
             initialQuery={{ filter: 'all' }}
           />
         </AdminCard>

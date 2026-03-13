@@ -310,10 +310,12 @@
             displayResolution = getSettingValue('display_resolution', settings) || '1920x1080';
             screenOrientation = getSettingValue('screen_orientation', settings) || 'landscape';
             const bright = getSettingValue('brightness_level', settings);
-            brightnessLevel = bright ? parseInt(bright, 10) || 100 : 100;
+            const numBright = parseInt(bright, 10);
+            brightnessLevel = !isNaN(numBright) ? numBright : 100;
             audioEnabled = getSettingValue('enable_audio', settings) !== 'disabled';
             const vol = getSettingValue('volume_level', settings);
-            audioVolume = vol ? parseInt(vol, 10) || 100 : 100;
+            const numVol = parseInt(vol, 10);
+            audioVolume = !isNaN(numVol) ? numVol : 100;
             timezone = getSettingValue('timezone', settings) || 'Asia/Ho_Chi_Minh';
             homeLauncher = getSettingValue('home_launcher', settings) || '';
             powerManagementSchedule = getSettingValue('power_management_schedule', settings) === 'enabled';
