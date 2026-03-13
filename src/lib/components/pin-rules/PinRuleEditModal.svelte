@@ -410,6 +410,11 @@
             activeTab = 'pinned_app';
             return;
         }
+        if (!applyTo || (applyTo !== 'all' && applyTo !== 'devices')) {
+            applyToError = 'Apply To is required. Please select All Devices or Devices.';
+            activeTab = 'apply_to';
+            return;
+        }
         if (applyTo === 'devices' && selectedDevices.length === 0) {
             applyToError = 'Please select at least one device';
             activeTab = 'apply_to';
@@ -675,6 +680,7 @@
                         options={applyToOptions}
                         bind:value={applyTo}
                         required={true}
+                        clearable={true}
                         width="280px"
                     />
                 </div>
