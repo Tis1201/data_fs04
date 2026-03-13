@@ -298,13 +298,32 @@
         dispatch('pageSizeChange', newSize);
     }
 
-    /** Build pagination page slots: [1, 2, 3, '...', 8, 9, 10] per Figma */
+    /** Build pagination page slots always including the current page in the visible window */
     function getPaginationPages(): (number | 'ellipsis')[] {
         const total = pagination.totalPages;
+        const current = pagination.page;
+
         if (total <= 7) {
             return Array.from({ length: total }, (_, i) => i + 1);
         }
-        return [1, 2, 3, 'ellipsis', total - 2, total - 1, total];
+
+        // Always show current page plus 1 neighbour on each side, plus first/last
+        const pages = new Set<number>();
+        pages.add(1);
+        pages.add(total);
+        for (let i = Math.max(1, current - 1); i <= Math.min(total, current + 1); i++) {
+            pages.add(i);
+        }
+
+        const sorted = Array.from(pages).sort((a, b) => a - b);
+        const result: (number | 'ellipsis')[] = [];
+        for (let i = 0; i < sorted.length; i++) {
+            if (i > 0 && sorted[i] - sorted[i - 1] > 1) {
+                result.push('ellipsis');
+            }
+            result.push(sorted[i]);
+        }
+        return result;
     }
 
     $: paginationPages = paginated && pagination.totalPages > 0 ? getPaginationPages() : [];
@@ -1092,8 +1111,12 @@
         background: var(--ds-color-neutral-true-100);
     }
     .ds-pagination-page.active {
-        background: var(--ds-bg-secondary);
-        color: var(--ds-text-primary);
+        background: var(--ds-color-neutral-true-900);
+        color: var(--ds-color-white);
+        font-weight: 600;
+    }
+    .ds-pagination-page.active:hover {
+        background: var(--ds-color-neutral-true-900);
     }
     .ds-pagination-ellipsis {
         display: flex;
