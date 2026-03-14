@@ -48,6 +48,43 @@ export async function handleClaimConfirm(
 
     const ctx: NotificationTicketEnvelope = await decodeNotificationTicket(prisma, ticket);
 
+    // All errors from this point forward have ctx.sub (the original user), so we can notify them.
+    // Wrap the rest of the handler so any failure sends an error notification back to the user,
+    // preventing the browser from waiting until timeout.
+    try {
+        return await _handleClaimConfirmInner(ctx, deviceInfo ?? {}, prisma, handlerStartTime);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        logger.error(`[DeviceClaimConfirm] Claim failed, notifying user ${ctx.sub}: ${errorMessage}`);
+
+        // Notify the original user of the failure so their browser gets the error instead of timing out
+        if (ctx.sub && ctx.recipient) {
+            try {
+                await sendNotificationWithTicket({
+                    prisma,
+                    sub: ctx.recipient,
+                    recipient: ctx.sub,
+                    type: `error:${ctx.type}`,
+                    flowId: ctx.flowId,
+                    params: { error: errorMessage },
+                    expiresIn: '5m'
+                });
+            } catch (notifyErr) {
+                logger.warn(`[DeviceClaimConfirm] Failed to send error notification to ${ctx.sub}: ${notifyErr}`);
+            }
+        }
+
+        throw err;
+    }
+}
+
+async function _handleClaimConfirmInner(
+    ctx: NotificationTicketEnvelope,
+    deviceInfo: NonNullable<DeviceClaimConfirmParams['deviceInfo']>,
+    prisma: RpcHandlerArgs['prisma'],
+    handlerStartTime: number
+): Promise<{ status: string; deviceId: string; apiKey: string; accountId: string | null }> {
+
     const device = ctx.recipient;
     const device_parts = device?.split(":");
     const device_type = device_parts?.[0];

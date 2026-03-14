@@ -53,10 +53,10 @@ export async function claimDevice(
       reject(new Error('Timed out waiting for claim confirmation'));
     }, confirmTimeoutMs);
 
-    // Register the listener BEFORE the RPC is sent.
+    // Register the listeners BEFORE the RPC is sent.
     // mqttClient is already subscribed to user/.../notifications, so this
-    // just adds an in-memory handler — no broker subscribe needed.
-    cleanup.unsub = mqttClient.onNotification('reply:claim', (payload: any) => {
+    // just adds in-memory handlers — no broker subscribe needed.
+    const unsubSuccess = mqttClient.onNotification('reply:claim', (payload: any) => {
       if (settled) return;
       const deviceId = payload?.deviceId;
       if (!deviceId) return;
@@ -68,6 +68,17 @@ export async function claimDevice(
         accountId: payload?.accountId ?? null
       });
     });
+
+    const unsubError = mqttClient.onNotification('error:claim', (payload: any) => {
+      if (settled) return;
+      settle();
+      reject(new Error(payload?.error ?? 'Claim failed on device'));
+    });
+
+    cleanup.unsub = () => {
+      unsubSuccess();
+      unsubError();
+    };
   });
 
   // Send the claim RPC. If it fails, clean up the listener.

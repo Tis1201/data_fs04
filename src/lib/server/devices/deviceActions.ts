@@ -126,6 +126,7 @@ export function createDeviceActions(options: {
                     data: {
                         claimedAt: null,
                         claimedDeviceId: null,
+                        accountId: null,
                         status: 'PENDING',
                         registrationPin: null,
                     }
