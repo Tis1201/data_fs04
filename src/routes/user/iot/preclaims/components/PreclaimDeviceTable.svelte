@@ -14,6 +14,8 @@
   export let allowRemove: boolean = true;
   /** When provided (e.g. on detail page), called after a device is removed so the parent can refetch/invalidate. */
   export let onRecordsUpdated: (() => void) | undefined = undefined;
+  /** Preclaim's Valid Until date; used as fallback when device.expiresAt is empty. */
+  export let preclaimValidUntil: Date | string | null | undefined = undefined;
 
   let loading = true;
   let confirmRemoveOpen = false;
@@ -21,7 +23,7 @@
   let removeLoading = false;
   let records: Array<Record<string, any>> = [];
   let apiPagination = { page: 1, per_page: 10, total_records: 0, total_pages: 0 };
-  let apiSort = { field: 'createdAt', order: 'desc' as 'asc' | 'desc' };
+  let apiSort = { field: 'name', order: 'asc' as 'asc' | 'desc' };
   let loadError: string | null = null;
 
   $: if (initialRecords != null) {
@@ -56,6 +58,13 @@
     return 'gray';
   }
 
+  function formatExpiresAt(d: Date | string | null | undefined): string {
+    if (!d) return '—';
+    const date = typeof d === 'string' ? new Date(d) : d;
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  }
+
   $: pagination = {
     page: apiPagination.page ?? 1,
     pageSize: apiPagination.per_page ?? 10,
@@ -64,11 +73,11 @@
   };
 
   $: sort = {
-    field: apiSort.field || 'createdAt',
-    direction: apiSort.order || 'desc'
+    field: apiSort.field || 'name',
+    direction: apiSort.order || 'asc'
   };
 
-  const columns: ColumnDef[] = [
+  $: columns = [
     {
       id: 'rowNumber',
       header: '#',
@@ -112,6 +121,14 @@
       width: '120px'
     },
     {
+      id: 'expiresAt',
+      header: 'Expires',
+      accessor: (row: Record<string, any>) => formatExpiresAt(row.expiresAt ?? preclaimValidUntil),
+      type: 'text',
+      sortable: true,
+      width: '120px'
+    },
+    {
       id: 'actions',
       header: 'Actions',
       type: 'moreMenu',
@@ -139,7 +156,7 @@
         return actions;
       }
     }
-  ];
+  ] satisfies ColumnDef[];
 
   function confirmRemove(row: Record<string, any>) {
     if (!browser) return;
@@ -174,9 +191,13 @@
         credentials: 'include'
       });
       if (res.ok) {
-        await loadData();
         closeRemoveModal();
-        onRecordsUpdated?.();
+        if (initialRecords != null) {
+          onRecordsUpdated?.();
+        } else {
+          await loadData();
+          onRecordsUpdated?.();
+        }
       } else {
         const err = await res.json().catch(() => ({}));
         const message = err?.error?.message || res.statusText || 'Remove failed';
@@ -256,9 +277,13 @@
     if (next.field && next.direction) {
       url.searchParams.set('sort_field', next.field);
       url.searchParams.set('sort_order', next.direction);
+      // Optimistic update so the arrow icon reflects the click immediately,
+      // before the API fetch completes and apiSort is confirmed.
+      apiSort = { field: next.field, order: next.direction as 'asc' | 'desc' };
     } else {
       url.searchParams.delete('sort_field');
       url.searchParams.delete('sort_order');
+      apiSort = { field: 'name', order: 'asc' };
     }
     url.searchParams.set('page', '1');
     goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });

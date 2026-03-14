@@ -332,6 +332,10 @@ export const POST: RequestHandler = restrict(
                             
                             // Replace sourcePath in payload with signed download URL
                             payload.sourcePath = downloadUrlData.downloadUrl;
+                            // Add HMAC auth when CDN+HMAC configured (device must send x-timestamp, x-mac headers)
+                            if (result.downloadAuth) {
+                                payload.downloadAuth = result.downloadAuth;
+                            }
                             
                             logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for push_file`, {
                                 originalSourcePath: finalSourcePath,
@@ -567,6 +571,7 @@ export const POST: RequestHandler = restrict(
                         // Add download URL to payload sent to device
                         payload.downloadUrl = downloadUrlData.downloadUrl;
                         payload.appPath = resource.path; // Keep original path for reference
+                        if (result.downloadAuth) payload.downloadAuth = result.downloadAuth;
                         
                         logger.info(`[UnifiedActionAPI] Generated signed download URL for install_app`, {
                             resourceId,

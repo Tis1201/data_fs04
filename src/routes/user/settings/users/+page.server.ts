@@ -11,7 +11,8 @@ import { restrictAccountRole, type AccountAuthenticatedEvent } from '$lib/server
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
 import { getEnhancedPrisma } from '$lib/server/prisma';
-import { checkUserLimit, LimitExceededError } from '$lib/server/entitlements';
+// TODO: Re-enable after subscription system is implemented
+// import { checkUserLimit, LimitExceededError } from '$lib/server/entitlements';
 import { createUserSchema } from './new/schema';
 
 const DEFAULT_PAGE = 1;
@@ -184,27 +185,30 @@ export const actions: Actions = {
 
                 if (!parsed.success) {
                     const first = parsed.error.flatten().fieldErrors;
-                    const msg = first.name?.[0] || first.email?.[0] || first.password?.[0] || 'Validation failed';
-                    return fail(400, { error: msg, createError: true });
+                    if (first.name?.[0]) return fail(400, { error: first.name[0], field: 'name', createError: true });
+                    if (first.email?.[0]) return fail(400, { error: first.email[0], field: 'email', createError: true });
+                    if (first.password?.[0]) return fail(400, { error: first.password[0], field: 'password', createError: true });
+                    return fail(400, { error: 'Validation failed', field: null, createError: true });
                 }
 
-                try {
-                    await checkUserLimit(accountId);
-                } catch (e) {
-                    if (e instanceof LimitExceededError) {
-                        return fail(403, { error: `User limit reached (${e.current}/${e.max}). Upgrade your plan to add more users.`, createError: true });
-                    }
-                    throw e;
-                }
+                // TODO: Re-enable user limit check after subscription system is implemented
+                // try {
+                //     await checkUserLimit(accountId);
+                // } catch (e) {
+                //     if (e instanceof LimitExceededError) {
+                //         return fail(403, { error: `User limit reached (${e.current}/${e.max}). Upgrade your plan to add more users.`, createError: true, field: null });
+                //     }
+                //     throw e;
+                // }
 
                 const passwordValidation = await validatePassword(parsed.data.password);
                 if (!passwordValidation.valid) {
-                    return fail(400, { error: passwordValidation.error || 'Password does not meet requirements', createError: true });
+                    return fail(400, { error: passwordValidation.error || 'Password does not meet requirements', field: 'password', createError: true });
                 }
 
                 const existingUser = await enhancedPrisma.user.findUnique({ where: { email: parsed.data.email } });
                 if (existingUser) {
-                    return fail(400, { error: 'A user with this email already exists', createError: true });
+                    return fail(400, { error: 'A user with this email already exists', field: 'email', createError: true });
                 }
 
                 const hashedPassword = await hash(parsed.data.password);

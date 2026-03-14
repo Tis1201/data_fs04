@@ -10,7 +10,8 @@ import { getUserModulePermissions } from '$lib/server/security/modulePermissions
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
 import { generateId } from 'lucia';
-import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
+// TODO: Re-enable after subscription system is implemented
+// import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
 import prisma from '$lib/server/prisma';
@@ -266,14 +267,15 @@ async function resolveDeviceIdByPin(
         return { deviceId: dev.id };
     }
 
-    try {
-        await checkDeviceLimit(currentAccountId);
-    } catch (e) {
-        if (e instanceof LimitExceededError) {
-            return { deviceId: '', error: `Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.` };
-        }
-        throw e;
-    }
+    // TODO: Re-enable device limit check after subscription system is implemented
+    // try {
+    //     await checkDeviceLimit(currentAccountId);
+    // } catch (e) {
+    //     if (e instanceof LimitExceededError) {
+    //         return { deviceId: '', error: `Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.` };
+    //     }
+    //     throw e;
+    // }
 
     const now = new Date();
     const apiKey = generateId(32);

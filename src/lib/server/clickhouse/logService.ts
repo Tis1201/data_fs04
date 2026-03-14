@@ -7,7 +7,7 @@ import {
     handleFileUpload,
     getFileMetadataFromCloudUrl,
     getStorageConfig,
-    generateDownloadUrl
+    convertGCloudUrlToSignedDownloadUrl
 } from '$lib/server/storage';
 
 export interface LogQueryParams {
@@ -86,9 +86,10 @@ export class LogService {
 
     /**
      * Export logs with caching strategy
-     * Returns a signed URL to the file in GCS
+     * Returns a download URL (proxy for R2/HMAC, direct for LOCAL)
+     * @param baseUrl - Origin URL (e.g. url.origin) for building proxy URL when R2
      */
-    async exportLogs(params: LogQueryParams): Promise<string> {
+    async exportLogs(params: LogQueryParams & { baseUrl?: string }): Promise<string> {
         // 1. Validate Date Range (Sync limit: 30 days)
         const ONE_DAY = 24 * 60 * 60 * 1000;
         const range = (params.endTime?.getTime() || Date.now()) - (params.startTime?.getTime() || 0);
@@ -113,8 +114,7 @@ export class LogService {
 
                 if (metadata) {
                     logger.info(`[LogService] Cache hit for ${objectPath}`);
-                    const { url } = await generateDownloadUrl(objectPath, 3600, `logs-${cacheKey}.${format}`);
-                    return url;
+                    return this.buildExportDownloadUrl(objectPath, format, cacheKey, params.baseUrl);
                 }
             }
         } catch (e) {
@@ -164,9 +164,17 @@ export class LogService {
 
         logger.info(`[LogService] Export uploaded to ${objectPath}`);
 
-        // 6. Return Signed URL
-        const { url } = await generateDownloadUrl(objectPath, 3600, `logs-${new Date().toISOString()}.${format}`);
-        return url;
+        // 6. Return download URL (proxy for R2, direct for LOCAL)
+        return this.buildExportDownloadUrl(objectPath, format, cacheKey, params.baseUrl);
+    }
+
+    private async buildExportDownloadUrl(objectPath: string, format: string, cacheKey: string, baseUrl?: string): Promise<string> {
+        const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, `logs-${cacheKey}.${format}`);
+        if (!result) throw new Error('HMAC required for R2. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC.');
+        if (result.downloadAuth && baseUrl) {
+            return `${baseUrl.replace(/\/$/, '')}/api/exports/proxy?objectPath=${encodeURIComponent(objectPath)}`;
+        }
+        return result.downloadUrl;
     }
 
     private buildQuery(params: LogQueryParams): { query: string, queryParams: any } {

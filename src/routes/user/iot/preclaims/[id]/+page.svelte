@@ -337,9 +337,9 @@
                     <PreclaimDeviceTable
                         preclaimId={preclaimSet?.id ?? ''}
                         hideToolbar={true}
-                        initialRecords={claims}
                         allowRemove={isDraft}
                         onRecordsUpdated={() => invalidate('app:preclaim')}
+                        preclaimValidUntil={preclaimSet?.expiresAt}
                     />
                 {/key}
             </div>

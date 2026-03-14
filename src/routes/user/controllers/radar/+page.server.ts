@@ -8,7 +8,8 @@ import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
-import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
+// TODO: Re-enable after subscription system is implemented
+// import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
 import { validateBounds, normalizeBounds } from '$lib/components/ui_components_sveltekit/radar/constraints';
@@ -268,14 +269,15 @@ async function resolveDeviceIdByPin(
         return { deviceId: dev.id };
     }
 
-    try {
-        await checkDeviceLimit(currentAccountId);
-    } catch (e) {
-        if (e instanceof LimitExceededError) {
-            return { deviceId: '', error: `Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.` };
-        }
-        throw e;
-    }
+    // TODO: Re-enable radar/device limit check after subscription system is implemented
+    // try {
+    //     await checkDeviceLimit(currentAccountId);
+    // } catch (e) {
+    //     if (e instanceof LimitExceededError) {
+    //         return { deviceId: '', error: `Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.` };
+    //     }
+    //     throw e;
+    // }
 
     const now = new Date();
     const apiKey = generateId(32);

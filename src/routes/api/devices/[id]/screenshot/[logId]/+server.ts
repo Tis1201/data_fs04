@@ -4,7 +4,7 @@ import type { RequestHandler } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma';
-import { generateDownloadUrl } from '$lib/server/storage';
+import { convertGCloudUrlToSignedDownloadUrl, getStorageConfig } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
 
 /**
@@ -92,11 +92,23 @@ export const GET: RequestHandler = restrict(
         }
 
         try {
-            const result = await generateDownloadUrl(objectPath, 3600, 'screenshot.jpg');
-            if (wantJson) {
-                return json({ url: result.url });
+            const storageConfig = getStorageConfig();
+            let downloadUrl: string;
+            if (storageConfig.mode === 'R2') {
+                const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, 'screenshot.jpg');
+                if (!result || !result.downloadAuth) {
+                    throw new Error('HMAC required for R2. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC.');
+                }
+                downloadUrl = `${url.origin}/api/v2/devices/${deviceId}/pull-file-download-proxy?logId=${encodeURIComponent(logId)}`;
+            } else {
+                const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, 'screenshot.jpg');
+                if (!result) throw new Error('Failed to generate download URL');
+                downloadUrl = result.downloadUrl;
             }
-            redirect(302, result.url);
+            if (wantJson) {
+                return json({ url: downloadUrl });
+            }
+            redirect(302, downloadUrl);
         } catch (err) {
             logger.error(`[Screenshot] Failed to generate download URL: ${err}`);
             return new Response(

@@ -1,7 +1,7 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
-import { generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
+import { convertGCloudUrlToSignedDownloadUrl, getStorageConfig } from '$lib/server/storage';
 import path from 'path';
 
 /**
@@ -110,13 +110,6 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 	const objectPath = metadata?.objectPath;
 	const bucket = metadata?.bucket;
 
-	logger.info('[PullFileDownloadURL] Action log metadata', {
-		logId,
-		metadata,
-		objectPath,
-		bucket
-	});
-
 	if (!objectPath) {
 		throw Object.assign(
 			new Error('Object path not found in action log metadata'),
@@ -152,26 +145,27 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 	// Extract filename from objectPath
 	const fileName = path.basename(objectPath);
 
-	// Generate presigned download URL
-	logger.info('[PullFileDownloadURL] Generating download URL', {
-		mode: storageConfig.mode,
-		bucket: storageBucket,
-		objectPath,
-		fileName
-	});
-
-	let downloadUrlResult;
+	// Generate download URL (HMAC only for R2 - returns proxy URL for same-origin fetch)
+	let downloadUrlResult: { url: string; expires: number };
 
 	if (storageConfig.mode === 'R2' && storageBucket) {
-		downloadUrlResult = await generateDownloadUrl(objectPath, 3600, fileName);
+		const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, fileName);
+		if (!result || !result.downloadAuth) {
+			throw Object.assign(
+				new Error('HMAC required for R2. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC.'),
+				{ status: 500, code: 'CONFIGURATION_ERROR' }
+			);
+		}
+		const origin = url.origin;
+		downloadUrlResult = {
+			url: `${origin}/api/v2/devices/${deviceId}/pull-file-download-proxy?logId=${encodeURIComponent(logId)}`,
+			expires: result.expires
+		};
 	} else if (storageConfig.mode === 'LOCAL') {
 		const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
 		const pathForUrl = objectPath.startsWith('/') ? objectPath : `/uploads/iot/${objectPath}`;
 		downloadUrlResult = {
 			url: `${baseUrl.replace(/\/$/, '')}${pathForUrl}`,
-			bucket: 'local',
-			objectPath,
-			contentType: 'application/octet-stream',
 			expires: Date.now() + 3600 * 1000
 		};
 	} else {

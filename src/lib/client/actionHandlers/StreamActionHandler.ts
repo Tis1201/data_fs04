@@ -2,6 +2,7 @@ import { BaseActionHandler } from './BaseActionHandler';
 import type { MessageData, ActionHandlerParams } from './types';
 import { MessageEntityMapper, type DeviceMessageEntity } from '$lib/entities/DeviceMessageEntity';
 import { mapActionTypeToDb } from './actionTypeMapping';
+import { triggerFileDownload } from '$lib/utils/download';
 
 /**
  * Handler for actions that stream data (e.g., push file, view logs)
@@ -139,9 +140,12 @@ export class LogsHandler extends StreamActionHandler {
       if (objectPath && logId) {
         const pendingId = this.getPendingDownloadId?.();
         if (this.getPendingDownloadId && pendingId !== logId) {
-          console.debug('[LogsHandler] Skipping download — not initiated by this client', { logId, pendingId });
+          console.warn('[LogsHandler] Skipping download — not initiated by this client', {
+            logId,
+            pendingId
+          });
         } else if (this.isDownloadTriggered(logId)) {
-          console.debug('[LogsHandler] Download already triggered', { logId });
+          // Skip - already triggered
         } else {
           this.markDownloadTriggered(logId);
           this.triggerLogsDownload(logId, objectPath).catch((error) => {
@@ -172,7 +176,6 @@ export class LogsHandler extends StreamActionHandler {
 
   private async triggerLogsDownload(logId: string, objectPath: string): Promise<void> {
     try {
-      
       const downloadResponse = await fetch(
         `/api/v2/devices/${this.deviceId}/pull-file-download-url?logId=${logId}`,
         { 
@@ -189,19 +192,17 @@ export class LogsHandler extends StreamActionHandler {
       const response = await downloadResponse.json();
       const data = response.data || response;
       const downloadUrl = data.downloadUrl;
-      // Extract filename from objectPath or use default
       const fileName = data.fileName || (objectPath ? objectPath.split('/').pop() || 'logs.zip' : 'logs.zip');
       
       if (!downloadUrl) {
         throw new Error(`Download URL is missing from API response: ${JSON.stringify(response)}`);
       }
-      
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+
+      await triggerFileDownload({
+        downloadUrl,
+        fileName,
+        ...(data.downloadAuth && { downloadAuth: data.downloadAuth })
+      });
     } catch (error) {
       console.error('[LogsHandler] Error triggering logs download', { logId, error });
     }

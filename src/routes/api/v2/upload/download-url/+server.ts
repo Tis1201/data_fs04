@@ -1,12 +1,12 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
-import { successResponse } from '$lib/types/api';
-import { ErrorCodes } from '$lib/types/api';
-import { generateDownloadUrl } from '$lib/server/storage';
+import { successResponse, ErrorCodes } from '$lib/types/api';
+import { generateDownloadUrl, getStorageConfig } from '$lib/server/storage';
 
 /**
  * GET /api/v2/upload/download-url?objectPath=pinrule/{id}/...&filename=...
- * Returns a signed download URL for an object (e.g. pin rule fallback screen).
+ * Returns a download URL for an object (e.g. pin rule fallback screen).
  * objectPath must start with "pinrule/" for security.
+ * In R2 mode, returns proxy URL. In LOCAL mode, returns direct static URL.
  */
 export const GET = unifiedEndpoint(
   async ({ event }) => {
@@ -29,8 +29,20 @@ export const GET = unifiedEndpoint(
       });
     }
 
-    const result = await generateDownloadUrl(normalized, 3600, filename || undefined);
+    const storageConfig = getStorageConfig();
 
+    if (storageConfig.mode === 'R2') {
+      const origin = url.origin;
+      const proxyParams = new URLSearchParams({ objectPath: normalized });
+      if (filename) proxyParams.set('filename', filename);
+      const proxyUrl = `${origin}/api/v2/upload/download-proxy?${proxyParams.toString()}`;
+      return successResponse({
+        downloadUrl: proxyUrl,
+        expires: Math.floor(Date.now() / 1000) + 3600
+      });
+    }
+
+    const result = await generateDownloadUrl(normalized, 3600, filename || undefined);
     return successResponse({
       downloadUrl: result.url,
       expires: result.expires

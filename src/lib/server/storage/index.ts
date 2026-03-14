@@ -282,7 +282,8 @@ export async function generatePresignedUrl(
 }
 
 /**
- * Generate presigned URL for download (used for serving files)
+ * Generate download URL. R2 uses HMAC only (no presigned). Use proxy endpoints for browser downloads.
+ * @deprecated For R2 browser downloads, use pull-file-download-proxy, exports/proxy, or screenshot proxy.
  */
 export async function generateDownloadUrl(
     objectPath: string,
@@ -293,16 +294,19 @@ export async function generateDownloadUrl(
 
     switch (config.mode) {
         case 'R2':
-            if (!config.r2Bucket) {
-                throw new Error('CLOUDFLARE_R2_BUCKET_NAME environment variable is required for R2 mode protocol details');
-            }
-            return await generateDownloadUrlR2(
-                config.r2Bucket,
+            // R2 uses HMAC only - no presigned URLs. Callers must use proxy endpoints.
+            throw new Error('R2 downloads use HMAC. Use proxy endpoints: pull-file-download-proxy for device files, /api/exports/proxy for log exports.');
+        case 'LOCAL':
+            // LOCAL mode: build direct static URL
+            const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+            const pathForUrl = objectPath.startsWith('/') ? objectPath : `/uploads/iot/${objectPath}`;
+            return {
+                url: `${baseUrl.replace(/\/$/, '')}${pathForUrl}`,
+                bucket: 'local',
                 objectPath,
-                expiresSeconds,
-                filename
-            );
-
+                contentType: 'application/octet-stream',
+                expires: Date.now() + expiresSeconds * 1000
+            };
         default:
             throw new Error(`Download URL generation not supported for storage mode: ${config.mode}`);
     }
@@ -471,7 +475,8 @@ export {
     isCloudStorageUrl,
     parseR2Url,
     parseCloudStorageUrl,
-    convertGCloudUrlToSignedDownloadUrl
+    convertGCloudUrlToSignedDownloadUrl,
+    generateHmacDownloadUrl
 } from './gcloudUrlUtils';
 
 export async function deleteFileFromR2(

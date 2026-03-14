@@ -5,7 +5,7 @@ import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
 import { getStorageConfig, generatePresignedUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
-import { extractFilenameWithExtension, isCloudStorageUrl } from '$lib/server/storage/gcloudUrlUtils';
+import { extractFilenameWithExtension, isCloudStorageUrl, type DownloadAuthHmac } from '$lib/server/storage/gcloudUrlUtils';
 import { broadcastDeviceActionUpdate } from '../../index';
 
 interface DeviceActionParams {
@@ -234,9 +234,10 @@ export async function handleInstallApp(
     // Extract filename with extension from path
     const filename = extractFilenameWithExtension(resource.path, resource.name);
 
-    // Generate download URL: LOCAL mode uses static file URL; GCloud uses signed URL
+    // Generate download URL: LOCAL mode uses static file URL; cloud uses signed or HMAC URL
     const storageConfig = getStorageConfig();
     let downloadUrl: string;
+    let downloadAuth: DownloadAuthHmac | undefined;
 
     if (storageConfig.mode === 'LOCAL' && !isCloudStorageUrl(resource.path)) {
         // LOCAL storage: file is in static/uploads/iot/ - build direct URL
@@ -250,6 +251,7 @@ export async function handleInstallApp(
             throw new Error('Failed to generate download URL for resource');
         }
         downloadUrl = result.downloadUrl;
+        downloadAuth = result.downloadAuth;
     }
 
     logger.info(`[WebInstall App] Generated download URL`, {
@@ -257,7 +259,8 @@ export async function handleInstallApp(
         resourceName: resource.name,
         packageName: params.packageName,
         packageSize: resource.size,
-        downloadUrl
+        downloadUrl,
+        hasHmacAuth: !!downloadAuth
     });
 
     return executeDeviceAction(
@@ -270,7 +273,8 @@ export async function handleInstallApp(
             packageName: params.packageName,
             resourceId: params.resourceId,
             downloadUrl,
-            packageSize: resource.size
+            packageSize: resource.size,
+            ...(downloadAuth && { downloadAuth })
         }
     );
 }
@@ -408,7 +412,8 @@ export async function handlePushFile(
             sourcePath: result.downloadUrl,
             destinationPath: params.destinationPath,
             resourceId: params.resourceId,
-            fileName: resource.name
+            fileName: resource.name,
+            ...(result.downloadAuth && { downloadAuth: result.downloadAuth })
         }
     );
 }

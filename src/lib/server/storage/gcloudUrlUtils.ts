@@ -1,6 +1,48 @@
+import { createHmac } from 'crypto';
 import { logger } from '$lib/server/logger';
-import { generateDownloadUrl, generateDownloadUrlR2, getStorageConfig } from './index';
+import { getStorageConfig } from './index';
 import path from 'path';
+
+/** HMAC auth for device downloads via CDN. Device must send x-timestamp and x-mac headers. */
+export interface DownloadAuthHmac {
+    type: 'hmac';
+    timestamp: string;
+    mac: string;
+}
+
+export interface SignedDownloadResult {
+    downloadUrl: string;
+    bucket: string;
+    objectPath: string;
+    expires: number;
+    downloadAuth?: DownloadAuthHmac;
+}
+
+/**
+ * Generate HMAC-authenticated download URL for CDN.
+ * When CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC are set, devices must use
+ * this instead of presigned URLs. Device fetches with headers: x-timestamp, x-mac.
+ */
+export function generateHmacDownloadUrl(objectPath: string): { downloadUrl: string; timestamp: string; mac: string } | null {
+    const cdnBase = process.env.CLOUDFLARE_R2_CDN_URL?.replace(/\/$/, '');
+    const secret = process.env.CLOUDFLARE_R2_ACCESS_HMAC;
+    if (!cdnBase || !secret) return null;
+
+    const objectPathNorm = objectPath.startsWith('/') ? objectPath : `/${objectPath}`;
+
+    // R2 direct URL (*.r2.cloudflarestorage.com) requires bucket in path: /{bucket}/{key}
+    // Custom domain (e.g. cdn-dev.datarealities.com) maps directly to bucket root: /{key}
+    const isR2Direct = cdnBase.includes('.r2.cloudflarestorage.com') || cdnBase.includes('.r2.dev');
+    const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME;
+    const filePath = isR2Direct && bucket ? `/${bucket}${objectPathNorm}` : objectPathNorm;
+
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const message = filePath + timestamp;
+    const mac = createHmac('sha256', secret).update(message).digest('base64');
+    const downloadUrl = `${cdnBase}${filePath}`;
+
+    return { downloadUrl, timestamp, mac };
+}
 
 /**
  * Extract filename with extension from resource path and name
@@ -167,12 +209,13 @@ export function parseCloudStorageUrl(url: string): { bucket?: string; objectPath
  * Convert a storage path or URL to a signed download URL.
  * Supports path-only (e.g. resources/file.deb), R2 URLs, and legacy GCloud URLs.
  * When in R2 mode, uses r2Bucket for path-only and parsed URLs.
+ * When CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC are set, returns HMAC auth instead of presigned URL.
  */
 export async function convertGCloudUrlToSignedDownloadUrl(
     pathOrUrl: string,
     expiresSeconds: number = 3600,
     filename?: string
-): Promise<{ downloadUrl: string; bucket: string; objectPath: string; expires: number } | null> {
+): Promise<SignedDownloadResult | null> {
     try {
         const storageConfig = getStorageConfig();
 
@@ -226,19 +269,26 @@ export async function convertGCloudUrlToSignedDownloadUrl(
         const fileName = filename || path.basename(objectPath);
 
         logger.info('[StorageUrlUtils] Converting to signed download URL', {
-            originalPath: pathOrUrl,
-            bucket,
             objectPath,
             mode: storageConfig.mode
         });
 
-        const downloadUrlResult = await generateDownloadUrlR2(bucket, objectPath, expiresSeconds, fileName);
-
+        // R2 mode: HMAC only (no presigned URLs). CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC required.
+        const hmacResult = generateHmacDownloadUrl(objectPath);
+        if (!hmacResult) {
+            logger.error('[StorageUrlUtils] HMAC not configured. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC for R2 downloads.');
+            return null;
+        }
         return {
-            downloadUrl: downloadUrlResult.url,
-            bucket: downloadUrlResult.bucket,
-            objectPath: downloadUrlResult.objectPath,
-            expires: downloadUrlResult.expires
+            downloadUrl: hmacResult.downloadUrl,
+            bucket,
+            objectPath,
+            expires: Date.now() + expiresSeconds * 1000,
+            downloadAuth: {
+                type: 'hmac',
+                timestamp: hmacResult.timestamp,
+                mac: hmacResult.mac
+            }
         };
     } catch (error) {
         logger.error('[StorageUrlUtils] Failed to convert to signed download URL', {

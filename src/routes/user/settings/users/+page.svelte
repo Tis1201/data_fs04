@@ -185,6 +185,7 @@
     let addNameError = '';
     let addEmailError = '';
     let addPasswordError = '';
+    let addServerError = '';
 
     const accountRoleOptions = [
         { id: 'MEMBER', label: 'Member' },
@@ -202,6 +203,7 @@
         addNameError = '';
         addEmailError = '';
         addPasswordError = '';
+        addServerError = '';
         showAddModal = true;
     }
 
@@ -210,6 +212,26 @@
         addNameError = '';
         addEmailError = '';
         addPasswordError = '';
+        addServerError = '';
+    }
+
+    function parseActionResult(data: unknown): { error: string; field: string | null } | null {
+        if (!data) return null;
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            // SvelteKit devalue format: [{ key: valueIndex, ... }, value0, value1, ...]
+            if (Array.isArray(parsed) && parsed[0] && typeof parsed[0] === 'object') {
+                const shape = parsed[0] as Record<string, number>;
+                const error = typeof shape.error === 'number' ? String(parsed[shape.error]) : null;
+                const field = typeof shape.field === 'number' ? (parsed[shape.field] as string | null) : null;
+                if (error) return { error, field: field ?? null };
+            }
+            if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+                const r = parsed as Record<string, unknown>;
+                return { error: String(r.error), field: (r.field as string | null) ?? null };
+            }
+        } catch { /* ignore */ }
+        return null;
     }
 
     // Edit Member modal (shared EditMemberModal component)
@@ -259,6 +281,7 @@
         addNameError = '';
         addEmailError = '';
         addPasswordError = '';
+        addServerError = '';
         if (!addName.trim()) {
             addNameError = 'Member name is required';
         }
@@ -289,10 +312,15 @@
                 await invalidateAll();
                 goto($page.url.pathname + $page.url.search, { noScroll: true, invalidateAll: true });
             } else {
-                toast.error(result.data?.error || 'Unable to add member. Please try again.');
+                const parsed = parseActionResult(result.data);
+                const msg = parsed?.error || 'Unable to add member. Please try again.';
+                if (parsed?.field === 'name') addNameError = msg;
+                else if (parsed?.field === 'email') addEmailError = msg;
+                else if (parsed?.field === 'password') addPasswordError = msg;
+                else addServerError = msg;
             }
         } catch {
-            toast.error('Unable to add member. Please try again.');
+            addServerError = 'Unable to add member. Please try again.';
         } finally {
             addLoading = false;
         }
@@ -563,6 +591,9 @@
             </div>
         </div>
     </div>
+    {#if addServerError}
+        <div class="modal-server-error">{addServerError}</div>
+    {/if}
     <div slot="footer" class="footer-actions">
         <Button variant="outline" color="primary" size="lg" on:click={closeAddModal}>
             Cancel
@@ -762,6 +793,16 @@
     .field-label {
         font: var(--ds-text-sm-medium);
         color: var(--ds-text-secondary);
+    }
+
+    .modal-server-error {
+        margin-top: var(--ds-space-3);
+        padding: var(--ds-space-3) var(--ds-space-4);
+        border-radius: var(--ds-radius-md);
+        background: var(--ds-error-50, #fef2f2);
+        border: 1px solid var(--ds-error-200, #fecaca);
+        color: var(--ds-error-700, #b91c1c);
+        font: var(--ds-text-sm-regular);
     }
 
     /* Modal footer: align with design-system (flex-end, gap 16px) */
