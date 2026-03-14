@@ -485,6 +485,51 @@ async function createSensorForDevice(
             return { type: 'error', message: 'Device not found or access denied' };
         }
         if (device.controllers.length > 0) {
+            // Handle race condition: physical device may have called GET /api/device/controller before
+            // the wizard ran, causing an auto-created controller with default config (no device settings).
+            // If the existing controller was auto-created, update its sensor config with the wizard's
+            // initConfig (which contains the user-specified device settings) instead of failing.
+            const existingController = device.controllers[0];
+            const isAutoCreated = existingController.description === 'Auto-created during config retrieval';
+            if (isAutoCreated && Object.keys(initConfig as object).length > 0) {
+                const existingSensorForUpdate = await locals.prisma.sensor.findFirst({
+                    where: { controllerId: existingController.id, type: 'radar' }
+                });
+                if (existingSensorForUpdate) {
+                    await locals.prisma.sensor.update({
+                        where: { id: existingSensorForUpdate.id },
+                        data: { config: initConfig as Prisma.InputJsonValue, updatedAt: new Date() }
+                    });
+                }
+                // Also update the controller name/info to match the wizard input
+                await locals.prisma.controller.update({
+                    where: { id: existingController.id },
+                    data: {
+                        name: `${name} Controller`,
+                        description: null,
+                        status,
+                        createdBy: userId,
+                        updatedAt: new Date()
+                    }
+                });
+                if (existingSensorForUpdate) {
+                    await locals.prisma.sensor.update({
+                        where: { id: existingSensorForUpdate.id },
+                        data: {
+                            name,
+                            serialNumber,
+                            description: description || null,
+                            location: location || null,
+                            firmware: firmware || null,
+                            status,
+                            createdBy: userId,
+                            updatedAt: new Date()
+                        }
+                    });
+                }
+                logger.info(`Updated auto-created controller ${existingController.id} with wizard config for device ${deviceId}`);
+                return { type: 'success', controllerId: existingController.id };
+            }
             return { type: 'error', message: 'This device already has an active radar sensor. Only one sensor per device is allowed.' };
         }
 

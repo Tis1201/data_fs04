@@ -163,7 +163,9 @@ export const GET: RequestHandler = restrictDevice(async ({ device, locals, url }
 });
 
 /**
- * Get default configuration for a sensor type
+ * Get default configuration for a sensor type.
+ * For radar, includes all device settings fields so that auto-created sensors
+ * have the same structure as wizard-created ones (prevents missing fields in EditDeviceModal).
  */
 function getDefaultSensorConfig(type: string): Record<string, unknown> {
     switch (type) {
@@ -171,7 +173,11 @@ function getDefaultSensorConfig(type: string): Record<string, unknown> {
             return {
                 detectionZones: [],
                 sensitivity: 50,
-                range: 10
+                range: 10,
+                deviceMode: 'LIVE_PREVIEW',
+                timezone: 'UTC',
+                pathTracking: true,
+                dwellThreshold: 0
             };
         case 'camera':
             return {
