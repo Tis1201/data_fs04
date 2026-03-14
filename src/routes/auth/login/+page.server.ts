@@ -39,35 +39,28 @@ export const load = (async ({ locals, url }) => {
         allowRegistration = false;
     }
     
+    let session;
     try {
-        const session = await locals.auth.validate();
-        if (session?.user) {
-            // Get the user to check their role
-            const user = await authPrisma.user.findUnique({
-                where: { id: session.user.id }  
-            });
-
-            if (user) {
-                logger.debug('User already has valid session, redirecting', { 
-                    userId: session.user.id,  
-                    role: user.systemRole 
-                });
-
-                // Use redirectTo from URL if provided, otherwise use role-based default
-                const finalRedirectTo = redirectTo || (user.systemRole === 'ADMIN' ? '/admin' : '/user');
-                
-                // Return success with redirect path
-                return {
-                    form: {},
-                    success: true,
-                    redirectTo: finalRedirectTo,
-                    allowRegistration
-                };
-            }
-        }
+        session = await locals.auth.validate();
     } catch (e) {
         logger.error('Error validating session', { error: e });
         // If there's an error, just continue to login form
+    }
+
+    if (session?.user) {
+        const user = await authPrisma.user.findUnique({
+            where: { id: session.user.id }
+        });
+
+        if (user) {
+            logger.debug('User already has valid session, redirecting', {
+                userId: session.user.id,
+                role: user.systemRole
+            });
+
+            const finalRedirectTo = redirectTo || (user.systemRole === 'ADMIN' ? '/admin' : '/user');
+            throw redirect(302, finalRedirectTo);
+        }
     }
 
     const form = await superValidate(zod(loginSchema));

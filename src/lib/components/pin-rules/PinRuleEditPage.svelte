@@ -6,6 +6,7 @@
     import AppPickerModal from '$lib/components/shared/AppPickerModal.svelte';
     import type { AppPickerItem } from '$lib/components/shared/AppPickerModal.svelte';
     import { toast } from 'svelte-sonner';
+    import { triggerFileDownload } from '$lib/utils/download';
     import { onMount } from 'svelte';
     
     import { browser } from '$app/environment';
@@ -373,13 +374,18 @@
                 `${apiPrefix}/upload/download-url?objectPath=${encodeURIComponent(url)}&filename=${encodeURIComponent(downloadFileName)}`
             );
             const data = await res.json();
-            if (data?.success && data?.data?.downloadUrl) {
-                window.open(data.data.downloadUrl, '_blank', 'noopener,noreferrer');
+            const d = data?.data ?? data;
+            if (d?.downloadUrl) {
+                await triggerFileDownload({
+                    downloadUrl: d.downloadUrl,
+                    fileName: d.fileName || downloadFileName,
+                    ...(d.downloadAuth && { downloadAuth: d.downloadAuth })
+                });
             } else {
                 toast.error('Could not get download link');
             }
-        } catch {
-            toast.error('Could not get download link');
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Could not get download link');
         }
     }
 </script>

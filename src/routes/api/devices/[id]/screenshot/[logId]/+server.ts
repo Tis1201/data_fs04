@@ -1,33 +1,27 @@
-import { redirect } from '@sveltejs/kit';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma';
-import { convertGCloudUrlToSignedDownloadUrl, getStorageConfig } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
+import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
 
 /**
  * GET /api/devices/[id]/screenshot/[logId]
- * - Default: 302 redirect to signed download URL (for direct links).
- * - Accept: application/json or ?format=json: returns { url } so the client can set img src to the signed URL (avoids redirect/cookie issues in img).
+ * Returns { url, downloadAuth, fileName } for browser-direct CDN fetch (Browser → CDN only, no server proxy).
+ * format=json required for R2; non-json returns 400.
  */
 export const GET: RequestHandler = restrict(
-    async (event) => {
+    async (event: import('@sveltejs/kit').RequestEvent) => {
         const { params, locals, url } = event;
         const wantJson =
             url.searchParams.get('format') === 'json' ||
             (event.request.headers.get('accept') ?? '').includes('application/json');
         const deviceId = params.id;
         const logId = params.logId;
-        const user = (locals as any).auth?.user;
+        const user = (locals as any).user;
 
-        if (!user) {
-            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-                status: 401,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
+        logger.debug('[Screenshot] Handler entered', { deviceId, logId, hasUser: !!user, userId: user?.id });
 
         if (!deviceId || !logId) {
             return new Response(JSON.stringify({ error: 'Missing deviceId or logId' }), {
@@ -51,6 +45,7 @@ export const GET: RequestHandler = restrict(
         });
 
         if (!device) {
+            logger.warn('[Screenshot] Device not found', { deviceId });
             return new Response(JSON.stringify({ error: 'Device not found' }), {
                 status: 404,
                 headers: { 'Content-Type': 'application/json' }
@@ -71,10 +66,12 @@ export const GET: RequestHandler = restrict(
         }
 
         const actionLog = await prisma.deviceActionLog.findFirst({
-            where: { id: logId, deviceId }
+            where: { id: logId, deviceId },
+            select: { metadata: true }
         });
 
         if (!actionLog) {
+            logger.warn('[Screenshot] Action log not found', { logId, deviceId });
             return new Response(JSON.stringify({ error: 'Action log not found' }), {
                 status: 404,
                 headers: { 'Content-Type': 'application/json' }
@@ -84,38 +81,44 @@ export const GET: RequestHandler = restrict(
         const metadata = actionLog.metadata as Record<string, unknown> | null;
         const objectPath = metadata?.objectPath as string | undefined;
 
-        if (!objectPath || typeof objectPath !== 'string') {
-            return new Response(JSON.stringify({ error: 'Screenshot not available (no objectPath)' }), {
-                status: 404,
-                headers: { 'Content-Type': 'application/json' }
+        const storageConfig = getStorageConfig();
+        if (storageConfig.mode === 'R2') {
+            if (!objectPath) {
+                return new Response(JSON.stringify({ error: 'Screenshot object path not found' }), {
+                    status: 404,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, 'screenshot.jpg');
+            if (!result?.downloadAuth) {
+                return new Response(JSON.stringify({ error: 'HMAC required for R2. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC.' }), {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            return json({
+                url: result.downloadUrl,
+                downloadAuth: result.downloadAuth,
+                fileName: 'screenshot.jpg'
             });
         }
 
-        try {
-            const storageConfig = getStorageConfig();
-            let downloadUrl: string;
-            if (storageConfig.mode === 'R2') {
-                const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, 'screenshot.jpg');
-                if (!result || !result.downloadAuth) {
-                    throw new Error('HMAC required for R2. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC.');
-                }
-                downloadUrl = `${url.origin}/api/v2/devices/${deviceId}/pull-file-download-proxy?logId=${encodeURIComponent(logId)}`;
-            } else {
-                const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, 'screenshot.jpg');
-                if (!result) throw new Error('Failed to generate download URL');
-                downloadUrl = result.downloadUrl;
-            }
-            if (wantJson) {
-                return json({ url: downloadUrl });
-            }
-            redirect(302, downloadUrl);
-        } catch (err) {
-            logger.error(`[Screenshot] Failed to generate download URL: ${err}`);
-            return new Response(
-                JSON.stringify({ error: 'Failed to generate screenshot URL' }),
-                { status: 500, headers: { 'Content-Type': 'application/json' } }
-            );
+        if (!wantJson) {
+            return new Response(JSON.stringify({ error: 'Use format=json for browser-direct download' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
+        if (storageConfig.mode === 'LOCAL' && objectPath) {
+            const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, 'screenshot.jpg');
+            if (result) {
+                return json({ url: result.downloadUrl, fileName: 'screenshot.jpg' });
+            }
+        }
+        return new Response(JSON.stringify({ error: 'Screenshot not available' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' }
+        });
     },
     [SystemRole.ADMIN, SystemRole.USER]
 );

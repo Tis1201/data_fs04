@@ -2,6 +2,7 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { convertGCloudUrlToSignedDownloadUrl, getStorageConfig } from '$lib/server/storage';
+import rawPrisma from '$lib/server/prisma';
 import path from 'path';
 
 /**
@@ -83,10 +84,10 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		);
 	}
 
-	// Verify it's a pull_file or get_logs action
-	if (actionLog.actionType !== 'pull_file' && actionLog.actionType !== 'get_logs') {
+	const allowedActionTypes = ['pull_file', 'get_logs', 'take_screenshot', 'screenshot'];
+	if (!allowedActionTypes.includes(actionLog.actionType || '')) {
 		throw Object.assign(
-			new Error('Action log is not for a pull_file or get_logs operation'),
+			new Error('Action log is not for a pull_file, get_logs, or screenshot operation'),
 			{ status: 400, code: 'INVALID_ACTION' }
 		);
 	}
@@ -145,8 +146,8 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 	// Extract filename from objectPath
 	const fileName = path.basename(objectPath);
 
-	// Generate download URL (HMAC only for R2 - returns proxy URL for same-origin fetch)
-	let downloadUrlResult: { url: string; expires: number };
+	// Generate download URL. R2: direct CDN URL + HMAC for browser-direct fetch (avoids server proxy).
+	let downloadUrlResult: { url: string; expires: number; downloadAuth?: { type: 'hmac'; timestamp: string; mac: string } };
 
 	if (storageConfig.mode === 'R2' && storageBucket) {
 		const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, fileName);
@@ -156,10 +157,11 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 				{ status: 500, code: 'CONFIGURATION_ERROR' }
 			);
 		}
-		const origin = url.origin;
+		// Return direct CDN URL + HMAC so browser fetches from CDN (avoids server proxy, fixes Cloudflare bot 403)
 		downloadUrlResult = {
-			url: `${origin}/api/v2/devices/${deviceId}/pull-file-download-proxy?logId=${encodeURIComponent(logId)}`,
-			expires: result.expires
+			url: result.downloadUrl,
+			expires: result.expires,
+			downloadAuth: result.downloadAuth
 		};
 	} else if (storageConfig.mode === 'LOCAL') {
 		const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
@@ -175,9 +177,9 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		);
 	}
 
-	// Mark action log as downloaded
+	// Mark action log as downloaded — use raw Prisma; ZenStack policy blocks update on deviceActionLog
 	try {
-		await prisma.deviceActionLog.update({
+		await rawPrisma.deviceActionLog.update({
 			where: { id: logId },
 			data: {
 				metadata: {
@@ -204,7 +206,8 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 			downloadUrl: downloadUrlResult.url,
 			fileName,
 			objectPath,
-			expires: downloadUrlResult.expires
+			expires: downloadUrlResult.expires,
+			...(downloadUrlResult.downloadAuth && { downloadAuth: downloadUrlResult.downloadAuth })
 		},
 		{ requestId: context.requestId }
 	);

@@ -3,6 +3,8 @@
         id: string;
         name: string;
         packageName: string;
+        /** Upload/created date - for display and ordering */
+        createdAt?: string | null;
     }
 </script>
 
@@ -10,6 +12,7 @@
     import { createEventDispatcher, tick } from 'svelte';
     import { Button, Modal, InputField, Checkbox } from '$lib/design-system/components';
     import { Search, X } from 'lucide-svelte';
+    import { formatTableDateTime } from '$lib/utils/format';
 
     // ==========================================================================
     // PROPS
@@ -113,7 +116,12 @@
     async function loadOptions() {
         optionsLoading = true;
         try {
-            const params = new URLSearchParams({ pageSize: '100', ...extraParams });
+            const params = new URLSearchParams({
+                pageSize: '100',
+                sort: 'createdAt',
+                order: 'desc',
+                ...extraParams
+            });
             if (excludePackages.length) {
                 params.set('excludePackages', excludePackages.join(','));
             }
@@ -124,7 +132,8 @@
             options = items.map((item: any) => ({
                 id: item.id,
                 name: item.name || 'Unknown App',
-                packageName: item.packageName || '-'
+                packageName: item.packageName || '-',
+                createdAt: item.createdAt ?? null
             }));
         } catch {
             options = [];
@@ -273,6 +282,7 @@
                             </span>
                             <div class="app-picker-option-content">
                                 <span class="app-picker-option-name">{app.name}</span>
+                                <span class="app-picker-option-meta">{app.id}{#if app.createdAt}{' - '}{formatTableDateTime(app.createdAt)}{/if}</span>
                                 <span class="app-picker-option-package">
                                     {app.packageName}
                                     {#if alreadyInstalled}
@@ -292,11 +302,12 @@
     <div class="w-full app-picker-selected-section">
         <p class="app-picker-selected-label">Selected ({selected.length} items)</p>
         <div class="app-picker-selected-container">
-            {#each selected as key}
+                {#each selected as key}
                 {@const app = findAppByKey(key)}
                 <div class="app-picker-selected-item">
                     <div class="app-picker-selected-content">
                         <span class="app-picker-selected-name">{app?.name ?? key}</span>
+                        <span class="app-picker-selected-meta">ID: {app?.id ?? key}{#if app?.createdAt}{' · '}{formatTableDateTime(app.createdAt)}{/if}</span>
                         <span class="app-picker-selected-package">{app?.packageName ?? key}</span>
                     </div>
                     <Button
@@ -389,7 +400,7 @@
         width: 100%;
         display: flex;
         flex-direction: row;
-        align-items: center;
+        align-items: flex-start;
         gap: var(--ds-space-3);
         padding: var(--ds-space-2) var(--ds-space-4);
         border: none;
@@ -398,13 +409,14 @@
         cursor: pointer;
         text-align: left;
         transition: background-color 0.15s ease;
-        min-height: 54px;
     }
 
     /* TC-RDM-APR-0024: Checkbox is visual-only. pointer-events: none ensures
        clicks pass through to the row div so toggle works consistently everywhere. */
     .app-picker-checkbox-visual {
         pointer-events: none;
+        flex-shrink: 0;
+        margin-top: 2px;
     }
 
     .app-picker-option:hover {
@@ -414,7 +426,16 @@
     .app-picker-option-content {
         display: flex;
         flex-direction: column;
-        gap: 0;
+        gap: 1px;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .app-picker-option-meta {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-400);
     }
 
     .app-picker-option-name {
@@ -478,6 +499,13 @@
         display: flex;
         flex-direction: column;
         gap: 0;
+    }
+
+    .app-picker-selected-meta {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
     }
 
     .app-picker-selected-name {

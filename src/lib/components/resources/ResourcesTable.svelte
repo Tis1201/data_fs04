@@ -16,6 +16,8 @@
         handleTableSort as originalHandleTableSort
     } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
     import {formatBytes} from "$lib/utils/format";
+    import { downloadResource } from '$lib/utils/download';
+    import { toast } from 'svelte-sonner';
     
     type ActionItem = {
         label: string;
@@ -209,9 +211,12 @@
                     actions.splice(1, 0, {
                         label: "Download",
                         icon: Download,
-                        onClick: () => {
-                            // Open download in new tab
-                            window.open(`/api/resources/${resource.id}`, '_blank');
+                        onClick: async () => {
+                            try {
+                                await downloadResource(resource.id, resource.name || resource.path?.split('/').pop() || 'resource');
+                            } catch (e) {
+                                toast.error('Download failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+                            }
                         },
                         variant: "outline"
                     });

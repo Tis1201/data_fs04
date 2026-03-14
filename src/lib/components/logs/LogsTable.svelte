@@ -10,6 +10,7 @@
     import { page } from "$app/stores";
     import { goto } from "$app/navigation";
     import { toast } from "svelte-sonner";
+    import { triggerFileDownload } from "$lib/utils/download";
     import {
         handleTableSort,
         handleTablePagination,
@@ -85,13 +86,24 @@
     async function handleExport(format: "csv" | "json") {
         const searchParams = new URLSearchParams($page.url.searchParams);
         searchParams.set("format", format);
-
-        // Construct export URL
         const exportUrl = `/api/logs/export?${searchParams.toString()}`;
-
-        // Open in new tab or trigger download
-        window.open(exportUrl, "_blank");
-        toast.info("Export started. Large files may take a moment.");
+        try {
+            toast.info("Export started. Large files may take a moment.");
+            const res = await fetch(exportUrl, { credentials: "include" });
+            if (!res.ok) {
+                const msg = await res.text().catch(() => res.statusText);
+                toast.error(`Export failed: ${msg.slice(0, 80)}`);
+                return;
+            }
+            const data = await res.json();
+            await triggerFileDownload({
+                downloadUrl: data.downloadUrl,
+                fileName: data.fileName || `logs.${format}`,
+                ...(data.downloadAuth && { downloadAuth: data.downloadAuth }),
+            });
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Export failed");
+        }
     }
 </script>
 

@@ -13,6 +13,8 @@
     import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
     import { NAME_MAX } from '$lib/constants/description';
     import { Info, Download } from 'lucide-svelte';
+    import { downloadResource } from '$lib/utils/download';
+    import { toast } from 'svelte-sonner';
     import {
         parseZipFile,
         parseApkFile,
@@ -712,17 +714,23 @@
                 {/if}
             </div>
         {:else}
-            {#if initialData?.path}
+            {#if initialData?.path && resourceId}
                 {@const editFileName = (initialData.path && initialData.path.split('/').filter(Boolean).pop()) || initialData.path || 'resource'}
                 <div class="resource-field resource-file-display">
-                    <a
-                        href="/api/resources/{resourceId}"
-                        download={editFileName}
+                    <button
+                        type="button"
                         class="resource-file-link-with-icon"
+                        on:click={async () => {
+                            try {
+                                await downloadResource(resourceId, editFileName);
+                            } catch (e) {
+                                toast.error('Download failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+                            }
+                        }}
                     >
                         <span class="resource-file-link-text">{editFileName}</span>
                         <Download size={20} class="resource-file-download-icon" aria-hidden="true" />
-                    </a>
+                    </button>
                 </div>
             {/if}
         {/if}

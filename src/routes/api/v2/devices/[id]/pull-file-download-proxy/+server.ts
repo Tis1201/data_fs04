@@ -1,14 +1,14 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
-import { generateHmacDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
+import { fetchFromCdn } from '$lib/server/storage/gcloudUrlUtils';
 import { getStorageConfig } from '$lib/server/storage';
 import path from 'path';
 
 /**
  * GET /api/v2/devices/[id]/pull-file-download-proxy?logId={logId}
  * Proxy download for HMAC-authenticated CDN files.
- * Avoids CORS: browser fetches same-origin; server fetches CDN with HMAC and streams back.
+ * Works for pull_file, get_logs, and screenshots — all use CDN with HMAC.
  */
 export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 	const { session, prisma, isAdmin } = context;
@@ -19,7 +19,6 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		throw Object.assign(new Error('logId query parameter is required'), { status: 400 });
 	}
 
-	// Same auth logic as pull-file-download-url
 	const device = await prisma.device.findUnique({
 		where: { id: deviceId },
 		select: {
@@ -57,7 +56,7 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		throw Object.assign(new Error('Action log not found'), { status: 404 });
 	}
 
-	const allowedTypes = ['pull_file', 'get_logs', 'take_screenshot'];
+	const allowedTypes = ['pull_file', 'get_logs', 'take_screenshot', 'screenshot'];
 	if (!allowedTypes.includes(actionLog.actionType || '')) {
 		throw Object.assign(new Error('Invalid action type'), { status: 400 });
 	}
@@ -81,42 +80,11 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 		throw Object.assign(new Error('Proxy only supports R2 mode'), { status: 500 });
 	}
 
-	const hmacResult = generateHmacDownloadUrl(objectPath);
-	if (!hmacResult) {
-		throw Object.assign(
-			new Error('HMAC not configured (CLOUDFLARE_R2_CDN_URL, CLOUDFLARE_R2_ACCESS_HMAC)'),
-			{ status: 500 }
-		);
-	}
-
 	const fileName = path.basename(objectPath);
 
-	logger.info('[PullFileDownloadProxy] Fetching from CDN', {
-		logId,
-		deviceId,
-		objectPath: objectPath.slice(0, 60) + '...',
-		fileName
-	});
+	logger.info('[PullFileDownloadProxy] Fetching from CDN', { logId, deviceId, objectPath, fileName });
 
-	const cdnRes = await fetch(hmacResult.downloadUrl, {
-		method: 'GET',
-		headers: {
-			'x-timestamp': hmacResult.timestamp,
-			'x-mac': hmacResult.mac
-		}
-	});
-
-	if (!cdnRes.ok) {
-		logger.error('[PullFileDownloadProxy] CDN fetch failed', {
-			status: cdnRes.status,
-			objectPath,
-			deviceId
-		});
-		throw Object.assign(
-			new Error(`CDN returned ${cdnRes.status}`),
-			{ status: cdnRes.status === 403 ? 502 : 502 }
-		);
-	}
+	const cdnRes = await fetchFromCdn(objectPath, { label: 'PullFileDownloadProxy' });
 
 	const contentType = cdnRes.headers.get('Content-Type') || 'application/octet-stream';
 

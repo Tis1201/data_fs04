@@ -87,14 +87,12 @@
         toast.error(message || 'Unable to update resource. Please try again!');
     }
 
-    function triggerResourceDownload(url: string, filename: string) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename || 'resource';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+    async function downloadResource(resourceId: string, filename: string) {
+        try {
+            await import('$lib/utils/download').then((m) => m.downloadResource(resourceId, filename));
+        } catch (e) {
+            toast.error('Download failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+        }
     }
 
     function openDeleteModal(row: ResourceRow) {
@@ -297,7 +295,7 @@
                 {
                     id: 'download',
                     label: 'Download',
-                    onClick: () => triggerResourceDownload(`/api/resources/${row.id}`, row.name || (row.path && row.path.split('/').pop()) || 'resource')
+                    onClick: () => downloadResource(row.id, row.name || (row.path && row.path.split('/').pop()) || 'resource')
                 },
                 {
                     id: 'delete',

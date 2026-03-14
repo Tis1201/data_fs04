@@ -8,6 +8,7 @@
     import DeviceSelector from '$lib/components/bundles_ui/device_select/DeviceSelector.svelte';
     import { Plus, X, Download } from 'lucide-svelte';
     import { toast } from 'svelte-sonner';
+    import { triggerFileDownload } from '$lib/utils/download';
 
     export let open: boolean = false;
     export let rule: any = null;
@@ -270,13 +271,18 @@
                 `${apiPrefix}/upload/download-url?objectPath=${encodeURIComponent(fallbackScreenUrl)}&filename=${encodeURIComponent(downloadFileName)}`
             );
             const data = await res.json();
-            if (data?.success && data?.data?.downloadUrl) {
-                window.open(data.data.downloadUrl, '_blank', 'noopener,noreferrer');
+            const d = data?.data ?? data;
+            if (d?.downloadUrl) {
+                await triggerFileDownload({
+                    downloadUrl: d.downloadUrl,
+                    fileName: d.fileName || downloadFileName,
+                    ...(d.downloadAuth && { downloadAuth: d.downloadAuth })
+                });
             } else {
                 toast.error('Could not get download link');
             }
-        } catch {
-            toast.error('Could not get download link');
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Could not get download link');
         }
     }
 

@@ -45,6 +45,67 @@ export function generateHmacDownloadUrl(objectPath: string): { downloadUrl: stri
 }
 
 /**
+ * Fetch a file from the CDN with HMAC auth, retrying on transient Cloudflare edge 403s.
+ * All server-side CDN proxy endpoints should use this instead of calling fetch() directly.
+ */
+export async function fetchFromCdn(
+    objectPath: string,
+    options?: { label?: string; maxRetries?: number }
+): Promise<Response> {
+    const label = options?.label ?? 'CdnFetch';
+    const maxRetries = options?.maxRetries ?? 2;
+
+    let hmacResult = generateHmacDownloadUrl(objectPath);
+    if (!hmacResult) {
+        throw Object.assign(
+            new Error('HMAC not configured (CLOUDFLARE_R2_CDN_URL, CLOUDFLARE_R2_ACCESS_HMAC)'),
+            { status: 500 }
+        );
+    }
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+            const freshHmac = generateHmacDownloadUrl(objectPath);
+            if (freshHmac) hmacResult = freshHmac;
+            logger.warn(`[${label}] Retrying CDN fetch`, { attempt, objectPath, newTimestamp: hmacResult.timestamp });
+        }
+
+        const res = await fetch(hmacResult.downloadUrl, {
+            method: 'GET',
+            headers: {
+                'x-timestamp': hmacResult.timestamp,
+                'x-mac': hmacResult.mac,
+                'User-Agent': 'FS04-WebProxy/1.0'
+            }
+        });
+
+        if (res.ok) return res;
+
+        const body = await res.text().catch(() => '');
+        const isCloudflareBlock = res.status === 403 && body.includes('<!DOCTYPE html');
+
+        if (!isCloudflareBlock || attempt === maxRetries) {
+            logger.error(`[${label}] CDN fetch failed`, {
+                status: res.status,
+                attempt,
+                url: hmacResult.downloadUrl,
+                objectPath,
+                responseBody: body.slice(0, 200)
+            });
+            const err = new Error(`CDN returned ${res.status}: ${body.slice(0, 100) || 'no body'}`) as Error & { status: number; cdnStatus: number };
+            err.status = 502;
+            err.cdnStatus = res.status;
+            throw err;
+        }
+
+        logger.warn(`[${label}] Cloudflare edge 403, will retry`, { attempt, objectPath, responseBody: body.slice(0, 100) });
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+
+    throw Object.assign(new Error('CDN fetch failed after retries'), { status: 502 });
+}
+
+/**
  * Extract filename with extension from resource path and name
  * Prioritizes extension from path over resource.name
  */

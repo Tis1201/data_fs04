@@ -52,6 +52,13 @@ export async function handleScreenshotMessage(
                     const updated = await ActionLogger.finalize(operationId, 'success', 'Screenshot captured successfully');
                     durationMs = updated.durationMs;
                     deviceId = updated.deviceId;
+
+                    const existingMeta = (updated.metadata as Record<string, unknown>) || {};
+                    await ActionLogger.updateProgress({
+                        logId: operationId,
+                        metadata: { ...existingMeta, objectPath }
+                    });
+
                     logger.info('[ScreenshotHandler] Action log updated to success', { 
                         operationId, 
                         objectPath,
@@ -77,47 +84,49 @@ export async function handleScreenshotMessage(
         }
 
         if (objectPath) {
-            const { generateDownloadUrl } = await import('$lib/server/storage');
-            const path = await import('path');
+            const { getStorageConfig } = await import('$lib/server/storage');
+            const storageConfig = getStorageConfig();
 
-            try {
-                const fileName = path.basename(objectPath);
-                const downloadUrlResult = await generateDownloadUrl(
-                    objectPath,
-                    3600,
-                    fileName
-                );
+            let downloadUrl: string | undefined;
 
-                notificationParams = {
-                    ...resultObj,
-                    objectPath,
-                    downloadUrl: downloadUrlResult.url,
-                    format,
-                    message: 'Screenshot captured successfully',
-                    durationMs: durationMs ?? undefined,
-                    payload
-                };
-
-                logger.debug('[ScreenshotHandler] Download URL generated', {
-                    objectPath,
-                    format,
-                    durationMs
-                });
-            } catch (err) {
-                logger.error('[ScreenshotHandler] Failed to generate download URL', {
-                    error: err instanceof Error ? err.message : String(err),
-                    objectPath
-                });
-
-                notificationParams = {
-                    ...resultObj,
-                    objectPath,
-                    format,
-                    message: 'Screenshot captured successfully',
-                    durationMs: durationMs ?? undefined,
-                    payload
-                };
+            if (storageConfig.mode === 'R2') {
+                // R2: use ?format=json so client gets { url, downloadAuth } for browser-direct CDN fetch (avoids server proxy).
+                if (deviceId && operationId) {
+                    downloadUrl = `/api/devices/${deviceId}/screenshot/${operationId}?format=json`;
+                    logger.debug('[ScreenshotHandler] Using format=json for browser-direct CDN fetch', {
+                        downloadUrl,
+                        objectPath
+                    });
+                }
+            } else {
+                try {
+                    const { generateDownloadUrl } = await import('$lib/server/storage');
+                    const path = await import('path');
+                    const fileName = path.basename(objectPath);
+                    const downloadUrlResult = await generateDownloadUrl(objectPath, 3600, fileName);
+                    downloadUrl = downloadUrlResult.url;
+                    logger.debug('[ScreenshotHandler] Download URL generated', {
+                        objectPath,
+                        format,
+                        durationMs
+                    });
+                } catch (err) {
+                    logger.error('[ScreenshotHandler] Failed to generate download URL', {
+                        error: err instanceof Error ? err.message : String(err),
+                        objectPath
+                    });
+                }
             }
+
+            notificationParams = {
+                ...resultObj,
+                objectPath,
+                ...(downloadUrl && { downloadUrl }),
+                format,
+                message: 'Screenshot captured successfully',
+                durationMs: durationMs ?? undefined,
+                payload
+            };
         } else {
             logger.warn('[ScreenshotHandler] Screenshot response missing objectPath', {
                 operationId: (ctx.params as any)?.operationId || (resultObj as any)?.operationId

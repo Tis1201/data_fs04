@@ -56,7 +56,7 @@ export const GET = unifiedEndpoint(
 		// Pagination & query params
 		const page = parseInt(url.searchParams.get('page') || '1');
 		const limit = parseInt(url.searchParams.get('limit') || '10');
-		const search = url.searchParams.get('search') || '';
+		const search = (url.searchParams.get('search') || '').trim();
 		const filter = url.searchParams.get('filter') || 'all';
 		const sortBy = url.searchParams.get('sortBy') || 'name';
 		const sortOrder = url.searchParams.get('sortOrder') || 'asc';
@@ -222,7 +222,15 @@ export const GET = unifiedEndpoint(
 					}
 				}
 			}
-			placeholders = pinnedNotInstalled.map((pkg: string) => {
+			// When searching, only include placeholders that match the search term
+			const searchLower = search ? search.toLowerCase() : '';
+			const includePlaceholder = (pkg: string) => {
+				if (!searchLower) return true;
+				const name = (pkgToName.get(pkg) || pkg).toLowerCase();
+				const pkgLower = pkg.toLowerCase();
+				return name.includes(searchLower) || pkgLower.includes(searchLower);
+			};
+			placeholders = pinnedNotInstalled.filter(includePlaceholder).map((pkg: string) => {
 				const pinInfo = pinStatusMap.get(pkg);
 				return {
 					device_id: deviceId,

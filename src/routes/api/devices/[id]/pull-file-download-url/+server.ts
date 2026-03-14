@@ -217,11 +217,11 @@ export const GET: RequestHandler = restrict(
                 fileName
             });
 
-            let downloadUrlResult: { url: string; expires: number };
+            let downloadUrlResult: { url: string; expires: number; downloadAuth?: { type: 'hmac'; timestamp: string; mac: string } };
 
             if (storageConfig.mode === 'R2' && storageBucket) {
                 const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, fileName);
-                if (!result) {
+                if (!result || !result.downloadAuth) {
                     return json({
                         success: false,
                         error: {
@@ -230,11 +230,10 @@ export const GET: RequestHandler = restrict(
                         }
                     }, { status: 500 });
                 }
-                // R2 uses HMAC only - return proxy URL (same-origin) to avoid CORS
-                const origin = event.url.origin;
                 downloadUrlResult = {
-                    url: `${origin}/api/v2/devices/${deviceId}/pull-file-download-proxy?logId=${encodeURIComponent(logId)}`,
-                    expires: result.expires
+                    url: result.downloadUrl,
+                    expires: result.expires,
+                    downloadAuth: result.downloadAuth
                 };
             } else if (storageConfig.mode === 'LOCAL') {
                 const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';

@@ -2,10 +2,11 @@
     import { invalidate } from '$app/navigation';
     import { page } from '$app/stores';
     import { Pencil, Download, Info, Copy } from 'lucide-svelte';
+    import { downloadResource } from '$lib/utils/download';
+    import { toast } from '$lib/stores/alertToast';
     import { Button, Card, Tooltip } from '$lib/design-system/components';
     import AddEditResourceModal from '../components/AddEditResourceModal.svelte';
     import type { PageData } from './$types';
-    import { toast } from '$lib/stores/alertToast';
 
     export let data: PageData;
     export let params: Record<string, string> = {};
@@ -206,19 +207,24 @@
                 <div class="resource-overview-field resource-overview-field-span-2">
                     <span class="resource-overview-label">Resource Uploaded File</span>
                     {#if resource.path}
-                        <a
-                            href="/api/resources/{resource.id}"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <button
+                            type="button"
                             class="resource-overview-file-link"
-                            title="Download (generates signed URL, same as admin)"
-                            on:click|preventDefault={() => window.open(`/api/resources/${resource.id}`, '_blank')}
+                            title="Download (browser-direct from CDN)"
+                            on:click={async () => {
+                                try {
+                                    const { downloadResource } = await import('$lib/utils/download');
+                                    await downloadResource(resource.id, downloadFileName);
+                                } catch (e) {
+                                    toast.error('Download failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+                                }
+                            }}
                         >
                             <Download size={16} />
                                 <Tooltip text={resource.path || ''} position="top" portal={true} maxWidth={500}>
                                     <span class="resource-overview-truncate">{uploadedFileDisplay}</span>
                                 </Tooltip>
-                        </a>
+                        </button>
                     {:else}
                         <span class="resource-overview-value">—</span>
                     {/if}

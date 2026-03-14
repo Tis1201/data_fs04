@@ -41,30 +41,27 @@ export const load = (async ({ locals }) => {
         throw redirect(302, '/auth/login');
     }
     
+    let session;
     try {
-        const session = await locals.auth.validate();
-        if (session?.user) {
-            // User is already logged in, redirect to appropriate dashboard
-            const user = await authPrisma.user.findUnique({
-                where: { id: session.user.id }  
-            });
-
-            if (user) {
-                logger.debug('User already has valid session, redirecting', { 
-                    userId: session.user.id,  
-                    role: user.systemRole 
-                });
-
-                throw redirect(302, user.systemRole === 'ADMIN' ? '/admin' : '/user');
-            }
-        }
+        session = await locals.auth.validate();
     } catch (e) {
-        // If it's a redirect, re-throw it
-        if (e instanceof Error && 'status' in e && (e as any).status === 302) {
-            throw e;
-        }
         logger.error('Error validating session', { error: e as Record<string, any> });
         // If there's an error, just continue to registration form
+    }
+
+    if (session?.user) {
+        const user = await authPrisma.user.findUnique({
+            where: { id: session.user.id }
+        });
+
+        if (user) {
+            logger.debug('User already has valid session, redirecting', {
+                userId: session.user.id,
+                role: user.systemRole
+            });
+
+            throw redirect(302, user.systemRole === 'ADMIN' ? '/admin' : '/user');
+        }
     }
 
     const form = await superValidate(zod(registerSchema));

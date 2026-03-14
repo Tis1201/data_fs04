@@ -467,6 +467,8 @@ export async function generateDownloadUrlR2(
 /**
  * Delete file from cloud storage
  */
+export { getR2Client } from './r2Client';
+
 // Export GCloud URL utilities
 export {
     parseGCloudUrl,

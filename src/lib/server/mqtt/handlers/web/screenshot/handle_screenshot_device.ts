@@ -50,7 +50,8 @@ export async function handleScreenshotDevice(
 
     const timestamp = Date.now();
     const objectPath = `devices/${deviceId}/screenshots/${timestamp}/screenshot.jpg`;
-    
+
+    // objectPath stored at initiation (same as pull_file/get_logs) so proxy has it immediately
     const result = await generatePresignedUrl(
         objectPath,
         'image/jpeg', // Content-Type for screenshot upload

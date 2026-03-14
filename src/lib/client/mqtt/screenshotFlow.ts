@@ -117,17 +117,80 @@ export async function waitForScreenshotResult(
       console.log('[MQTT ScreenshotFlow] Screenshot URL received, fetching from server');
 
       try {
-        // Server already generated the download URL, just use it directly
-        // The UI can use this as <img src={downloadUrl} /> or fetch and convert to base64 if needed
+        // Fetch URL (may be ?format=json which returns { url, downloadAuth } for browser-direct CDN)
+        const metaResponse = await fetch(downloadUrl, { credentials: 'include' });
+        const metaContentType = metaResponse.headers.get('Content-Type') ?? '';
+        console.log('[MQTT ScreenshotFlow] Meta response', {
+          metaUrl: downloadUrl,
+          status: metaResponse.status,
+          contentType: metaContentType,
+          ok: metaResponse.ok
+        });
 
-        // For compatibility with existing UI that expects base64, we'll still fetch and convert
-        // But this could be simplified to just return the URL
-        const imageResponse = await fetch(downloadUrl);
-        if (!imageResponse.ok) {
-          throw new Error(`Failed to download screenshot: ${imageResponse.status}`);
+        if (!metaResponse.ok) {
+          const body = await metaResponse.text();
+          console.error('[MQTT ScreenshotFlow] Meta fetch failed', {
+            status: metaResponse.status,
+            body: body.slice(0, 200)
+          });
+          throw new Error(`Failed to get screenshot URL: ${metaResponse.status}`);
         }
 
-        const blob = await imageResponse.blob();
+        const contentType = metaContentType;
+        let blob: Blob;
+
+        if (contentType.includes('application/json')) {
+          // Browser-direct: server returned { url, downloadAuth }, fetch CDN with HMAC headers
+          const meta = await metaResponse.json();
+          const hasAuth = !!(meta?.downloadAuth && meta?.url);
+          console.log('[MQTT ScreenshotFlow] Meta JSON parsed', {
+            hasUrl: !!meta?.url,
+            hasDownloadAuth: !!meta?.downloadAuth,
+            cdnUrl: meta?.url ? meta.url.slice(0, 80) + '...' : undefined,
+            willFetchCdnDirectly: hasAuth
+          });
+
+          if (meta.downloadAuth && meta.url) {
+            console.log('[MQTT ScreenshotFlow] Fetching CDN directly (browser CORS)', {
+              cdnUrl: meta.url,
+              hasTimestamp: !!meta.downloadAuth.timestamp,
+              hasMac: !!meta.downloadAuth.mac
+            });
+            const imageResponse = await fetch(meta.url, {
+              method: 'GET',
+              headers: {
+                'x-timestamp': meta.downloadAuth.timestamp,
+                'x-mac': meta.downloadAuth.mac
+              }
+            });
+            // Log CDN response (only if we got one - CORS blocks access on fail)
+            console.log('[MQTT ScreenshotFlow] CDN response', {
+              status: imageResponse.status,
+              ok: imageResponse.ok,
+              corsHeaders: {
+                'Access-Control-Allow-Origin': imageResponse.headers.get('Access-Control-Allow-Origin'),
+                'Access-Control-Allow-Headers': imageResponse.headers.get('Access-Control-Allow-Headers')
+              }
+            });
+            if (!imageResponse.ok) {
+              const cdnBody = await imageResponse.text();
+              console.error('[MQTT ScreenshotFlow] CDN fetch failed', {
+                status: imageResponse.status,
+                bodyPreview: cdnBody.slice(0, 300),
+                isCloudflareBlock: cdnBody.includes('<!DOCTYPE html') && cdnBody.includes('Cloudflare')
+              });
+              throw new Error(`Failed to download screenshot from CDN: ${imageResponse.status}`);
+            }
+            blob = await imageResponse.blob();
+          } else {
+            // Fallback: url is proxy or direct, fetch it
+            const imageResponse = await fetch(meta.url || downloadUrl, { credentials: 'include' });
+            if (!imageResponse.ok) throw new Error(`Failed to download screenshot: ${imageResponse.status}`);
+            blob = await imageResponse.blob();
+          }
+        } else {
+          blob = await metaResponse.blob();
+        }
         const reader = new FileReader();
 
         reader.onloadend = () => {
@@ -153,7 +216,18 @@ export async function waitForScreenshotResult(
         reader.readAsDataURL(blob);
 
       } catch (error) {
-        console.error('[MQTT ScreenshotFlow] Error fetching screenshot', error);
+        const err = error as Error;
+        const isCorsLike =
+          err.message === 'Failed to fetch' ||
+          (err.name === 'TypeError' && err.message.includes('fetch'));
+        console.error('[MQTT ScreenshotFlow] Error fetching screenshot', {
+          error: err.message,
+          name: err.name,
+          likelyCors: isCorsLike,
+          hint: isCorsLike
+            ? 'Browser blocked: No Access-Control-Allow-Origin. Cloudflare WAF/Bot may block OPTIONS or GET before Worker. Check Security → WAF, add rule to allow cdn-dev.datarealities.com.'
+            : undefined
+        });
         reject(error);
       }
     });

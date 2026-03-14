@@ -1,9 +1,10 @@
 
-import { error, redirect } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import { logService } from '$lib/server/clickhouse/logService';
 import type { RequestHandler } from './$types';
 import { logger } from '$lib/server/logger';
 
+/** GET /api/logs/export - Returns { downloadUrl, fileName, downloadAuth? } for browser-direct CDN (no server proxy) */
 export const GET: RequestHandler = async ({ url, locals }) => {
     try {
         const session = await locals.auth.validate();
@@ -24,7 +25,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         const startTime = startTimeStr ? new Date(startTimeStr) : undefined;
         const endTime = endTimeStr ? new Date(endTimeStr) : undefined;
 
-        const downloadUrl = await logService.exportLogs({
+        const result = await logService.exportLogs({
             search,
             level,
             deviceId,
@@ -34,17 +35,12 @@ export const GET: RequestHandler = async ({ url, locals }) => {
             sortBy,
             sortOrder,
             format,
-            limit: 1000000,
-            baseUrl: url.origin
+            limit: 1000000
         });
 
-        throw redirect(302, downloadUrl);
-
+        return json(result);
     } catch (err) {
-        if ((err as any).status === 302) throw err; // Re-throw redirect
-
         logger.error(`[API] Failed to export logs: ${err}`);
-        // Handle specific "Sync limit exceeded" error from service
         if (err instanceof Error && err.message.includes('Date range too large')) {
             throw error(400, err.message);
         }

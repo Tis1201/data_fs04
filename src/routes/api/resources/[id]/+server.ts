@@ -1,18 +1,19 @@
 import { error } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { restrict } from '$lib/server/security/guards';
-import { getStorageConfig, parseCloudStorageUrl } from '$lib/server/storage';
-import { generateHmacDownloadUrl, extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
+import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
 
 /**
- * GET handler for resource files
- * This endpoint serves the actual resource file content
+ * GET handler for resource files.
+ * ?format=json: returns { downloadUrl, fileName, downloadAuth? } for browser-direct CDN fetch (no server proxy).
+ * Without format=json + LOCAL: redirects to static file. R2: returns 400 (use format=json).
  */
-export const GET: RequestHandler = async ({ params, locals, request }) => {
+export const GET: RequestHandler = async ({ params, locals, request, url }) => {
     // Check if user is authenticated
     if (!locals.user) {
         throw error(401, 'Authentication required');
@@ -85,51 +86,28 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
             logger.info(`Resource path: ${resource.path}`);
             
             if (resource.path) {
-                // Check if we're using cloud storage
-                if (storageConfig.mode !== 'LOCAL') {
-                    try {
-                        // Extract object path from the stored path (R2 URL, GCloud URL, or path-only)
-                        let objectPath = resource.path;
-                        const parsed = parseCloudStorageUrl(resource.path);
-                        if (parsed) {
-                            objectPath = parsed.objectPath;
-                            logger.info(`Extracted object path from cloud URL: ${objectPath}`);
-                        } else if (resource.path.includes('/') && !resource.path.startsWith('http')) {
-                            objectPath = resource.path.replace(/^\/+|\/+$/g, '');
-                            logger.info(`Using path as objectPath: ${objectPath}`);
-                        } else if (!resource.path.includes('/')) {
-                            logger.warn(`Unexpected resource path format: ${resource.path}`);
-                            throw new Error(`Invalid resource path format: ${resource.path}`);
-                        }
-                        
-                        const fileName = extractFilenameWithExtension(resource.path, resource.name);
-                        const hmacResult = generateHmacDownloadUrl(objectPath);
-                        if (!hmacResult) {
-                            throw new Error('HMAC not configured (CLOUDFLARE_R2_CDN_URL, CLOUDFLARE_R2_ACCESS_HMAC)');
-                        }
-                        
-                        const cdnRes = await fetch(hmacResult.downloadUrl, {
-                            method: 'GET',
-                            headers: { 'x-timestamp': hmacResult.timestamp, 'x-mac': hmacResult.mac }
-                        });
-                        if (!cdnRes.ok) {
-                            throw error(cdnRes.status === 404 ? 404 : 502, 'Resource file not available');
-                        }
-                        const contentType = cdnRes.headers.get('Content-Type') || 'application/octet-stream';
-                        return new Response(cdnRes.body, {
-                            status: 200,
-                            headers: {
-                                'Content-Type': contentType,
-                                'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '\\"')}"`
-                            }
-                        });
-                    } catch (downloadError) {
-                        logger.error(`Failed to serve resource from R2: ${downloadError}`);
-                        throw downloadError;
+                const wantJson = url.searchParams.get('format') === 'json';
+                const fileName = extractFilenameWithExtension(resource.path, resource.name);
+
+                // ?format=json: return { downloadUrl, fileName, downloadAuth? } for browser-direct (no server proxy)
+                if (wantJson) {
+                    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, fileName);
+                    if (!result) {
+                        throw error(500, 'Failed to generate download URL');
                     }
+                    return json({
+                        downloadUrl: result.downloadUrl,
+                        fileName,
+                        ...(result.downloadAuth && { downloadAuth: result.downloadAuth })
+                    });
                 }
-                
-                // Handle local file storage
+
+                // Without format=json: R2 no longer supported (browser-direct only)
+                if (storageConfig.mode !== 'LOCAL') {
+                    throw error(400, 'Use ?format=json for browser-direct download. R2 no longer uses server proxy.');
+                }
+
+                // LOCAL: redirect to static file
                 let staticPath: string;
                 
                 // Extract the filename from the path

@@ -5,6 +5,7 @@
     import ResourceDetailContent from '$lib/components/resources/ResourceDetailContent.svelte';
     import { createFormHandler } from '$lib/components/ui_components_sveltekit/form/utils/formHandler';
     import { toast } from 'svelte-sonner';
+    import { downloadResource } from '$lib/utils/download';
 
     /**
      * Props for ResourceDetailPage component
@@ -66,8 +67,13 @@
         {
             label: 'Download',
             icon: Download,
-            onClick: () => {
-                window.open(`/api/resources/${resource?.id}`, '_blank');
+            onClick: async () => {
+                if (!resource?.id) return;
+                try {
+                    await downloadResource(resource.id, resource.name || resource.path?.split('/').pop() || 'resource');
+                } catch (e) {
+                    toast.error('Download failed: ' + (e instanceof Error ? e.message : 'Unknown error'));
+                }
             },
             variant: 'outline'
         },

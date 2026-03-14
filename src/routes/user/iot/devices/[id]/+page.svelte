@@ -107,7 +107,23 @@
     let appsPageSize = 10;
     let appsTotalPages = 1;
     let appsSearchTerm = '';
+    let appsSearchDebounce: ReturnType<typeof setTimeout> | null = null;
     let appsSort = { field: 'app' as string | null, direction: 'asc' as 'asc' | 'desc' | null };
+
+    function handleAppsSearch(value: string) {
+        appsSearchTerm = value;
+        if (appsSearchDebounce) clearTimeout(appsSearchDebounce);
+        appsSearchDebounce = setTimeout(() => {
+            appsCurrentPage = 1;
+            loadApps();
+        }, 300);
+    }
+
+    function clearAppsSearch() {
+        appsSearchTerm = '';
+        appsCurrentPage = 1;
+        loadApps();
+    }
 
     // Alert notifications (design-system Alert instead of toast)
     type AlertSeverity = 'info' | 'success' | 'warning' | 'error';
@@ -2230,6 +2246,25 @@
                         <h4>Installed Apps</h4>
                         <p>List of installed apps. Pinned apps are shown first.</p>
                     </div>
+                    <div class="apps-search-wrap">
+                        <InputField
+                            type="text"
+                            placeholder="Search by name or package…"
+                            value={appsSearchTerm}
+                            on:input={(e) => handleAppsSearch(e.detail ?? '')}
+                        >
+                            <svelte:fragment slot="prefix-icon">
+                                <Search size={16} />
+                            </svelte:fragment>
+                            <svelte:fragment slot="suffix-icon">
+                                {#if appsSearchTerm}
+                                    <button class="apps-search-clear" on:click={clearAppsSearch} aria-label="Clear search">
+                                        <X size={14} />
+                                    </button>
+                                {/if}
+                            </svelte:fragment>
+                        </InputField>
+                    </div>
                     <Button
                         variant="outline"
                         color="primary"
@@ -3603,10 +3638,31 @@
         flex-direction: row;
         align-items: center;
         padding: var(--ds-card-padding-md);
-        gap: var(--ds-space-2);
+        gap: var(--ds-space-3);
         min-height: 60px;
         box-sizing: border-box;
         border-bottom: 1px solid var(--ds-border-default);
+    }
+
+    .apps-search-wrap {
+        flex: 1;
+        max-width: 300px;
+        margin-left: auto;
+    }
+
+    .apps-search-clear {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        color: var(--ds-color-gray-400);
+        line-height: 1;
+    }
+    .apps-search-clear:hover {
+        color: var(--ds-color-neutral-true-800);
     }
 
     :global(.apps-card .card-body) {
