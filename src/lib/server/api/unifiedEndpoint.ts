@@ -255,6 +255,8 @@ export function unifiedEndpoint<T = any>(
 			});
 
 			// Return result (handler should return ApiResponse or data)
+			// Pass through Response objects (e.g. streaming proxy responses)
+			if (result instanceof Response) return result;
 			return json(result);
 
 		} catch (error: any) {

@@ -34,8 +34,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
             sortBy,
             sortOrder,
             format,
-            // Pagination ignored for export usually, or we export ALL matching
-            limit: 1000000 // reasonable hard limit for sync export
+            limit: 1000000,
+            baseUrl: url.origin
         });
 
         throw redirect(302, downloadUrl);

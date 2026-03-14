@@ -126,7 +126,7 @@
         // Set flag for APK/CPK files (will be set to true if parsing succeeds)
         isApkOrCpk = false;
 
-        const isCloudMode = data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+        const isCloudMode = data.storageConfig?.mode === 'R2' || data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
         
         if (isSupportedFile) {
             zipParsing = true;
@@ -425,7 +425,7 @@
         try {
             // Check if this is a cloud storage mode (LOCAL_CLOUD or GCLOUD)
             console.log('[NewResource] Storage config:', data.storageConfig);
-            const isCloudMode = data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+            const isCloudMode = data.storageConfig?.mode === 'R2' || data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
             console.log('[NewResource] Is cloud mode:', isCloudMode);
             
             if (isCloudMode) {

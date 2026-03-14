@@ -4,8 +4,8 @@ import { DeviceNotificationType, sendNotificationWithTicket } from '../../../cor
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { checkDeviceAccess } from '../shared/access_checker';
 import { ActionLogger } from '$lib/server/action-logger';
-import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
-import { extractFilenameWithExtension, isGCloudUrl } from '$lib/server/storage/gcloudUrlUtils';
+import { getStorageConfig, generatePresignedUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
+import { extractFilenameWithExtension, isCloudStorageUrl, type DownloadAuthHmac } from '$lib/server/storage/gcloudUrlUtils';
 import { broadcastDeviceActionUpdate } from '../../index';
 
 interface DeviceActionParams {
@@ -234,11 +234,12 @@ export async function handleInstallApp(
     // Extract filename with extension from path
     const filename = extractFilenameWithExtension(resource.path, resource.name);
 
-    // Generate download URL: LOCAL mode uses static file URL; GCloud uses signed URL
+    // Generate download URL: LOCAL mode uses static file URL; cloud uses signed or HMAC URL
     const storageConfig = getStorageConfig();
     let downloadUrl: string;
+    let downloadAuth: DownloadAuthHmac | undefined;
 
-    if (storageConfig.mode === 'LOCAL' && !isGCloudUrl(resource.path)) {
+    if (storageConfig.mode === 'LOCAL' && !isCloudStorageUrl(resource.path)) {
         // LOCAL storage: file is in static/uploads/iot/ - build direct URL
         const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
         const pathForUrl = resource.path.startsWith('/') ? resource.path : `/uploads/iot/${resource.path}`;
@@ -250,6 +251,7 @@ export async function handleInstallApp(
             throw new Error('Failed to generate download URL for resource');
         }
         downloadUrl = result.downloadUrl;
+        downloadAuth = result.downloadAuth;
     }
 
     logger.info(`[WebInstall App] Generated download URL`, {
@@ -257,7 +259,8 @@ export async function handleInstallApp(
         resourceName: resource.name,
         packageName: params.packageName,
         packageSize: resource.size,
-        downloadUrl
+        downloadUrl,
+        hasHmacAuth: !!downloadAuth
     });
 
     return executeDeviceAction(
@@ -270,7 +273,8 @@ export async function handleInstallApp(
             packageName: params.packageName,
             resourceId: params.resourceId,
             downloadUrl,
-            packageSize: resource.size
+            packageSize: resource.size,
+            ...(downloadAuth && { downloadAuth })
         }
     );
 }
@@ -301,45 +305,21 @@ export async function handlePullFile(
     const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
     
     const storageConfig = getStorageConfig();
-    if (!storageConfig.bucket) {
-        throw new Error('GCloud bucket not configured');
+    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+        throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
     }
     
     logger.info(`[WebPull File] Generating presigned upload URL`, {
         mode: storageConfig.mode,
-        bucket: storageConfig.bucket,
+        bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
         objectPath
     });
     
-    let presignedUrlResult;
-    
-    // Use the appropriate method based on storage mode
-    if (storageConfig.mode === 'LOCAL_CLOUD') {
-        if (!storageConfig.targetServiceAccount) {
-            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
-        }
-        presignedUrlResult = await generatePresignedUrlLocalCloud(
-            storageConfig.bucket,
-            objectPath,
-            'application/octet-stream',
-            storageConfig.targetServiceAccount,
-            3600 // 1 hour expiration
-        );
-    } else if (storageConfig.mode === 'GCLOUD') {
-        presignedUrlResult = await generatePresignedUrlGCloud(
-            storageConfig.bucket,
-            objectPath,
-            'application/octet-stream',
-            3600 // 1 hour expiration
-        );
-    } else {
-        // For LOCAL mode, use the generic function which handles it
-        presignedUrlResult = await generatePresignedUrl(
-            objectPath,
-            'application/octet-stream',
-            3600
-        );
-    }
+    const presignedUrlResult = await generatePresignedUrl(
+        objectPath,
+        'application/octet-stream',
+        3600
+    );
     
     logger.info(`[WebPull File] Upload URL generated successfully`, {
         objectPath: presignedUrlResult.objectPath,
@@ -356,7 +336,8 @@ export async function handlePullFile(
             sourcePath: params.sourcePath,
             destinationPath: params.destinationPath,
             uploadUrl: presignedUrlResult.url,
-            objectPath: presignedUrlResult.objectPath
+            objectPath: presignedUrlResult.objectPath,
+            bucket: presignedUrlResult.bucket
         }
     );
 }
@@ -431,7 +412,8 @@ export async function handlePushFile(
             sourcePath: result.downloadUrl,
             destinationPath: params.destinationPath,
             resourceId: params.resourceId,
-            fileName: resource.name
+            fileName: resource.name,
+            ...(result.downloadAuth && { downloadAuth: result.downloadAuth })
         }
     );
 }
@@ -450,52 +432,27 @@ export async function handleGetLogs(
     const { deviceId } = params;
     const format = params.format || 'zip';
     
-    // Generate presigned upload URL for GCloud
     const timestamp = Date.now();
     const fileName = `device_logs_${timestamp}.${format === 'zip' ? 'zip' : 'txt'}`;
     const objectPath = `devices/${deviceId}/logs/${timestamp}/${fileName}`;
     
     const storageConfig = getStorageConfig();
-    if (!storageConfig.bucket) {
-        throw new Error('GCloud bucket not configured');
+    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+        throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
     }
     
     logger.info(`[WebGet Logs] Generating presigned upload URL for get_logs`, {
         mode: storageConfig.mode,
-        bucket: storageConfig.bucket,
+        bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
         objectPath,
         format
     });
     
-    let presignedUrlResult;
-    
-    // Use the appropriate method based on storage mode
-    if (storageConfig.mode === 'LOCAL_CLOUD') {
-        if (!storageConfig.targetServiceAccount) {
-            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
-        }
-        presignedUrlResult = await generatePresignedUrlLocalCloud(
-            storageConfig.bucket,
-            objectPath,
-            format === 'zip' ? 'application/zip' : 'text/plain',
-            storageConfig.targetServiceAccount,
-            3600 // 1 hour expiration
-        );
-    } else if (storageConfig.mode === 'GCLOUD') {
-        presignedUrlResult = await generatePresignedUrlGCloud(
-            storageConfig.bucket,
-            objectPath,
-            format === 'zip' ? 'application/zip' : 'text/plain',
-            3600 // 1 hour expiration
-        );
-    } else {
-        // For LOCAL mode, use the generic function which handles it
-        presignedUrlResult = await generatePresignedUrl(
-            objectPath,
-            format === 'zip' ? 'application/zip' : 'text/plain',
-            3600
-        );
-    }
+    const presignedUrlResult = await generatePresignedUrl(
+        objectPath,
+        format === 'zip' ? 'application/zip' : 'text/plain',
+        3600
+    );
     
     logger.info(`[WebGet Logs] Upload URL generated successfully`, {
         objectPath: presignedUrlResult.objectPath,
@@ -512,7 +469,8 @@ export async function handleGetLogs(
             action: 'get_logs',
             format: format,
             uploadUrl: presignedUrlResult.url,
-            objectPath: presignedUrlResult.objectPath
+            objectPath: presignedUrlResult.objectPath,
+            bucket: presignedUrlResult.bucket
         }
     );
 }

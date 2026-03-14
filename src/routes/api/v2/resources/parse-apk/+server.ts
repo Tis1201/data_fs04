@@ -6,9 +6,8 @@
  */
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
-import { getStorageConfig, downloadGcsFileToPath } from '$lib/server/storage';
+import { getStorageConfig, downloadCloudFileToPath } from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
-import { Storage } from '@google-cloud/storage';
 import pkg from 'node-apk';
 import { writeFile, unlink, mkdir } from 'fs/promises';
 import { join } from 'path';
@@ -106,7 +105,10 @@ export const POST = unifiedEndpoint(
             }
 
             const config = getStorageConfig();
-            const targetBucket = bucket || config.bucket;
+            
+            // In R2 mode, bucket might be passed or inferred from config
+            const targetBucket = bucket || (config.mode === 'R2' ? config.r2Bucket : undefined);
+            
             if (!targetBucket) {
                 throw Object.assign(new Error('Bucket not configured'), { status: 500, code: ErrorCodes.INTERNAL_ERROR });
             }
@@ -117,15 +119,13 @@ export const POST = unifiedEndpoint(
             const tempFilePath = join(tempDir, `${Date.now()}-${fileName}`);
 
             try {
-                await downloadGcsFileToPath(targetBucket, objectPath, tempFilePath, {
-                    targetServiceAccount: config.mode === 'LOCAL_CLOUD' ? config.targetServiceAccount : undefined
-                });
-                logger.info('[APK Parser v2] File downloaded from GCS', { tempFilePath });
+                await downloadCloudFileToPath(targetBucket, objectPath, tempFilePath);
+                logger.info('[APK Parser v2] File downloaded from Cloud Storage', { tempFilePath });
                 const out = await parseApkAtPath(tempFilePath);
                 return successResponse(out);
             } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                logger.error('[APK Parser v2] GCS download or parse failed', { objectPath, bucket: targetBucket, error: msg });
+                logger.error('[APK Parser v2] Cloud download or parse failed', { objectPath, bucket: targetBucket, error: msg });
                 throw err;
             } finally {
                 try {

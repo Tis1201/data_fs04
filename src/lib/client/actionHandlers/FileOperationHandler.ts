@@ -1,6 +1,7 @@
 import { StreamActionHandler } from './StreamActionHandler';
 import type { MessageData, ActionHandlerParams } from './types';
 import { MessageEntityMapper, type DeviceMessageEntity } from '$lib/entities/DeviceMessageEntity';
+import { triggerFileDownload } from '$lib/utils/download';
 
 export class FileOperationHandler extends StreamActionHandler {
   private operationType: 'push' | 'pull';
@@ -23,9 +24,7 @@ export class FileOperationHandler extends StreamActionHandler {
       const stored = sessionStorage.getItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY);
       if (!stored) return false;
       const downloads = JSON.parse(stored) as Record<string, number>;
-      const isTriggered = !!downloads[logId];
-      console.log(`[${this.operationType}FileHandler] Checking if download triggered:`, { logId, isTriggered, allDownloads: Object.keys(downloads) });
-      return isTriggered;
+      return !!downloads[logId];
     } catch {
       return false;
     }
@@ -51,7 +50,6 @@ export class FileOperationHandler extends StreamActionHandler {
       }
       
       sessionStorage.setItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY, JSON.stringify(downloads));
-      console.log(`[${this.operationType}FileHandler] sessionStorage updated:`, { logId, timestamp: downloads[logId], allDownloads: Object.keys(downloads) });
     } catch (error) {
       console.warn(`[${this.operationType}FileHandler] Failed to mark download in sessionStorage:`, error);
     }
@@ -68,7 +66,6 @@ export class FileOperationHandler extends StreamActionHandler {
         const downloads = JSON.parse(stored) as Record<string, number>;
         delete downloads[logId];
         sessionStorage.setItem(FileOperationHandler.DOWNLOAD_STORAGE_KEY, JSON.stringify(downloads));
-        console.log(`[${this.operationType}FileHandler] Cleared download flag for:`, logId);
       }
     } catch (error) {
       console.warn(`[${this.operationType}FileHandler] Failed to clear download from sessionStorage:`, error);
@@ -85,17 +82,6 @@ export class FileOperationHandler extends StreamActionHandler {
     // Extract durationMs from both entity and payload (server sends it in payload)
     const durationMs = entity.durationMs ?? entity.payload?.durationMs;
 
-    console.log(`[${this.operationType}FileHandler] Unified status update:`, { 
-      action, 
-      status, 
-      message, 
-      logId, 
-      progress,
-      durationMs,
-      objectPath,
-      entity
-    });
-
     if (status === 'complete' || status === 'success') {
       // For pullFile operations, if objectPath is present, trigger download from GCloud
       // Use sessionStorage to prevent multiple downloads for the same logId (persists across page reloads)
@@ -103,11 +89,14 @@ export class FileOperationHandler extends StreamActionHandler {
       if (this.operationType === 'pull' && objectPath && logId) {
         const pendingId = this.getPendingDownloadId?.();
         if (this.getPendingDownloadId && pendingId !== logId) {
-          console.debug(`[${this.operationType}FileHandler] Skipping download — not initiated by this client`, { logId, pendingId });
+          console.warn(`[${this.operationType}FileHandler] Skipping download — not initiated by this client`, {
+            logId,
+            pendingId,
+            hasCallback: !!this.getPendingDownloadId
+          });
         } else if (this.isDownloadTriggered(logId)) {
-          console.log(`[${this.operationType}FileHandler] Download already triggered for logId: ${logId}, skipping duplicate`);
+          // Skip - already triggered
         } else {
-          console.log(`[${this.operationType}FileHandler] Success with objectPath, triggering download:`, { logId, objectPath });
           this.markDownloadTriggered(logId);
           this.triggerPullFileDownload(logId, objectPath).catch((error) => {
             console.error(`[${this.operationType}FileHandler] Download failed, allowing retry:`, error);
@@ -144,13 +133,11 @@ export class FileOperationHandler extends StreamActionHandler {
   }
 
   /**
-   * Trigger download of pulled file from GCloud
-   * Creates a hidden anchor and clicks it - browser handles the rest
+   * Trigger download of pulled file from CDN/R2.
+   * Uses HMAC fetch+blob if downloadAuth is present, otherwise anchor click for presigned URLs.
    */
   private async triggerPullFileDownload(logId: string, objectPath: string): Promise<void> {
     try {
-      console.log(`[${this.operationType}FileHandler] Fetching download URL for pulled file:`, { logId, objectPath, deviceId: this.deviceId });
-      
       const downloadResponse = await fetch(
         `/api/v2/devices/${this.deviceId}/pull-file-download-url?logId=${logId}`,
         { 
@@ -165,30 +152,20 @@ export class FileOperationHandler extends StreamActionHandler {
       }
       
       const response = await downloadResponse.json();
-      // API response is wrapped in { success: true, data: { downloadUrl, fileName, ... } }
+      // API response is wrapped in { success: true, data: { downloadUrl, fileName, downloadAuth?, ... } }
       const data = response.data || response;
       const downloadUrl = data.downloadUrl;
       const fileName = data.fileName || this.extractFileNameFromPath(objectPath);
-      
-      console.log(`[${this.operationType}FileHandler] Download URL received:`, { downloadUrl, fileName, response });
       
       if (!downloadUrl) {
         throw new Error(`Download URL is missing from API response: ${JSON.stringify(response)}`);
       }
       
-      // Create hidden anchor and click it
-      // Note: GCS presigned URLs already have Content-Disposition header, so we DON'T need download attribute
-      // Using download attribute with cross-origin URLs can cause double downloads!
-      console.log(`[${this.operationType}FileHandler] Triggering download via anchor click`);
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.target = '_blank'; // Open in new tab to prevent navigation
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      
-      console.log(`[${this.operationType}FileHandler] Pull file download triggered`);
+      await triggerFileDownload({
+        downloadUrl,
+        fileName,
+        ...(data.downloadAuth && { downloadAuth: data.downloadAuth })
+      });
     } catch (error) {
       console.error(`[${this.operationType}FileHandler] Error triggering pull file download:`, error);
     }
@@ -203,21 +180,12 @@ export class FileOperationHandler extends StreamActionHandler {
   }
 
   handle(evtType: string, entity: DeviceMessageEntity): void {
-    console.log(`[${this.operationType}FileHandler] ENTITY RECEIVED:`, { evtType, entity });
-
-    // Get the mapped action type from entity
     const mappedActionType = MessageEntityMapper.getActionType(entity);
-    
-    console.log(`[${this.operationType}FileHandler] MAPPED ACTION TYPE:`, mappedActionType);
-    console.log(`[${this.operationType}FileHandler] IS STATUS UPDATE:`, MessageEntityMapper.isStatusUpdate(entity));
-    console.log(`[${this.operationType}FileHandler] IS PROGRESS UPDATE:`, MessageEntityMapper.isProgressUpdate(entity));
-    console.log(`[${this.operationType}FileHandler] IS FILE CHUNK:`, this.isFileChunk(entity));
-    
+
     // Handle status update messages
     // Check for both push_file and pull_file (snake_case) and legacy file_operation
     if (MessageEntityMapper.isStatusUpdate(entity) && 
         (mappedActionType === 'push_file' || mappedActionType === 'pull_file' || mappedActionType === 'file_operation')) {
-      console.log(`[${this.operationType}FileHandler] Handling status update`);
       this.handleUnifiedStatus(entity);
       return;
     }
@@ -225,41 +193,22 @@ export class FileOperationHandler extends StreamActionHandler {
     // Handle progress update messages (including file chunks)
     if (entity.type === 'device:progressUpdate' && 
         (mappedActionType === 'push_file' || mappedActionType === 'pull_file' || mappedActionType === 'file_operation')) {
-      console.log(`[${this.operationType}FileHandler] Handling progress update`);
-      // Check if this is a file chunk message
       if (this.isFileChunk(entity)) {
-        console.log(`[${this.operationType}FileHandler] Processing file chunk`);
         this.handleFileChunk(entity);
       } else {
-        console.log(`[${this.operationType}FileHandler] Processing regular progress update`);
         this.handleFileProgress(entity);
       }
       return;
     }
 
-    // Only handle the new unified flow - no legacy support
-    console.log(`[${this.operationType}FileHandler] Ignoring message:`, { 
-      type: entity.type, 
-      action: entity.action, 
-      mappedActionType,
-      expectedAction: `${this.operationType}_file` 
-    });
   }
 
   private handleFileProgress(entity: DeviceMessageEntity): void {
-    const { action, progress, message, logId } = entity;
-    const actionType = `${this.operationType}File`;
-
-    console.log(`[${actionType}Handler] Progress update:`, { 
-      action, 
-      progress, 
-      message, 
-      logId,
-      entity
-    });
+    const { progress, message, logId } = entity;
 
     if (progress !== undefined) {
-      this.handleProgress(progress, message || `${actionType} progress: ${progress}%`, logId);
+      const dbActionType = this.operationType === 'pull' ? 'pull_file' : 'push_file';
+      this.handleProgress(progress, message || `${this.operationType}File progress: ${progress}%`, logId, dbActionType);
     }
   }
 
@@ -277,16 +226,7 @@ export class FileOperationHandler extends StreamActionHandler {
   private handleFileChunk(entity: DeviceMessageEntity): void {
     const { logId, payload } = entity;
     const { data, position, total, fileName } = payload as any;
-    
-    console.log(`[${this.operationType}FileHandler] File chunk received:`, {
-      logId,
-      fileName,
-      position,
-      total,
-      dataType: typeof data,
-      dataLength: data ? data.length : 0
-    });
-    
+
     if (!logId) {
       console.error('[FileOperationHandler] File chunk missing logId');
       return;
@@ -322,14 +262,6 @@ export class FileOperationHandler extends StreamActionHandler {
       }
       
       this.fileChunks.get(logId)!.push(chunkData);
-      
-      console.log(`[FileOperationHandler] Received file chunk:`, {
-        logId,
-        position,
-        total,
-        chunkSize: chunkData.length,
-        totalChunks: this.fileChunks.get(logId)!.length
-      });
 
       // Check if file is complete
       if (position >= total) {
@@ -377,12 +309,6 @@ export class FileOperationHandler extends StreamActionHandler {
       
       // Clean up
       setTimeout(() => URL.revokeObjectURL(url), 100);
-      
-      console.log(`[FileOperationHandler] File download completed:`, {
-        logId,
-        fileName: metadata.fileName,
-        size: totalSize
-      });
 
       // Clean up stored data
       this.fileChunks.delete(logId);

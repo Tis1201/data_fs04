@@ -8,8 +8,8 @@ import { inferTypeAndFormatFromFile } from '$lib/utils/FileUtils';
 import {
   getStorageConfig,
   ensureResourceInResourcesFolder,
-  parseGCloudUrl,
-  isGCloudUrl
+  parseCloudStorageUrl,
+  isCloudStorageUrl
 } from '$lib/server/storage';
 
 /**
@@ -74,14 +74,15 @@ export const POST = unifiedEndpoint(
     let finalPath = path;
     const config = getStorageConfig();
     if (
-      (config.mode === 'LOCAL_CLOUD' || config.mode === 'GCLOUD') &&
-      config.bucket &&
-      isGCloudUrl(path)
+      config.mode === 'R2' &&
+      config.r2Bucket &&
+      isCloudStorageUrl(path)
     ) {
-      const parsed = parseGCloudUrl(path);
+      const parsed = parseCloudStorageUrl(path);
       if (parsed) {
-        const newObjectPath = await ensureResourceInResourcesFolder(parsed.bucket, parsed.objectPath);
-        finalPath = `https://storage.googleapis.com/${parsed.bucket}/${newObjectPath}`;
+        const bucket = parsed.bucket || config.r2Bucket;
+        const newObjectPath = await ensureResourceInResourcesFolder(bucket, parsed.objectPath);
+        finalPath = config.r2CdnUrl ? `${config.r2CdnUrl}/${newObjectPath}` : `${process.env.CLOUDFLARE_R2_ENDPOINT}/${bucket}/${newObjectPath}`;
         logger.info(`[create-cloud] Resource path ensured in resources folder: ${finalPath}`);
       }
     }

@@ -5,8 +5,8 @@ import { SystemRole } from '$lib/types/roles';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { restrict } from '$lib/server/security/guards';
-import { generateDownloadUrl, getStorageConfig, parseGCloudUrl, isGCloudUrl } from '$lib/server/storage';
-import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
+import { getStorageConfig, parseCloudStorageUrl } from '$lib/server/storage';
+import { generateHmacDownloadUrl, extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
 
 /**
  * GET handler for resource files
@@ -88,43 +88,44 @@ export const GET: RequestHandler = async ({ params, locals, request }) => {
                 // Check if we're using cloud storage
                 if (storageConfig.mode !== 'LOCAL') {
                     try {
-                        // Extract object path from the stored path
+                        // Extract object path from the stored path (R2 URL, GCloud URL, or path-only)
                         let objectPath = resource.path;
-                        
-                        if (isGCloudUrl(resource.path)) {
-                            const parsed = parseGCloudUrl(resource.path);
-                            if (parsed) {
-                                objectPath = parsed.objectPath;
-                                logger.info(`Extracted object path from GCloud URL: ${objectPath}`);
-                            } else {
-                                logger.warn(`Failed to parse GCloud URL, using path as-is: ${resource.path}`);
-                            }
-                        } else if (resource.path.includes('/')) {
-                            // This is already an object path
-                            objectPath = resource.path;
-                            logger.info(`Using stored object path: ${objectPath}`);
-                        } else {
+                        const parsed = parseCloudStorageUrl(resource.path);
+                        if (parsed) {
+                            objectPath = parsed.objectPath;
+                            logger.info(`Extracted object path from cloud URL: ${objectPath}`);
+                        } else if (resource.path.includes('/') && !resource.path.startsWith('http')) {
+                            objectPath = resource.path.replace(/^\/+|\/+$/g, '');
+                            logger.info(`Using path as objectPath: ${objectPath}`);
+                        } else if (!resource.path.includes('/')) {
                             logger.warn(`Unexpected resource path format: ${resource.path}`);
                             throw new Error(`Invalid resource path format: ${resource.path}`);
                         }
                         
-                        // Extract filename with extension using shared utility
                         const fileName = extractFilenameWithExtension(resource.path, resource.name);
+                        const hmacResult = generateHmacDownloadUrl(objectPath);
+                        if (!hmacResult) {
+                            throw new Error('HMAC not configured (CLOUDFLARE_R2_CDN_URL, CLOUDFLARE_R2_ACCESS_HMAC)');
+                        }
                         
-                        logger.info(`Generating fresh download URL. objectPath: ${objectPath}, resource.name: ${resource.name}, final filename: ${fileName}`);
-                        const downloadResult = await generateDownloadUrl(objectPath, 3600, fileName); // 1 hour expiry
-                        
-                        logger.info(`Redirecting to presigned download URL: ${downloadResult.url}`);
-                        
-                        return new Response(null, {
-                            status: 302,
+                        const cdnRes = await fetch(hmacResult.downloadUrl, {
+                            method: 'GET',
+                            headers: { 'x-timestamp': hmacResult.timestamp, 'x-mac': hmacResult.mac }
+                        });
+                        if (!cdnRes.ok) {
+                            throw error(cdnRes.status === 404 ? 404 : 502, 'Resource file not available');
+                        }
+                        const contentType = cdnRes.headers.get('Content-Type') || 'application/octet-stream';
+                        return new Response(cdnRes.body, {
+                            status: 200,
                             headers: {
-                                'Location': downloadResult.url,
-                                'Cache-Control': 'no-cache'
+                                'Content-Type': contentType,
+                                'Content-Disposition': `attachment; filename="${fileName.replace(/"/g, '\\"')}"`
                             }
                         });
                     } catch (downloadError) {
-                        logger.error(`Failed to generate download URL: ${downloadError}`);
+                        logger.error(`Failed to serve resource from R2: ${downloadError}`);
+                        throw downloadError;
                     }
                 }
                 

@@ -509,8 +509,7 @@ export function restrictModule<T>(
     if (bypassRoles.includes(systemRole)) {
       logger.debug('Module check bypassed by role', { userId, module, action, systemRole });
       
-      // Set auth and user in locals for backward compatibility
-      (event.locals as any).auth = auth;
+      // Set user in locals for backward compatibility
       (event.locals as any).user = auth.user;
       (event.locals as any).modulePermissions = {}; // Empty for bypass roles
       
@@ -532,8 +531,7 @@ export function restrictModule<T>(
     if (skipCheck) {
       logger.debug('Module check skipped by option', { userId, module, action });
       
-      // Set auth and user in locals for backward compatibility
-      (event.locals as any).auth = auth;
+      // Set user in locals for backward compatibility
       (event.locals as any).user = auth.user;
       (event.locals as any).modulePermissions = {}; // Empty when skipCheck
       
@@ -581,8 +579,7 @@ export function restrictModule<T>(
         action 
       });
       
-      // Set auth and user in locals
-      (event.locals as any).auth = auth;
+      // Set user in locals
       (event.locals as any).user = auth.user;
       (event.locals as any).modulePermissions = { __SYSTEM_ACCOUNT__: ['VIEW', 'CREATE', 'EDIT', 'DELETE'] } as any;
       

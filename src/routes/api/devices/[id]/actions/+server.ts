@@ -9,8 +9,8 @@ import { queueNotification } from '$lib/server/mqtt/core/queue';
 import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
 import * as crypto from 'node:crypto';
 import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
-import { generatePresignedUrlGCloud, generatePresignedUrlLocalCloud, generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
-import { isGCloudUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
+import { generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
+import { isCloudStorageUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
 import path from 'path';
 import { broadcastDeviceActionUpdate } from '$lib/server/mqtt/handlers/notifications/device_action_broadcaster';
 
@@ -319,7 +319,7 @@ export const POST: RequestHandler = restrict(
                     
                     // Check if sourcePath is a GCloud URL and convert to signed download URL
                     const finalSourcePath = payload.sourcePath || sourcePath;
-                    if (finalSourcePath && isGCloudUrl(finalSourcePath)) {
+                    if (finalSourcePath && isCloudStorageUrl(finalSourcePath)) {
                         const result = await convertGCloudUrlToSignedDownloadUrl(finalSourcePath, 3600);
                         
                         if (result) {
@@ -332,6 +332,10 @@ export const POST: RequestHandler = restrict(
                             
                             // Replace sourcePath in payload with signed download URL
                             payload.sourcePath = downloadUrlData.downloadUrl;
+                            // Add HMAC auth when CDN+HMAC configured (device must send x-timestamp, x-mac headers)
+                            if (result.downloadAuth) {
+                                payload.downloadAuth = result.downloadAuth;
+                            }
                             
                             logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for push_file`, {
                                 originalSourcePath: finalSourcePath,
@@ -381,45 +385,21 @@ export const POST: RequestHandler = restrict(
                     const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
                     
                     const storageConfig = getStorageConfig();
-                    if (!storageConfig.bucket) {
-                        throw new Error('GCloud bucket not configured');
+                    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+                        throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
                     }
                     
                     logger.info(`[UnifiedActionAPI] Generating presigned upload URL for pull_file`, {
                         mode: storageConfig.mode,
-                        bucket: storageConfig.bucket,
+                        bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
                         objectPath
                     });
                     
-                    let presignedUrlResult;
-                    
-                    // Use the appropriate method based on storage mode
-                    if (storageConfig.mode === 'LOCAL_CLOUD') {
-                        if (!storageConfig.targetServiceAccount) {
-                            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
-                        }
-                        presignedUrlResult = await generatePresignedUrlLocalCloud(
-                            storageConfig.bucket,
-                            objectPath,
-                            'application/octet-stream',
-                            storageConfig.targetServiceAccount,
-                            3600 // 1 hour expiration
-                        );
-                    } else if (storageConfig.mode === 'GCLOUD') {
-                        presignedUrlResult = await generatePresignedUrlGCloud(
-                            storageConfig.bucket,
-                            objectPath,
-                            'application/octet-stream',
-                            3600 // 1 hour expiration
-                        );
-                    } else {
-                        // For LOCAL mode, use the generic function which handles it
-                        presignedUrlResult = await generatePresignedUrl(
-                            objectPath,
-                            'application/octet-stream',
-                            3600
-                        );
-                    }
+                    const presignedUrlResult = await generatePresignedUrl(
+                        objectPath,
+                        'application/octet-stream',
+                        3600
+                    );
                     
                     uploadUrlData = {
                         uploadUrl: presignedUrlResult.url,
@@ -469,46 +449,22 @@ export const POST: RequestHandler = restrict(
                     const objectPath = `devices/${deviceId}/logs/${timestamp}/${fileName}`;
                     
                     const storageConfig = getStorageConfig();
-                    if (!storageConfig.bucket) {
-                        throw new Error('GCloud bucket not configured');
+                    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+                        throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
                     }
                     
                     logger.info(`[UnifiedActionAPI] Generating presigned upload URL for get_logs`, {
                         mode: storageConfig.mode,
-                        bucket: storageConfig.bucket,
+                        bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
                         objectPath,
                         format
                     });
                     
-                    let presignedUrlResult;
-                    
-                    // Use the appropriate method based on storage mode
-                    if (storageConfig.mode === 'LOCAL_CLOUD') {
-                        if (!storageConfig.targetServiceAccount) {
-                            throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
-                        }
-                        presignedUrlResult = await generatePresignedUrlLocalCloud(
-                            storageConfig.bucket,
-                            objectPath,
-                            format === 'zip' ? 'application/zip' : 'text/plain',
-                            storageConfig.targetServiceAccount,
-                            3600 // 1 hour expiration
-                        );
-                    } else if (storageConfig.mode === 'GCLOUD') {
-                        presignedUrlResult = await generatePresignedUrlGCloud(
-                            storageConfig.bucket,
-                            objectPath,
-                            format === 'zip' ? 'application/zip' : 'text/plain',
-                            3600 // 1 hour expiration
-                        );
-                    } else {
-                        // For LOCAL mode, use the generic function which handles it
-                        presignedUrlResult = await generatePresignedUrl(
-                            objectPath,
-                            format === 'zip' ? 'application/zip' : 'text/plain',
-                            3600
-                        );
-                    }
+                    const presignedUrlResult = await generatePresignedUrl(
+                        objectPath,
+                        format === 'zip' ? 'application/zip' : 'text/plain',
+                        3600
+                    );
                     
                     uploadUrlData = {
                         uploadUrl: presignedUrlResult.url,
@@ -615,6 +571,7 @@ export const POST: RequestHandler = restrict(
                         // Add download URL to payload sent to device
                         payload.downloadUrl = downloadUrlData.downloadUrl;
                         payload.appPath = resource.path; // Keep original path for reference
+                        if (result.downloadAuth) payload.downloadAuth = result.downloadAuth;
                         
                         logger.info(`[UnifiedActionAPI] Generated signed download URL for install_app`, {
                             resourceId,

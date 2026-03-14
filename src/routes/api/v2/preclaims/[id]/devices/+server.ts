@@ -1,9 +1,13 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { json } from '@sveltejs/kit';
 import rawPrisma from '$lib/server/prisma';
-import { logger } from '$lib/server/logger';
 import { requirePermission } from '$lib/server/security/permissions';
 import { ErrorCodes } from '$lib/types/api';
+
+const ALLOWED_SORT_FIELDS = new Set(['createdAt', 'name', 'macId', 'status', 'expiresAt', 'claimedAt', 'wifiAddress', 'lanAddress']);
+const ALLOWED_SORT_ORDERS = new Set(['asc', 'desc']);
+// wifiAddress and lanAddress are UI display aliases for macId (not real DB columns)
+const SORT_FIELD_ALIAS: Record<string, string> = { wifiAddress: 'macId', lanAddress: 'macId' };
 
 /**
  * GET /api/v2/preclaims/[id]/devices
@@ -31,14 +35,14 @@ export const GET = unifiedEndpoint(
     }
     await requirePermission(permissionUser, 'preclaim.view', preclaimSet);
 
-    // Direct DB query (bypass fetchTableData to avoid empty result / URL parsing issues)
-    const directCount = await rawPrisma.preclaimDevice.count({ where: { setId: id } });
-    logger.info(`[preclaims/devices] setId=${id} directCount=${directCount}`);
-
     const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
     const perPage = Math.min(100, Math.max(1, Number(url.searchParams.get('per_page')) || 10));
-    const sortField = url.searchParams.get('sort_field') || url.searchParams.get('sort') || 'createdAt';
-    const sortOrder = (url.searchParams.get('sort_order') || url.searchParams.get('order') || 'desc') as 'asc' | 'desc';
+
+    const sortFieldParam = url.searchParams.get('sort_field') || url.searchParams.get('sort') || 'name';
+    const sortField = ALLOWED_SORT_FIELDS.has(sortFieldParam) ? sortFieldParam : 'name';
+    const dbSortField = SORT_FIELD_ALIAS[sortField] ?? sortField;
+    const sortOrderParam = url.searchParams.get('sort_order') || url.searchParams.get('order') || 'asc';
+    const sortOrder = (ALLOWED_SORT_ORDERS.has(sortOrderParam) ? sortOrderParam : 'desc') as 'asc' | 'desc';
     const search = (url.searchParams.get('search') || '').trim();
 
     const select = {
@@ -47,6 +51,7 @@ export const GET = unifiedEndpoint(
       macId: true,
       name: true,
       status: true,
+      expiresAt: true,
       claimedAt: true,
       createdAt: true
     };
@@ -71,7 +76,7 @@ export const GET = unifiedEndpoint(
       rawPrisma.preclaimDevice.findMany({
         where,
         select,
-        orderBy: { [sortField]: sortOrder },
+        orderBy: { [dbSortField]: sortOrder },
         skip: (page - 1) * perPage,
         take: perPage
       }),
@@ -87,11 +92,7 @@ export const GET = unifiedEndpoint(
     };
     const sort = { field: sortField, order: sortOrder };
 
-    return json({
-      records: records as any[],
-      pagination,
-      sort
-    });
+    return json({ records, pagination, sort });
   },
   {} // permission checked in handler with preclaim set resource
 );

@@ -12,7 +12,8 @@ import { generateSecurePassword } from '$lib/utils/generate-password';
 import prisma from '$lib/server/prisma';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
-import { checkUserLimit, LimitExceededError } from '$lib/server/entitlements';
+// TODO: Re-enable after subscription system is implemented
+// import { checkUserLimit, LimitExceededError } from '$lib/server/entitlements';
 
 export const load: PageServerLoad = async ({ locals, cookies }) => {
   try {
@@ -108,19 +109,19 @@ export const actions: Actions = {
 
       const enhancedPrisma = getEnhancedPrisma(auth.user);
 
-      // Check user limit before creating
-      try {
-        await checkUserLimit(currentAccountId);
-      } catch (e) {
-        if (e instanceof LimitExceededError) {
-          return message(form, {
-            type: 'error',
-            text: 'User limit reached',
-            details: `Your account has reached the maximum number of users (${e.current}/${e.max}). Upgrade your plan to add more users.`
-          }, { status: 403 });
-        }
-        throw e;
-      }
+      // TODO: Re-enable user limit check after subscription system is implemented
+      // try {
+      //   await checkUserLimit(currentAccountId);
+      // } catch (e) {
+      //   if (e instanceof LimitExceededError) {
+      //     return message(form, {
+      //       type: 'error',
+      //       text: 'User limit reached',
+      //       details: `Your account has reached the maximum number of users (${e.current}/${e.max}). Upgrade your plan to add more users.`
+      //     }, { status: 403 });
+      //   }
+      //   throw e;
+      // }
 
       // Perform additional custom validations
       let hasValidationErrors = !form.valid;

@@ -41,6 +41,7 @@
         formatActionTypeLabel
     } from "$lib/utils/deviceDetailsUtils";
     import { formatBytes } from "$lib/utils/format";
+    import { triggerFileDownload } from "$lib/utils/download";
     import {
         PenLine,
         RefreshCw,
@@ -475,6 +476,7 @@
                 return;
             }
             pendingLogDownloadId = logId;
+            console.log('[UserDevicePage] Download logs initiated, set pendingLogDownloadId', { logId, deviceId: device?.id });
             pendingLogDownloadTimeoutId = setTimeout(() => {
                 if (pendingLogDownloadId === logId) {
                     pendingLogDownloadId = null;
@@ -494,6 +496,7 @@
                         const urlResult = await urlRes.json();
                         const downloadUrl = urlResult?.data?.downloadUrl;
                         if (downloadUrl && pendingLogDownloadId === logId) {
+                            console.log('[UserDevicePage] Poll found download URL, fetching', { logId });
                             clearPendingLogDownload('done');
                             await fetchAndDownloadLogs(logId);
                             return;
@@ -513,6 +516,7 @@
     }
 
     function clearPendingLogDownload(reason: 'failed' | 'timeout' | 'done', message?: string) {
+        console.log('[UserDevicePage] clearPendingLogDownload', { reason, prevPendingId: pendingLogDownloadId, message });
         if (pendingLogDownloadTimeoutId) {
             clearTimeout(pendingLogDownloadTimeoutId);
             pendingLogDownloadTimeoutId = null;
@@ -527,20 +531,19 @@
     async function fetchAndDownloadLogs(logId: string) {
         if (!device?.id) return;
         try {
+            console.log('[UserDevicePage] fetchAndDownloadLogs called', { logId, deviceId: device.id });
             const urlRes = await fetch(`/api/v2/devices/${device.id}/pull-file-download-url?logId=${encodeURIComponent(logId)}`);
             if (urlRes.ok) {
                 const urlResult = await urlRes.json();
-                const downloadUrl = urlResult?.data?.downloadUrl;
-                const fileName = urlResult?.data?.fileName || `logs_${logId}.zip`;
+                const data = urlResult?.data ?? urlResult;
+                const downloadUrl = data.downloadUrl;
+                const fileName = data.fileName || `logs_${logId}.zip`;
                 if (downloadUrl) {
-                    const link = document.createElement('a');
-                    link.href = downloadUrl;
-                    link.download = fileName;
-                    link.target = '_blank';
-                    link.rel = 'noopener noreferrer';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
+                    await triggerFileDownload({
+                        downloadUrl,
+                        fileName,
+                        ...(data.downloadAuth && { downloadAuth: data.downloadAuth })
+                    });
                     addAlert('success', 'Logs download started.');
                     loadActivityLogs();
                 } else {

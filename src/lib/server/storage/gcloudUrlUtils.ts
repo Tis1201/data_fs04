@@ -1,14 +1,49 @@
+import { createHmac } from 'crypto';
 import { logger } from '$lib/server/logger';
-import { generateDownloadUrl, generateDownloadUrlGCloud, generateDownloadUrlLocalCloud, getStorageConfig } from './index';
+import { getStorageConfig } from './index';
 import path from 'path';
 
+/** HMAC auth for device downloads via CDN. Device must send x-timestamp and x-mac headers. */
+export interface DownloadAuthHmac {
+    type: 'hmac';
+    timestamp: string;
+    mac: string;
+}
+
+export interface SignedDownloadResult {
+    downloadUrl: string;
+    bucket: string;
+    objectPath: string;
+    expires: number;
+    downloadAuth?: DownloadAuthHmac;
+}
+
 /**
- * Parse a GCloud URL and extract bucket and objectPath
- * Supports:
- * - https://storage.googleapis.com/bucket-name/path/to/file
- * - http://storage.googleapis.com/bucket-name/path/to/file
- * - gs://bucket-name/path/to/file
+ * Generate HMAC-authenticated download URL for CDN.
+ * When CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC are set, devices must use
+ * this instead of presigned URLs. Device fetches with headers: x-timestamp, x-mac.
  */
+export function generateHmacDownloadUrl(objectPath: string): { downloadUrl: string; timestamp: string; mac: string } | null {
+    const cdnBase = process.env.CLOUDFLARE_R2_CDN_URL?.replace(/\/$/, '');
+    const secret = process.env.CLOUDFLARE_R2_ACCESS_HMAC;
+    if (!cdnBase || !secret) return null;
+
+    const objectPathNorm = objectPath.startsWith('/') ? objectPath : `/${objectPath}`;
+
+    // R2 direct URL (*.r2.cloudflarestorage.com) requires bucket in path: /{bucket}/{key}
+    // Custom domain (e.g. cdn-dev.datarealities.com) maps directly to bucket root: /{key}
+    const isR2Direct = cdnBase.includes('.r2.cloudflarestorage.com') || cdnBase.includes('.r2.dev');
+    const bucket = process.env.CLOUDFLARE_R2_BUCKET_NAME;
+    const filePath = isR2Direct && bucket ? `/${bucket}${objectPathNorm}` : objectPathNorm;
+
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const message = filePath + timestamp;
+    const mac = createHmac('sha256', secret).update(message).digest('base64');
+    const downloadUrl = `${cdnBase}${filePath}`;
+
+    return { downloadUrl, timestamp, mac };
+}
+
 /**
  * Extract filename with extension from resource path and name
  * Prioritizes extension from path over resource.name
@@ -61,7 +96,7 @@ export function parseGCloudUrl(gcloudUrl: string): { bucket: string; objectPath:
             const gsPath = gcloudUrl.replace('gs://', '');
             const firstSlash = gsPath.indexOf('/');
             if (firstSlash === -1) {
-                logger.warn('[GCloudUrlUtils] Invalid gs:// URL format', { url: gcloudUrl });
+                logger.warn('[StorageUrlUtils] Invalid gs:// URL format', { url: gcloudUrl });
                 return null;
             }
             const bucket = gsPath.substring(0, firstSlash);
@@ -75,7 +110,7 @@ export function parseGCloudUrl(gcloudUrl: string): { bucket: string; objectPath:
             const url = new URL(gcloudUrl);
             const pathParts = url.pathname.split('/').filter(p => p);
             if (pathParts.length === 0) {
-                logger.warn('[GCloudUrlUtils] Invalid GCloud URL format - no path', { url: gcloudUrl });
+                logger.warn('[StorageUrlUtils] Invalid GCloud URL format - no path', { url: gcloudUrl });
                 return null;
             }
             const bucket = pathParts[0];
@@ -85,7 +120,7 @@ export function parseGCloudUrl(gcloudUrl: string): { bucket: string; objectPath:
 
         return null;
     } catch (error) {
-        logger.error('[GCloudUrlUtils] Error parsing GCloud URL', {
+        logger.error('[StorageUrlUtils] Error parsing GCloud URL', {
             url: gcloudUrl,
             error: error instanceof Error ? error.message : String(error)
         });
@@ -94,7 +129,7 @@ export function parseGCloudUrl(gcloudUrl: string): { bucket: string; objectPath:
 }
 
 /**
- * Check if a string is a GCloud URL
+ * Check if a string is a GCloud URL (legacy)
  */
 export function isGCloudUrl(url: string): boolean {
     if (!url) {
@@ -106,98 +141,160 @@ export function isGCloudUrl(url: string): boolean {
 }
 
 /**
- * Convert a GCloud URL to a signed download URL
- * This is useful when devices need to download files from GCloud
- * 
- * @param gcloudUrl - The GCloud URL (https://storage.googleapis.com/... or gs://...)
- * @param expiresSeconds - Expiration time in seconds (default: 3600 = 1 hour)
- * @param filename - Optional filename for Content-Disposition header
- * @returns Signed download URL or null if conversion fails
+ * Check if a string is an R2 or CDN URL
  */
-export async function convertGCloudUrlToSignedDownloadUrl(
-    gcloudUrl: string,
-    expiresSeconds: number = 3600,
-    filename?: string
-): Promise<{ downloadUrl: string; bucket: string; objectPath: string; expires: number } | null> {
+export function isR2Url(url: string): boolean {
+    if (!url) return false;
+    return (
+        url.includes('.r2.cloudflarestorage.com') ||
+        url.includes('.r2.dev') ||
+        (process.env.CLOUDFLARE_R2_CDN_URL && url.startsWith(process.env.CLOUDFLARE_R2_CDN_URL))
+    );
+}
+
+/**
+ * Parse an R2 or CDN URL to extract objectPath.
+ * CDN URLs are typically https://cdn.example.com/objectPath (no bucket in path).
+ */
+export function parseR2Url(url: string): { bucket?: string; objectPath: string } | null {
+    if (!url) return null;
     try {
-        // Parse the GCloud URL
-        const parsed = parseGCloudUrl(gcloudUrl);
-        if (!parsed) {
-            logger.error('[GCloudUrlUtils] Failed to parse GCloud URL', { url: gcloudUrl });
-            return null;
+        // CDN URL: https://cdn-dev.datarealities.com/resources/file.deb
+        const cdnUrl = process.env.CLOUDFLARE_R2_CDN_URL?.replace(/\/$/, '');
+        if (cdnUrl && url.startsWith(cdnUrl)) {
+            const pathname = new URL(url).pathname;
+            const objectPath = pathname.replace(/^\//, '');
+            return { objectPath };
         }
-
-        const { bucket, objectPath } = parsed;
-
-        // Get storage config
-        const storageConfig = getStorageConfig();
-        const storageBucket = bucket || storageConfig.bucket;
-
-        if (!storageBucket) {
-            throw new Error('GCloud bucket not configured');
-        }
-
-        // Extract filename from objectPath if not provided
-        const fileName = filename || path.basename(objectPath);
-
-        logger.info('[GCloudUrlUtils] Converting GCloud URL to signed download URL', {
-            originalUrl: gcloudUrl,
-            bucket: storageBucket,
-            objectPath,
-            fileName,
-            mode: storageConfig.mode
-        });
-
-        // Generate signed download URL based on storage mode
-        let downloadUrlResult;
-
-        if (storageConfig.mode === 'LOCAL_CLOUD') {
-            if (!storageConfig.targetServiceAccount) {
-                throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
+        // R2 direct: https://xxx.r2.cloudflarestorage.com/bucket/key or similar
+        if (url.includes('.r2.cloudflarestorage.com') || url.includes('.r2.dev')) {
+            const u = new URL(url);
+            const pathParts = u.pathname.split('/').filter(p => p);
+            if (pathParts.length >= 2) {
+                const bucket = pathParts[0];
+                const objectPath = pathParts.slice(1).join('/');
+                return { bucket, objectPath };
             }
-            downloadUrlResult = await generateDownloadUrlLocalCloud(
-                storageBucket,
-                objectPath,
-                storageConfig.targetServiceAccount,
-                expiresSeconds,
-                fileName
-            );
-        } else if (storageConfig.mode === 'GCLOUD') {
-            downloadUrlResult = await generateDownloadUrlGCloud(
-                storageBucket,
-                objectPath,
-                expiresSeconds,
-                fileName
-            );
-        } else {
-            // For LOCAL mode, use the generic function
-            downloadUrlResult = await generateDownloadUrl(
-                objectPath,
-                expiresSeconds,
-                fileName
-            );
+            if (pathParts.length === 1) {
+                return { objectPath: pathParts[0] };
+            }
         }
-
-        logger.info('[GCloudUrlUtils] Successfully converted GCloud URL to signed download URL', {
-            originalUrl: gcloudUrl,
-            signedUrl: downloadUrlResult.url,
-            objectPath: downloadUrlResult.objectPath,
-            bucket: downloadUrlResult.bucket
-        });
-
-        return {
-            downloadUrl: downloadUrlResult.url,
-            bucket: downloadUrlResult.bucket,
-            objectPath: downloadUrlResult.objectPath,
-            expires: downloadUrlResult.expires
-        };
-    } catch (error) {
-        logger.error('[GCloudUrlUtils] Failed to convert GCloud URL to signed download URL', {
-            url: gcloudUrl,
-            error: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined
-        });
+        return null;
+    } catch {
         return null;
     }
 }
 
+/**
+ * Check if a string is any cloud storage URL (GCloud or R2)
+ */
+export function isCloudStorageUrl(url: string): boolean {
+    return isGCloudUrl(url) || isR2Url(url);
+}
+
+/**
+ * Parse any cloud storage URL (R2 or GCloud) to extract bucket and objectPath.
+ * For path-only strings, returns null (caller should treat as objectPath with bucket from config).
+ */
+export function parseCloudStorageUrl(url: string): { bucket?: string; objectPath: string } | null {
+    if (!url) return null;
+    const r2 = parseR2Url(url);
+    if (r2) return r2;
+    const gcs = parseGCloudUrl(url);
+    if (gcs) return gcs;
+    return null;
+}
+
+/**
+ * Convert a storage path or URL to a signed download URL.
+ * Supports path-only (e.g. resources/file.deb), R2 URLs, and legacy GCloud URLs.
+ * When in R2 mode, uses r2Bucket for path-only and parsed URLs.
+ * When CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC are set, returns HMAC auth instead of presigned URL.
+ */
+export async function convertGCloudUrlToSignedDownloadUrl(
+    pathOrUrl: string,
+    expiresSeconds: number = 3600,
+    filename?: string
+): Promise<SignedDownloadResult | null> {
+    try {
+        const storageConfig = getStorageConfig();
+
+        // LOCAL mode: path should be local file path - build static URL
+        if (storageConfig.mode === 'LOCAL') {
+            if (isCloudStorageUrl(pathOrUrl)) {
+                logger.warn('[StorageUrlUtils] LOCAL mode with cloud URL - cannot serve', { pathOrUrl });
+                return null;
+            }
+            const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+            const pathForUrl = pathOrUrl.startsWith('/') ? pathOrUrl
+                : pathOrUrl.startsWith('uploads/') ? `/${pathOrUrl}` : `/uploads/iot/${pathOrUrl}`;
+            return {
+                downloadUrl: `${baseUrl.replace(/\/$/, '')}${pathForUrl}`,
+                bucket: 'local',
+                objectPath: pathOrUrl,
+                expires: Date.now() + expiresSeconds * 1000
+            };
+        }
+
+        // R2 mode: resolve objectPath and bucket from pathOrUrl
+        let objectPath: string;
+        let bucket: string;
+
+        if (isR2Url(pathOrUrl)) {
+            const parsed = parseR2Url(pathOrUrl);
+            if (!parsed) {
+                logger.error('[StorageUrlUtils] Failed to parse R2 URL', { url: pathOrUrl });
+                return null;
+            }
+            objectPath = parsed.objectPath;
+            bucket = parsed.bucket || storageConfig.r2Bucket;
+        } else if (isGCloudUrl(pathOrUrl)) {
+            const parsed = parseGCloudUrl(pathOrUrl);
+            if (!parsed) {
+                logger.error('[StorageUrlUtils] Failed to parse GCloud URL', { url: pathOrUrl });
+                return null;
+            }
+            objectPath = parsed.objectPath;
+            bucket = storageConfig.r2Bucket; // Use R2 bucket (assumes data migrated)
+        } else {
+            // Path-only (e.g. resources/file.deb)
+            objectPath = pathOrUrl.replace(/^\/+|\/+$/g, '');
+            bucket = storageConfig.r2Bucket;
+        }
+
+        if (!bucket || !objectPath) {
+            throw new Error('Storage bucket not configured');
+        }
+
+        const fileName = filename || path.basename(objectPath);
+
+        logger.info('[StorageUrlUtils] Converting to signed download URL', {
+            objectPath,
+            mode: storageConfig.mode
+        });
+
+        // R2 mode: HMAC only (no presigned URLs). CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC required.
+        const hmacResult = generateHmacDownloadUrl(objectPath);
+        if (!hmacResult) {
+            logger.error('[StorageUrlUtils] HMAC not configured. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC for R2 downloads.');
+            return null;
+        }
+        return {
+            downloadUrl: hmacResult.downloadUrl,
+            bucket,
+            objectPath,
+            expires: Date.now() + expiresSeconds * 1000,
+            downloadAuth: {
+                type: 'hmac',
+                timestamp: hmacResult.timestamp,
+                mac: hmacResult.mac
+            }
+        };
+    } catch (error) {
+        logger.error('[StorageUrlUtils] Failed to convert to signed download URL', {
+            pathOrUrl,
+            error: error instanceof Error ? error.message : String(error)
+        });
+        return null;
+    }
+}

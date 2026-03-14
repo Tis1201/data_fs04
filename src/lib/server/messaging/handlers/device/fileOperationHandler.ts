@@ -4,7 +4,7 @@ import { publisher } from '../../core/publisher';
 import { logger } from '$lib/server/logger';
 import { ActionLogger } from '$lib/server/action-logger';
 import { SystemUser } from '../../interfaces/message';
-import { generatePresignedUrlGCloud, getStorageConfig } from '$lib/server/storage';
+import { generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
 import path from 'path';
 
 /**
@@ -104,18 +104,17 @@ export async function handlePullFile(message: InMessage): Promise<void> {
 
     // Get storage config
     const storageConfig = getStorageConfig();
-    if (!storageConfig.bucket) {
-      throw new Error('GCloud bucket not configured');
+    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+      throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
     }
 
     // Generate presigned upload URL
     logger.info('[FileOperationHandler] Generating presigned upload URL', {
-      bucket: storageConfig.bucket,
+      bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
       objectPath
     });
 
-    const presignedUrlResult = await generatePresignedUrlGCloud(
-      storageConfig.bucket,
+    const presignedUrlResult = await generatePresignedUrl(
       objectPath,
       'application/octet-stream',
       3600 // 1 hour expiration
@@ -133,7 +132,7 @@ export async function handlePullFile(message: InMessage): Promise<void> {
       metadata: {
         sourcePath,
         objectPath,
-        bucket: storageConfig.bucket,
+        bucket: presignedUrlResult.bucket,
         fileName,
         uploadUrl: presignedUrlResult.url,
         expires: presignedUrlResult.expires

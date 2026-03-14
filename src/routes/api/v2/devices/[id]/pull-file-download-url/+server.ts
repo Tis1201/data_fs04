@@ -1,12 +1,7 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
-import {
-	generateDownloadUrlGCloud,
-	generateDownloadUrlLocalCloud,
-	generateDownloadUrl,
-	getStorageConfig
-} from '$lib/server/storage';
+import { convertGCloudUrlToSignedDownloadUrl, getStorageConfig } from '$lib/server/storage';
 import path from 'path';
 
 /**
@@ -115,13 +110,6 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 	const objectPath = metadata?.objectPath;
 	const bucket = metadata?.bucket;
 
-	logger.info('[PullFileDownloadURL] Action log metadata', {
-		logId,
-		metadata,
-		objectPath,
-		bucket
-	});
-
 	if (!objectPath) {
 		throw Object.assign(
 			new Error('Object path not found in action log metadata'),
@@ -145,11 +133,11 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 
 	// Get storage config
 	const storageConfig = getStorageConfig();
-	const storageBucket = bucket || storageConfig.bucket;
+	const storageBucket = bucket || (storageConfig.mode === 'R2' ? storageConfig.r2Bucket : null);
 
-	if (!storageBucket) {
+	if (storageConfig.mode === 'R2' && !storageBucket) {
 		throw Object.assign(
-			new Error('GCloud bucket not configured'),
+			new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)'),
 			{ status: 500, code: 'CONFIGURATION_ERROR' }
 		);
 	}
@@ -157,38 +145,34 @@ export const GET = unifiedEndpoint(async ({ context, event, params }) => {
 	// Extract filename from objectPath
 	const fileName = path.basename(objectPath);
 
-	// Generate presigned download URL
-	logger.info('[PullFileDownloadURL] Generating download URL', {
-		mode: storageConfig.mode,
-		bucket: storageBucket,
-		objectPath,
-		fileName
-	});
+	// Generate download URL (HMAC only for R2 - returns proxy URL for same-origin fetch)
+	let downloadUrlResult: { url: string; expires: number };
 
-	let downloadUrlResult;
-
-	// Use the appropriate method based on storage mode
-	if (storageConfig.mode === 'LOCAL_CLOUD') {
-		if (!storageConfig.targetServiceAccount) {
-			throw new Error('GCLOUD_TARGET_SA is required for LOCAL_CLOUD mode');
+	if (storageConfig.mode === 'R2' && storageBucket) {
+		const result = await convertGCloudUrlToSignedDownloadUrl(objectPath, 3600, fileName);
+		if (!result || !result.downloadAuth) {
+			throw Object.assign(
+				new Error('HMAC required for R2. Set CLOUDFLARE_R2_CDN_URL and CLOUDFLARE_R2_ACCESS_HMAC.'),
+				{ status: 500, code: 'CONFIGURATION_ERROR' }
+			);
 		}
-		downloadUrlResult = await generateDownloadUrlLocalCloud(
-			storageBucket,
-			objectPath,
-			storageConfig.targetServiceAccount,
-			3600, // 1 hour expiration
-			fileName
-		);
-	} else if (storageConfig.mode === 'GCLOUD') {
-		downloadUrlResult = await generateDownloadUrlGCloud(
-			storageBucket,
-			objectPath,
-			3600, // 1 hour expiration
-			fileName
-		);
+		const origin = url.origin;
+		downloadUrlResult = {
+			url: `${origin}/api/v2/devices/${deviceId}/pull-file-download-proxy?logId=${encodeURIComponent(logId)}`,
+			expires: result.expires
+		};
+	} else if (storageConfig.mode === 'LOCAL') {
+		const baseUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+		const pathForUrl = objectPath.startsWith('/') ? objectPath : `/uploads/iot/${objectPath}`;
+		downloadUrlResult = {
+			url: `${baseUrl.replace(/\/$/, '')}${pathForUrl}`,
+			expires: Date.now() + 3600 * 1000
+		};
 	} else {
-		// For LOCAL mode, use the generic function
-		downloadUrlResult = await generateDownloadUrl(objectPath, 3600, fileName);
+		throw Object.assign(
+			new Error('Storage mode not supported for download'),
+			{ status: 500, code: 'CONFIGURATION_ERROR' }
+		);
 	}
 
 	// Mark action log as downloaded
