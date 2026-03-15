@@ -3,6 +3,7 @@ import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { deviceTypeMatchesBundleOs } from '$lib/utils/bundleUtils';
 
 /** Normalize MAC for comparison: uppercase, keep colons (DB usually stores with colons) */
 function normalizeMac(value: string): string {
@@ -166,12 +167,10 @@ export const POST = unifiedEndpoint(
       }
 
       if (bundleOs && typeof bundleOs === 'string' && bundleOs.trim() !== '') {
-        const deviceType = (device.deviceType ?? '').trim();
-        const osMatch = deviceType.toLowerCase() === bundleOs.trim().toLowerCase();
-        if (!osMatch) {
+        if (!deviceTypeMatchesBundleOs(device.deviceType, bundleOs)) {
           skipped.push({
             value,
-            reason: `OS mismatch (bundle expects ${bundleOs}, device is ${deviceType || 'unknown'})`
+            reason: `OS mismatch (bundle expects ${bundleOs}, device is ${device.deviceType || 'unknown'})`
           });
           continue;
         }

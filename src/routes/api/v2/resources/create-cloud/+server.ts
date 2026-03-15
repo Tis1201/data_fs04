@@ -62,29 +62,54 @@ export const POST = unifiedEndpoint(
       );
     }
 
-    // Validate that path is a cloud URL
-    if (!path.startsWith('http')) {
+    // Path can be: (a) full cloud URL (http...), or (b) object path (temp/resources/... or resources/...)
+    const isObjectPath = typeof path === 'string' && !path.startsWith('http') && (path.startsWith('temp/') || path.startsWith('resources/'));
+
+    // Validate path format
+    if (!path.startsWith('http') && !isObjectPath) {
       throw Object.assign(
-        new Error('Path must be a valid cloud storage URL'),
+        new Error('Path must be a valid cloud storage URL or object path (e.g. temp/resources/... or resources/...)'),
         { status: 400, code: ErrorCodes.INVALID_INPUT }
       );
     }
 
-    // When path is GCS, ensure object lives under resources/ (move from temp/resources or root if needed)
+    // Ensure object lives under resources/ (move from temp/resources to resources/ when needed)
     let finalPath = path;
     const config = getStorageConfig();
-    if (
-      config.mode === 'R2' &&
-      config.r2Bucket &&
-      isCloudStorageUrl(path)
-    ) {
-      const parsed = parseCloudStorageUrl(path);
-      if (parsed) {
-        const bucket = parsed.bucket || config.r2Bucket;
-        const newObjectPath = await ensureResourceInResourcesFolder(bucket, parsed.objectPath);
-        finalPath = config.r2CdnUrl ? `${config.r2CdnUrl}/${newObjectPath}` : `${process.env.CLOUDFLARE_R2_ENDPOINT}/${bucket}/${newObjectPath}`;
-        logger.info(`[create-cloud] Resource path ensured in resources folder: ${finalPath}`);
+    if (config.mode === 'R2') {
+      if (!config.r2Bucket) {
+        throw Object.assign(
+          new Error('R2 mode requires CLOUDFLARE_R2_BUCKET_NAME to be set'),
+          { status: 500, code: ErrorCodes.INTERNAL_ERROR }
+        );
       }
+      if (!config.r2CdnUrl) {
+        throw Object.assign(
+          new Error('R2 mode requires CLOUDFLARE_R2_CDN_URL to be set'),
+          { status: 500, code: ErrorCodes.INTERNAL_ERROR }
+        );
+      }
+
+      let objectPath: string;
+      const bucket = config.r2Bucket;
+
+      if (isCloudStorageUrl(path)) {
+        const parsed = parseCloudStorageUrl(path);
+        if (!parsed) {
+          throw Object.assign(
+            new Error(`Failed to parse cloud storage URL: ${path}`),
+            { status: 400, code: ErrorCodes.INVALID_INPUT }
+          );
+        }
+        objectPath = parsed.objectPath;
+      } else {
+        // Raw object path (e.g. temp/resources/uuid.deb)
+        objectPath = path.replace(/^\/+|\/+$/g, '');
+      }
+
+      const newObjectPath = await ensureResourceInResourcesFolder(bucket, objectPath);
+      finalPath = `${config.r2CdnUrl.replace(/\/$/, '')}/${newObjectPath}`;
+      logger.info(`[create-cloud] Resource path ensured in resources folder: ${finalPath}`);
     }
 
     // Determine target account based on role
@@ -161,10 +186,15 @@ export const POST = unifiedEndpoint(
     let finalFormat = format;
 
     if (!finalType || !finalFormat) {
-      // Extract filename from path, removing query parameters
-      const url = new URL(finalPath);
-      const pathParts = url.pathname.split('/');
-      const fileName = pathParts[pathParts.length - 1];
+      // Extract filename from path (handles both URLs and object paths)
+      let fileName: string;
+      try {
+        const url = new URL(finalPath);
+        const pathParts = url.pathname.split('/');
+        fileName = pathParts[pathParts.length - 1] || finalPath;
+      } catch {
+        fileName = finalPath.split('/').pop() || finalPath;
+      }
 
       const mockFile = {
         name: fileName,

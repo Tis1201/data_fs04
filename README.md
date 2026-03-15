@@ -116,6 +116,7 @@ Contributions welcome! Please fork, branch, and submit pull requests. Adhere to 
 ### API & Infrastructure
 - [API Listeners](./src/routes/api/listen/README.md) - Webhook and event listeners
 - [Docker Setup](./docker/README.md) - Container configuration and deployment
+- [Bundle Retry & Resume Issues](./docs/BUNDLE_RETRY_RESUME_ISSUES.md) - Known issues (status revert on refresh, deleted resources) and fixes for retry/resume flows
 
 ### Testing
 - [Rate Limit Testing](./tests/ratelimit/README.md) - Load and performance testing

@@ -60,6 +60,7 @@
         getBundleStatusDisplayLabel,
         getBundleStatusBadgeColor,
         getOSDisplay,
+        getDeviceTypeDisplayName,
         formatBundleDate,
         formatBundleDateWithTimezone,
         formatBundleEndOn
@@ -773,7 +774,8 @@
             showResumeModal = false;
             await invalidate('app:bundle');
         } catch (e) {
-            toast.error('Failed to resume deployment. Please try again.');
+            showResumeModal = false;
+            toast.error((e as Error)?.message || 'Failed to resume deployment. Please try again.');
         } finally {
             resumeLoading = false;
         }
@@ -788,7 +790,8 @@
             showRetryModal = false;
             await invalidate('app:bundle');
         } catch (e) {
-            toast.error('Failed to retry deployment. Please try again.');
+            showRetryModal = false;
+            toast.error((e as Error)?.message || 'Failed to retry deployment. Please try again.');
         } finally {
             retryLoading = false;
         }
@@ -803,7 +806,8 @@
             showRunModal = false;
             await invalidate('app:bundle');
         } catch (e) {
-            toast.error('Failed to run deployment. Please try again.');
+            showRunModal = false;
+            toast.error((e as Error)?.message || 'Failed to run deployment. Please try again.');
         } finally {
             runLoading = false;
         }
@@ -1695,7 +1699,7 @@
                             </div>
                             <div class="view-device-row">
                                 <span class="view-device-label">Operating System</span>
-                                <span class="view-device-value">{dev.deviceType ?? dev.os ?? 'N/A'}</span>
+                                <span class="view-device-value">{getDeviceTypeDisplayName(dev.deviceType ?? dev.os)}</span>
                             </div>
                             <div class="view-device-row">
                                 <span class="view-device-label">Manufacturer</span>

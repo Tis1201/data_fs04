@@ -1168,7 +1168,7 @@ model Bundle {
 model BundleApp {
   id          String   @id @default(cuid())
   bundleId    String
-  resourceId  String
+  resourceId  String?  // Optional: set to null when Resource is deleted (onDelete: SetNull)
   order       Int      // Installation order
   autoOpen    Boolean  @default(false)
   createdAt   DateTime @default(now())
@@ -1176,9 +1176,16 @@ model BundleApp {
   createdBy   String
   updatedBy   String
 
+  // Snapshot fields (captured when app is added; used when resource is deleted)
+  resourceNameSnapshot         String?
+  resourcePackageNameSnapshot  String?
+  resourceVersionSnapshot      String?
+  resourceSizeSnapshot         Int?
+  resourceFormatSnapshot       String?
+
   // Relationships
   bundle      Bundle   @relation(fields: [bundleId], references: [id])
-  resource    Resource @relation(fields: [resourceId], references: [id])
+  resource    Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
 
   // Permission rules
   @@allow('all', auth().systemRole == 'ADMIN')

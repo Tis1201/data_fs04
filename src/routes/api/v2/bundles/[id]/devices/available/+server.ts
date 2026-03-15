@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { areDevicesOnline } from '$lib/server/device/devicePresence';
+import { getDeviceTypeFilterForBundleOs } from '$lib/utils/bundleUtils';
 
 /**
  * GET /api/v2/bundles/[id]/devices/available
@@ -32,11 +33,10 @@ export const GET = unifiedEndpoint(
 
     const where: any = { status: 'ACTIVE' };
 
-    // Filter by bundle target OS: only show devices whose deviceType matches (case-insensitive)
+    // Filter by bundle target OS (darwin matches MacOS, case-insensitive)
     const bundleOs = (bundle as { os?: string | null }).os;
-    if (bundleOs && typeof bundleOs === 'string' && bundleOs.trim() !== '') {
-      where.deviceType = { equals: bundleOs.trim(), mode: 'insensitive' };
-    }
+    const osFilter = getDeviceTypeFilterForBundleOs(bundleOs);
+    if (osFilter) Object.assign(where, osFilter);
 
     const isAdmin = context.session?.user?.systemRole === 'ADMIN';
     if (!isAdmin && context.account?.id) {

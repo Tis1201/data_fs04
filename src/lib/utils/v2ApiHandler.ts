@@ -18,17 +18,22 @@ export async function handleV2Response<T>(
     const result: ApiResponse<T> = await response.json();
     
     if (!result.success) {
-        const error = result.error;
+        const err = result.error;
         const requestId = result.meta?.requestId;
-        
+        // Prefer details.originalError when message is generic (e.g. API returned 500 but had real reason in details)
+        const displayMessage =
+            err?.details?.originalError ||
+            err?.message ||
+            `${operation} failed`;
+
         console.error(`[${operation} Failed]`, {
-            code: error?.code,
-            message: error?.message,
+            code: err?.code,
+            message: err?.message,
             requestId,
             timestamp: new Date().toISOString()
         });
-        
-        throw new Error(error?.message || `${operation} failed`);
+
+        throw new Error(displayMessage);
     }
     
     return result.data as T;

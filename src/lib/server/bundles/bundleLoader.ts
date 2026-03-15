@@ -18,7 +18,7 @@ async function updateBundleStatus(prisma: any, bundleId: string) {
   try {
     const bundle = await prisma.bundle.findUnique({
       where: { id: bundleId },
-      select: { status: true }
+      select: { status: true, updatedAt: true }
     });
     if (!bundle) return;
 
@@ -57,6 +57,16 @@ async function updateBundleStatus(prisma: any, bundleId: string) {
     // Never overwrite user-set STOPPED/CANCELLED (so user can Resume later).
     if (current === 'STOPPED' || current === 'CANCELLED') {
       return;
+    }
+
+    // Grace period: don't overwrite IN_PROGRESS/PUBLISHED to FAILED right after retry/resume
+    // (gives deployment time to succeed before we show FAILED on refresh)
+    if (bundleStatus === 'FAILED' && (current === 'IN_PROGRESS' || current === 'PUBLISHED')) {
+      const updatedAt = bundle.updatedAt ? new Date(bundle.updatedAt).getTime() : 0;
+      const gracePeriodMs = 90 * 1000; // 90 seconds
+      if (Date.now() - updatedAt < gracePeriodMs) {
+        return;
+      }
     }
 
     if (current === bundleStatus) {

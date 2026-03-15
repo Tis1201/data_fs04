@@ -36,7 +36,7 @@ export const GET = restrict(
         where: { bundleId },
         select: { resourceId: true }
       });
-      const excludeIds = new Set(existing.map((e: { resourceId: string }) => e.resourceId));
+      const excludeIds = new Set(existing.map((e: { resourceId: string | null }) => e.resourceId).filter(Boolean) as string[]);
 
       // Requested pagination
       const perPage = Number(url.searchParams.get('per_page') || tableOptions.defaultPerPage);
@@ -152,16 +152,28 @@ export const POST = restrict(
         throw error(400, 'Resource is already in the bundle');
       }
       
-      // Add the resource to the bundle
+      const maxOrder = await (prisma as any).bundleApp.aggregate({
+        where: { bundleId },
+        _max: { order: true }
+      });
+      const order = (maxOrder._max?.order ?? 0) + 1;
+      const userId = locals.user?.id ?? 'unknown';
+      
       const bundleResource = await (prisma as any).bundleApp.create({
         data: {
-          bundle: { connect: { id: bundleId } },
-          resource: { connect: { id: resourceId } },
-          autoOpen: data.autoOpen || false
+          bundleId,
+          resourceId,
+          order,
+          autoOpen: data.autoOpen || false,
+          createdBy: userId,
+          updatedBy: userId,
+          resourceNameSnapshot: resource.name,
+          resourcePackageNameSnapshot: resource.packageName,
+          resourceVersionSnapshot: resource.version,
+          resourceSizeSnapshot: resource.size,
+          resourceFormatSnapshot: resource.format
         },
-        include: {
-          resource: true
-        }
+        include: { resource: true }
       });
       
       logger.info(`Resource added to bundle: ${resourceId} to ${bundleId}`);

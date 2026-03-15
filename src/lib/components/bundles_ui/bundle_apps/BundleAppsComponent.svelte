@@ -19,10 +19,31 @@
     import type { BundleApp } from "@prisma/client";
     import AppSelector from "$lib/components/bundles_ui/app_select/AppSelector.svelte";
     
-    // Types
+    // Types: resource can be null when the underlying Resource was deleted (snapshot fields used for display)
     type AppWithResource = BundleApp & {
-        resource: { name: string; id: string; packageName?: string | null; version?: string | null; size?: number | null };
+        resource?: { name: string; id: string; packageName?: string | null; version?: string | null; size?: number | null } | null;
+        resourceNameSnapshot?: string | null;
+        resourcePackageNameSnapshot?: string | null;
+        resourceVersionSnapshot?: string | null;
+        resourceSizeSnapshot?: number | null;
+        resourceFormatSnapshot?: string | null;
     };
+    
+    function getDisplayName(row: AppWithResource): string {
+        return row.resource?.name ?? row.resourceNameSnapshot ?? '—';
+    }
+    function getDisplayPackage(row: AppWithResource): string {
+        return row.resource?.packageName ?? row.resourcePackageNameSnapshot ?? row.resource?.id ?? '';
+    }
+    function getDisplayVersion(row: AppWithResource): string {
+        return row.resource?.version ?? row.resourceVersionSnapshot ?? '—';
+    }
+    function getDisplaySize(row: AppWithResource): number | null {
+        return row.resource?.size ?? row.resourceSizeSnapshot ?? null;
+    }
+    function isResourceDeleted(row: AppWithResource): boolean {
+        return !row.resource && (!!row.resourceId || !!row.resourceNameSnapshot);
+    }
 
     // Props
     export let bundleId: string;
@@ -48,20 +69,21 @@
     // Sort state (client-side: App column and others)
     let sort: { field: string | null; direction: 'asc' | 'desc' | null } = { field: null, direction: null };
     
-    // Filter apps based on search
+    // Filter apps based on search (use resource or snapshot)
     $: filteredApps = displayApps.filter((a) => {
         if (!searchTerm) return true;
-        return a.resource.name.toLowerCase().includes(searchTerm.toLowerCase());
+        const name = (a.resource?.name ?? a.resourceNameSnapshot ?? '').toLowerCase();
+        return name.includes(searchTerm.toLowerCase());
     });
     
-    // Apply sort to filtered apps
+    // Apply sort to filtered apps (use resource or snapshot)
     function getSortValue(row: AppWithResource, field: string): string | number | null {
         switch (field) {
             case 'order': return row.order ?? 0;
-            case 'name': return (row.resource?.name ?? '').toLowerCase();
+            case 'name': return (row.resource?.name ?? row.resourceNameSnapshot ?? '').toLowerCase();
             case 'type': return 'Normal';
-            case 'version': return (row.resource?.version ?? '').toLowerCase();
-            case 'size': return row.resource?.size ?? 0;
+            case 'version': return (row.resource?.version ?? row.resourceVersionSnapshot ?? '').toLowerCase();
+            case 'size': return row.resource?.size ?? row.resourceSizeSnapshot ?? 0;
             case 'autoOpen': return row.autoOpen ? 1 : 0;
             case 'createdAt': return row.createdAt ? new Date(row.createdAt).getTime() : 0;
             default: return null;
@@ -128,15 +150,19 @@
         {
             id: 'name',
             header: 'App',
-            accessor: (row) => row.resource.name,
+            accessor: (row) => row.resource?.name ?? row.resourceNameSnapshot ?? '—',
             type: 'custom',
             sortable: true,
             render: (value, row) => {
-                const name = row.resource?.name ?? '—';
-                const pkg = row.resource?.packageName ?? row.resource?.id ?? '';
-                const link = `<a href="${resourceLinkPrefix}/${row.resource.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`;
+                const name = row.resource?.name ?? row.resourceNameSnapshot ?? '—';
+                const pkg = row.resource?.packageName ?? row.resourcePackageNameSnapshot ?? (row.resource?.id ?? '');
+                const resourceDeleted = !row.resource;
+                const linkOrText = row.resource
+                    ? `<a href="${resourceLinkPrefix}/${row.resource.id}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline">${escapeHtml(name)}</a>`
+                    : `<span class="text-[14px] font-medium">${escapeHtml(name)}</span>`;
+                const deletedBadge = resourceDeleted ? '<span class="text-[12px] text-[var(--ds-text-error)] font-normal">(Resource deleted)</span>' : '';
                 const pkgLine = pkg ? `<span class="text-[14px] font-normal leading-5 text-[var(--ds-text-tertiary)]">${escapeHtml(pkg)}</span>` : '';
-                return `<div class="flex flex-col gap-0"><span>${link}</span>${pkgLine ? `<span>${pkgLine}</span>` : ''}</div>`;
+                return `<div class="flex flex-col gap-0"><span>${linkOrText} ${deletedBadge}</span>${pkgLine ? `<span>${pkgLine}</span>` : ''}</div>`;
             }
         },
         {
@@ -150,7 +176,7 @@
         {
             id: 'version',
             header: 'Version',
-            accessor: (row) => row.resource?.version ?? '—',
+            accessor: (row) => row.resource?.version ?? row.resourceVersionSnapshot ?? '—',
             type: 'text',
             sortable: true,
             width: '100px'
@@ -158,7 +184,10 @@
         {
             id: 'size',
             header: 'Size',
-            accessor: (row) => row.resource?.size != null ? formatAppSize(row.resource.size) : '—',
+            accessor: (row) => {
+                const size = row.resource?.size ?? row.resourceSizeSnapshot;
+                return size != null ? formatAppSize(size) : '—';
+            },
             type: 'text',
             sortable: true,
             width: '100px'

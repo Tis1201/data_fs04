@@ -19,6 +19,7 @@ const execAsync = promisify(exec);
 function toOut(metadata: Awaited<ReturnType<typeof parseDebFromFilePath>>) {
     return {
         packageName: metadata.packageName,
+        name: metadata.name ?? null,
         version: metadata.version,
         description: metadata.description,
         architecture: metadata.architecture ?? null,

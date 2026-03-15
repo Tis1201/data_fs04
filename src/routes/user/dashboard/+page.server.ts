@@ -357,29 +357,33 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
         offline: issuesByCategory.offline
     };
 
-    // Map device types to display names
+    // Map device types to display names (case-insensitive; darwin = MacOS)
     const osMapping: Record<string, string> = {
         'WINDOWS': 'Windows',
         'MACOS': 'MacOS',
+        'DARWIN': 'MacOS', // device agents report "darwin" for macOS
         'LINUX': 'Linux',
         'WEBOS': 'WebOS',
         'TIZEN': 'Tizen',
         'ANDROID': 'Android',
         'IOS': 'iOS',
         'OTHER': 'Other',
-        'sensor': 'Sensor',
-        'gateway': 'Gateway',
-        'camera': 'Camera'
+        'SENSOR': 'Sensor',
+        'GATEWAY': 'Gateway',
+        'CAMERA': 'Camera'
     };
 
     // Default OS types to always show (matching Figma design)
     const defaultOSTypes = ['Windows', 'MacOS', 'Linux', 'WebOS', 'Other'];
 
-    // Format devices by OS from database
-    const dbDevicesByOS = devicesByOS.map(item => ({
-        name: osMapping[item.deviceType || 'OTHER'] || item.deviceType || 'Other',
-        count: item._count.id
-    }));
+    // Format devices by OS from database (normalize to uppercase for case-insensitive lookup)
+    const dbDevicesByOS = devicesByOS.map(item => {
+        const key = (item.deviceType || 'OTHER').toUpperCase();
+        return {
+            name: osMapping[key] || 'Other',
+            count: item._count.id
+        };
+    });
 
     // Merge with default OS types to ensure all are shown
     const formattedDevicesByOS = defaultOSTypes.map(osName => {

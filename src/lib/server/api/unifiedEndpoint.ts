@@ -198,6 +198,13 @@ export function handleUnifiedError(error: any, requestId: string, operation?: st
 		);
 	}
 
+	if (error.status === 400 || error.code === ErrorCodes.VALIDATION_ERROR || error.code === ErrorCodes.INVALID_INPUT) {
+		return json(
+			errorResponse(error.message || 'Invalid request', error.code || ErrorCodes.VALIDATION_ERROR),
+			{ status: 400 }
+		);
+	}
+
 	if (error.code === 'FEATURE_NOT_AVAILABLE') {
 		return json(
 			errorResponse(error.message, ErrorCodes.FORBIDDEN),

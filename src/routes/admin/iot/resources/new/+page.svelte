@@ -231,7 +231,7 @@
                     if (debResult.success && debResult.data) {
                         $form.packageName = debResult.data.packageName;
                         $form.version = debResult.data.version;
-                        $form.name = debResult.data.packageName || debResult.data.description || $form.name;
+                        $form.name = debResult.data.name || debResult.data.packageName || debResult.data.description || $form.name;
                         isAutoExtracted = true;
                         isApkOrCpk = true;
                         zipParseSuccess = '✓ Successfully parsed DEB file ';

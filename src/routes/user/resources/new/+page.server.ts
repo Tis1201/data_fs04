@@ -174,25 +174,33 @@ export const actions: Actions = {
                 let filePath: string | null = null;
 
                 try {
-                    // Check if file has already been uploaded to cloud storage
-                    if (form.data.path && isCloudStorageUrl(form.data.path)) {
-                        logger.info(`File already uploaded to cloud storage: ${form.data.path}`);
-                        const config = getStorageConfig();
-                        if (config.mode === 'R2' && config.r2Bucket) {
-                            const parsed = parseCloudStorageUrl(form.data.path);
-                            if (parsed) {
-                                const bucket = parsed.bucket || config.r2Bucket;
-                                const newObjectPath = await ensureResourceInResourcesFolder(
-                                    bucket,
-                                    parsed.objectPath
-                                );
-                                const finalPath = config.r2CdnUrl
-                                    ? `${config.r2CdnUrl}/${newObjectPath}`
-                                    : `${process.env.CLOUDFLARE_R2_ENDPOINT || ''}/${bucket}/${newObjectPath}`;
-                                form.data.path = finalPath;
-                                logger.info(`[create] Resource path ensured in resources folder: ${finalPath}`);
-                            }
+                    // Check if file has already been uploaded to cloud storage (URL or object path)
+                    const config = getStorageConfig();
+                    if (form.data.path && config.mode === 'R2') {
+                        if (!config.r2Bucket) {
+                            throw new Error('[create] R2 mode requires CLOUDFLARE_R2_BUCKET_NAME to be set');
                         }
+                        let objectPath: string;
+                        const bucket = config.r2Bucket;
+
+                        if (isCloudStorageUrl(form.data.path)) {
+                            const parsed = parseCloudStorageUrl(form.data.path);
+                            if (!parsed) {
+                                throw new Error(`[create] Failed to parse cloud storage URL: ${form.data.path}`);
+                            }
+                            objectPath = parsed.objectPath;
+                        } else {
+                            // Raw object path (e.g. temp/resources/uuid.deb)
+                            objectPath = form.data.path.replace(/^\/+|\/+$/g, '');
+                        }
+
+                        logger.info(`[create] Moving resource from temp to resources folder: ${objectPath}`);
+                        const newObjectPath = await ensureResourceInResourcesFolder(bucket, objectPath);
+                        if (!config.r2CdnUrl) {
+                            throw new Error('[create] R2 mode requires CLOUDFLARE_R2_CDN_URL to be set');
+                        }
+                        form.data.path = `${config.r2CdnUrl.replace(/\/$/, '')}/${newObjectPath}`;
+                        logger.info(`[create] Resource path ensured in resources folder: ${form.data.path}`);
                         filePath = form.data.path;
                     } else if (
                         form.data.file &&

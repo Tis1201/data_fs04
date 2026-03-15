@@ -197,16 +197,7 @@ export const actions: Actions = {
                     return fail(403, { type: 'error', message: 'You do not have access to delete this resource' });
                 }
 
-                // Check if resource is used in any bundles (BundleApp) - cannot delete due to foreign key
-                const bundleAppCount = await locals.prisma.bundleApp.count({
-                    where: { resourceId: id }
-                });
-                if (bundleAppCount > 0) {
-                    return fail(400, {
-                        type: 'error',
-                        message: `This resource cannot be deleted because it is used in ${bundleAppCount} bundle(s). Please remove it from all bundles first.`
-                    });
-                }
+                // BundleApp uses onDelete: SetNull - resource can be deleted; bundles will show snapshot + "Resource deleted"
 
                 if (resource.path) {
                     try {
@@ -235,13 +226,6 @@ export const actions: Actions = {
                 return { type: 'success' };
             } catch (err: unknown) {
                 logger.error(`Error deleting resource: ${err}`);
-                const prismaErr = err as { code?: string };
-                if (prismaErr?.code === 'P2003') {
-                    return fail(400, {
-                        type: 'error',
-                        message: 'This resource cannot be deleted because it is used in one or more bundles. Please remove it from all bundles first.'
-                    });
-                }
                 return fail(500, { type: 'error', message: 'Failed to delete resource' });
             }
         },

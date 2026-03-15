@@ -62,8 +62,8 @@ export const POST: RequestHandler = restrict(
         }
       });
 
-      // Copy all apps from the original bundle
-      const appPromises = originalBundle.apps.map((app: { resourceId: string; order: number; autoOpen: boolean }) =>
+      // Copy all apps from the original bundle (including snapshot fields for deleted resources)
+      const appPromises = originalBundle.apps.map((app: any) =>
         locals.prisma.bundleApp.create({
           data: {
             bundleId: newBundle.id,
@@ -71,7 +71,12 @@ export const POST: RequestHandler = restrict(
             order: app.order,
             autoOpen: app.autoOpen,
             createdBy: actorId,
-            updatedBy: actorId
+            updatedBy: actorId,
+            resourceNameSnapshot: app.resourceNameSnapshot ?? app.resource?.name,
+            resourcePackageNameSnapshot: app.resourcePackageNameSnapshot ?? app.resource?.packageName,
+            resourceVersionSnapshot: app.resourceVersionSnapshot ?? app.resource?.version,
+            resourceSizeSnapshot: app.resourceSizeSnapshot ?? app.resource?.size,
+            resourceFormatSnapshot: app.resourceFormatSnapshot ?? app.resource?.format
           }
         })
       );

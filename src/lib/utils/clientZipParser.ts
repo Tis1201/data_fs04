@@ -34,6 +34,7 @@ export interface DebParseResult {
   success: boolean;
   data?: {
     packageName: string;
+    name?: string | null;
     version: string;
     description: string;
     architecture?: string | null;
@@ -415,8 +416,8 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
 
     // Convert DEB result to ZipParseResult format for compatibility
     const appData: AppJsonData = {
-      name: debResult.data.packageName,
-      display_name: debResult.data.packageName, // Use package name as display name
+      name: debResult.data.name || debResult.data.packageName,
+      display_name: debResult.data.name || debResult.data.packageName,
       domain: '',
       version: debResult.data.version,
       main: '',

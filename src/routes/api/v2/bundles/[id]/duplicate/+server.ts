@@ -65,19 +65,23 @@ export const POST = unifiedEndpoint(
       }
     });
 
-    // Copy all apps from the original bundle
-    const appPromises = originalBundle.apps.map(
-      (app: { resourceId: string; order: number; autoOpen: boolean }) =>
-        prisma.bundleApp.create({
-          data: {
-            bundleId: newBundle.id,
-            resourceId: app.resourceId,
-            order: app.order,
-            autoOpen: app.autoOpen,
-            createdBy: session.user.id,
-            updatedBy: session.user.id
-          }
-        })
+    // Copy all apps from the original bundle (including snapshot fields for deleted resources)
+    const appPromises = originalBundle.apps.map((app: any) =>
+      prisma.bundleApp.create({
+        data: {
+          bundleId: newBundle.id,
+          resourceId: app.resourceId,
+          order: app.order,
+          autoOpen: app.autoOpen,
+          createdBy: session.user.id,
+          updatedBy: session.user.id,
+          resourceNameSnapshot: app.resourceNameSnapshot ?? app.resource?.name,
+          resourcePackageNameSnapshot: app.resourcePackageNameSnapshot ?? app.resource?.packageName,
+          resourceVersionSnapshot: app.resourceVersionSnapshot ?? app.resource?.version,
+          resourceSizeSnapshot: app.resourceSizeSnapshot ?? app.resource?.size,
+          resourceFormatSnapshot: app.resourceFormatSnapshot ?? app.resource?.format
+        }
+      })
     );
 
     // Copy all devices from the original bundle in order to preserve device order

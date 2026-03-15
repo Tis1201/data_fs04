@@ -92,6 +92,11 @@ This directory contains comprehensive documentation for the IoT Management Syste
 - **Database Migrations** - Schema changes and data migrations
 - **ClickHouse Migrations** - Analytics database migrations
 
+### 📦 [Bundle Retry & Resume Issues](./BUNDLE_RETRY_RESUME_ISSUES.md)
+- **Status reverts to FAILED on refresh** - Root cause and fixes (grace period, full install payload)
+- **Retry/Resume with deleted resources** - Missing check; how to add validation
+- **Implementation checklist** - Summary of required changes
+
 ---
 
 ## 📊 System Overview

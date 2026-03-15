@@ -23,6 +23,7 @@
     
     import type { BundleDevice } from "@prisma/client";
     import DeviceSelector from "../device_select/DeviceSelector.svelte";
+    import { getDeviceTypeDisplayName } from '$lib/utils/bundleUtils';
     
     // Types (device may include deviceType, os, osVersion from API)
     type DeviceWithInfo = BundleDevice & { 
@@ -181,7 +182,7 @@
         {
             id: 'operatingSystem',
             header: 'Operating System',
-            accessor: (row) => row.device.deviceType ?? row.device.os ?? row.device.osVersion ?? '—',
+            accessor: (row) => getDeviceTypeDisplayName(row.device.deviceType ?? row.device.os ?? row.device.osVersion),
             type: 'text',
             sortable: true
         },

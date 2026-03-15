@@ -92,7 +92,7 @@ export const POST = unifiedEndpoint(
       );
     }
 
-    // Create the bundle app
+    // Create the bundle app with snapshot fields (used when resource is later deleted)
     const bundleApp = await prisma.bundleApp.create({
       data: {
         bundleId,
@@ -100,7 +100,12 @@ export const POST = unifiedEndpoint(
         order,
         autoOpen,
         createdBy: session.user.id,
-        updatedBy: session.user.id
+        updatedBy: session.user.id,
+        resourceNameSnapshot: resource.name,
+        resourcePackageNameSnapshot: resource.packageName,
+        resourceVersionSnapshot: resource.version,
+        resourceSizeSnapshot: resource.size,
+        resourceFormatSnapshot: resource.format
       }
     });
 

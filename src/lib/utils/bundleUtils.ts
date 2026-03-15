@@ -135,6 +135,67 @@ export function getOSDisplay(os: string | null | undefined): string {
 }
 
 /**
+ * Device type aliases per bundle OS (devices report "darwin", bundles use "MacOS")
+ */
+const BUNDLE_OS_DEVICE_ALIASES: Record<string, string[]> = {
+    MACOS: ['darwin', 'macos'],
+    DARWIN: ['darwin', 'macos'],
+    LINUX: ['linux'],
+    WINDOWS: ['windows'],
+    ANDROID: ['android'],
+    WEBOS: ['webos']
+};
+
+/**
+ * Check if a device's deviceType matches the bundle's target OS.
+ * Handles darwin↔MacOS, case-insensitive.
+ */
+export function deviceTypeMatchesBundleOs(
+    deviceType: string | null | undefined,
+    bundleOs: string | null | undefined
+): boolean {
+    const dt = (deviceType ?? '').trim();
+    const bo = (bundleOs ?? '').trim();
+    if (!bo) return true;
+    if (!dt) return false;
+    const dtLower = dt.toLowerCase();
+    const boUpper = bo.toUpperCase();
+    if (dtLower === bo.toLowerCase()) return true;
+    const aliases = BUNDLE_OS_DEVICE_ALIASES[boUpper];
+    if (aliases) return aliases.some((a) => dtLower === a.toLowerCase());
+    return dtLower === bo.toLowerCase();
+}
+
+/**
+ * Display name for device type (darwin → MacOS, etc.)
+ */
+export function getDeviceTypeDisplayName(deviceType: string | null | undefined): string {
+    const dt = (deviceType ?? '').trim().toUpperCase();
+    if (!dt) return '—';
+    if (dt === 'DARWIN') return 'MacOS';
+    if (dt === 'MACOS') return 'MacOS';
+    if (dt === 'LINUX') return 'Linux';
+    if (dt === 'WINDOWS') return 'Windows';
+    if (dt === 'ANDROID') return 'Android';
+    if (dt === 'WEBOS') return 'WebOS';
+    return deviceType ?? '—';
+}
+
+/**
+ * Returns Prisma deviceType filter for bundle OS (darwin matches MacOS, etc.).
+ * Use when filtering devices by bundle target OS.
+ */
+export function getDeviceTypeFilterForBundleOs(bundleOs: string | null | undefined): { deviceType: { in: string[]; mode: 'insensitive' } } | null {
+    const bo = (bundleOs ?? '').trim();
+    if (!bo) return null;
+    const aliases = BUNDLE_OS_DEVICE_ALIASES[bo.toUpperCase()];
+    if (aliases?.length) {
+        return { deviceType: { in: aliases, mode: 'insensitive' } };
+    }
+    return { deviceType: { in: [bo], mode: 'insensitive' } };
+}
+
+/**
  * OS options for dropdowns/selects
  */
 export const OS_OPTIONS = [

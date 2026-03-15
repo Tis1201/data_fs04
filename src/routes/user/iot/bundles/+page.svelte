@@ -282,7 +282,8 @@
                 await invalidate('app:bundles');
                 await goto($page.url.pathname + $page.url.search, { invalidateAll: true });
             } else {
-                toast.error(result.message || 'Unable to cancel deployment. Please try again!');
+                const msg = result.error?.details?.originalError || result.error?.message;
+                toast.error(msg || 'Unable to cancel deployment. Please try again!');
             }
         } catch {
             toast.error('Unable to cancel deployment. Please try again!');
@@ -301,7 +302,8 @@
                 await invalidate('app:bundles');
                 await goto($page.url.pathname + $page.url.search, { invalidateAll: true });
             } else {
-                toast.error(result.message || 'Unable to resume deployment. Please try again!');
+                const msg = result.error?.details?.originalError || result.error?.message;
+                toast.error(msg || 'Unable to resume deployment. Please try again!');
             }
         } catch {
             toast.error('Unable to resume deployment. Please try again!');
@@ -318,7 +320,8 @@
                 await invalidate('app:bundles');
                 goto(`${basePath}/${bundle.id}`);
             } else {
-                toast.error(result.message || 'Unable to run deployment. Please try again!');
+                const msg = result.error?.details?.originalError || result.error?.message;
+                toast.error(msg || 'Unable to run deployment. Please try again!');
             }
         } catch {
             toast.error('Unable to run deployment. Please try again!');
@@ -335,7 +338,8 @@
                 await invalidate('app:bundles');
                 goto(`${basePath}/${bundle.id}`);
             } else {
-                toast.error(result.message || 'Unable to re-run deployment. Please try again!');
+                const msg = result.error?.details?.originalError || result.error?.message;
+                toast.error(msg || 'Unable to re-run deployment. Please try again!');
             }
         } catch {
             toast.error('Unable to re-run deployment. Please try again!');

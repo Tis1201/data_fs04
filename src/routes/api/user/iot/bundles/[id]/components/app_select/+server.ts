@@ -50,7 +50,7 @@ export const GET = restrict(
         where: { bundleId },
         select: { resourceId: true }
       });
-      const excludeIds = new Set(existing.map((e: { resourceId: string }) => e.resourceId));
+      const excludeIds = new Set(existing.map((e: { resourceId: string | null }) => e.resourceId).filter(Boolean) as string[]);
 
       // Filter formats by bundle target OS: macOS → cpk; Linux → deb, cpk; Android → apk
       const allowedFormats = getFormatsByTargetOs(bundle?.os);
@@ -154,12 +154,28 @@ export const POST = restrict(
         throw error(400, 'Resource is already in the bundle');
       }
       
-      // Add the resource to the bundle
+      // Compute next order
+      const maxOrder = await (prisma as any).bundleApp.aggregate({
+        where: { bundleId },
+        _max: { order: true }
+      });
+      const order = (maxOrder._max?.order ?? 0) + 1;
+      
+      // Add the resource to the bundle with snapshot fields (used when resource is later deleted)
+      const userId = locals.user?.id ?? 'unknown';
       const bundleResource = await (prisma as any).bundleApp.create({
         data: {
-          bundle: { connect: { id: bundleId } },
-          resource: { connect: { id: resourceId } },
-          autoOpen: data.autoOpen || false
+          bundleId,
+          resourceId,
+          order,
+          autoOpen: data.autoOpen || false,
+          createdBy: userId,
+          updatedBy: userId,
+          resourceNameSnapshot: resource.name,
+          resourcePackageNameSnapshot: resource.packageName,
+          resourceVersionSnapshot: resource.version,
+          resourceSizeSnapshot: resource.size,
+          resourceFormatSnapshot: resource.format
         },
         include: {
           resource: true

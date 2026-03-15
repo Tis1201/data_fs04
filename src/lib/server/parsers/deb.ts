@@ -16,6 +16,7 @@ const execAsync = promisify(exec);
 
 export interface DebMetadata {
     packageName: string;
+    name?: string;
     version: string;
     description: string;
     architecture?: string;
@@ -103,6 +104,71 @@ function parseControlFile(content: string): DebMetadata {
     };
 }
 
+/**
+ * Try to extract the human-readable "name" from app.json bundled inside data.tar.* of a .deb.
+ * Returns undefined if not found or on any error (non-fatal).
+ */
+async function readNameFromDebAppJson(
+    debFilePath: string,
+    archiveFiles: string[],
+    workDir: string
+): Promise<string | undefined> {
+    try {
+        const dataTarFile = archiveFiles.find((f) => f.startsWith('data.tar.'));
+        if (!dataTarFile) return undefined;
+
+        await execAsync(`ar x "${debFilePath}" "${dataTarFile}"`, { cwd: workDir });
+        const dataTarPath = join(workDir, dataTarFile);
+
+        // Decompress xz first (same approach as control extraction)
+        let plainTarPath = dataTarPath;
+        if (dataTarFile.endsWith('.xz')) {
+            plainTarPath = join(workDir, 'data.tar');
+            const xzCommand = await findXzCommand();
+            await execAsync(`${xzCommand} -dc "${dataTarPath}" > "${plainTarPath}"`);
+        }
+
+        // Find app.json entry in the tarball
+        let listCmd: string;
+        if (dataTarFile.endsWith('.gz')) {
+            listCmd = `tar -tzf "${dataTarPath}"`;
+        } else if (dataTarFile.endsWith('.zst')) {
+            listCmd = `tar --zstd -tf "${dataTarPath}"`;
+        } else {
+            listCmd = `tar -tf "${plainTarPath}"`;
+        }
+
+        const tarList = await execAsync(listCmd, { cwd: workDir });
+        const appJsonEntry = tarList.stdout
+            .trim()
+            .split('\n')
+            .map((f) => f.trim())
+            .find((f) => f.endsWith('/app.json') || f === 'app.json' || f === './app.json');
+
+        if (!appJsonEntry) return undefined;
+
+        // Extract just the app.json file
+        let extractCmd: string;
+        if (dataTarFile.endsWith('.gz')) {
+            extractCmd = `tar -xzf "${dataTarPath}" "${appJsonEntry}"`;
+        } else if (dataTarFile.endsWith('.zst')) {
+            extractCmd = `tar --zstd -xf "${dataTarPath}" "${appJsonEntry}"`;
+        } else {
+            extractCmd = `tar -xf "${plainTarPath}" "${appJsonEntry}"`;
+        }
+
+        await execAsync(extractCmd, { cwd: workDir });
+
+        const appJsonFullPath = join(workDir, appJsonEntry);
+        const content = await readFile(appJsonFullPath, 'utf-8');
+        const json = JSON.parse(content);
+        const name = typeof json.name === 'string' ? json.name.trim() : undefined;
+        return name || undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMetadata> {
     const listOutput = await execAsync(`ar t "${debFilePath}"`, { cwd: workDir });
     const archiveFiles = listOutput.stdout.trim().split('\n');
@@ -158,7 +224,15 @@ async function parseDebFile(debFilePath: string, workDir: string): Promise<DebMe
     }
 
     const controlContent = await readFile(join(workDir, 'control'), 'utf-8');
-    return parseControlFile(controlContent);
+    const metadata = parseControlFile(controlContent);
+
+    // Try to get human-readable name from app.json bundled in data.tar.*
+    const appJsonName = await readNameFromDebAppJson(debFilePath, archiveFiles, workDir);
+    if (appJsonName) {
+        metadata.name = appJsonName;
+    }
+
+    return metadata;
 }
 
 /**

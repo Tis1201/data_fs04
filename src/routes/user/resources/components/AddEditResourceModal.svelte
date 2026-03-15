@@ -362,7 +362,7 @@
                     if (debResult.success && debResult.data) {
                         packageName = debResult.data.packageName;
                         version = debResult.data.version;
-                        name = debResult.data.packageName || debResult.data.description || name;
+                        name = debResult.data.name || debResult.data.packageName || debResult.data.description || name;
                         isApkOrCpk = true;
                         zipParseSuccess = '✓ Successfully parsed DEB file ';
                     } else {

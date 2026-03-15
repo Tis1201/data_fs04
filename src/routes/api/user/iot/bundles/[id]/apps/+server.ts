@@ -112,7 +112,7 @@ export const POST: RequestHandler = restrict(
                 );
             }
             
-            // Create the bundle app
+            // Create the bundle app with snapshot fields (used when resource is later deleted)
             const bundleApp = await locals.prisma.bundleApp.create({
                 data: {
                     bundleId,
@@ -120,7 +120,12 @@ export const POST: RequestHandler = restrict(
                     order,
                     autoOpen,
                     createdBy: userInfo.id,
-                    updatedBy: userInfo.id
+                    updatedBy: userInfo.id,
+                    resourceNameSnapshot: resource.name,
+                    resourcePackageNameSnapshot: resource.packageName,
+                    resourceVersionSnapshot: resource.version,
+                    resourceSizeSnapshot: resource.size,
+                    resourceFormatSnapshot: resource.format
                 }
             });
             

@@ -9,8 +9,7 @@ import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
 import { unregisterWaveTimeout, registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 import { initializeStateManager, getStateManager } from '$lib/server/state/stateManagerFactory';
 import { BundleProcessingState } from '$lib/server/state/types';
-import { publisher } from '$lib/server/messaging/core/publisher';
-import { MessageFactory, SystemUser } from '$lib/server/messaging/interfaces/message';
+import { sendBundleInstallToWave } from '$lib/server/bundles/bundlePublisher';
 
 /**
  * POST /api/v2/bundles/[id]/retry
@@ -34,7 +33,10 @@ export const POST: RequestHandler = unifiedEndpoint(
 
 		const bundle = await prisma.bundle.findUnique({
 			where: { id: bundleId },
-			include: { waves: { orderBy: { createdAt: 'asc' } } }
+			include: {
+				waves: { orderBy: { createdAt: 'asc' } },
+				apps: { include: { resource: true } }
+			}
 		});
 
 		if (!bundle) {
@@ -48,6 +50,14 @@ export const POST: RequestHandler = unifiedEndpoint(
 			throw Object.assign(
 				new Error(`Cannot retry a deployment with status "${bundle.status}". Only FAILED deployments can be retried.`),
 				{ status: 409, code: ErrorCodes.CONFLICT }
+			);
+		}
+
+		const appsWithDeletedResource = (bundle.apps || []).filter((a: any) => !a.resource);
+		if (appsWithDeletedResource.length > 0) {
+			throw Object.assign(
+				new Error(`Cannot retry: ${appsWithDeletedResource.length} app(s) reference deleted resources. Remove or replace them before retrying.`),
+				{ status: 400, code: ErrorCodes.VALIDATION_ERROR }
 			);
 		}
 
@@ -123,7 +133,7 @@ export const POST: RequestHandler = unifiedEndpoint(
 				logger.warn(`[BundleRetry] Failed to register wave timeout: ${String(timeoutErr?.message || timeoutErr)}`);
 			}
 
-			// Update device progress for this wave to IN_PROGRESS and send MQTT commands
+			// Update device progress for this wave to IN_PROGRESS and send full bundle_install (presigned URLs)
 			const pendingDevices = await prisma.bundleDeviceProgress.findMany({
 				where: { waveId: firstPendingWave.id, status: 'PENDING' },
 				include: { bundleDevice: true }
@@ -134,27 +144,12 @@ export const POST: RequestHandler = unifiedEndpoint(
 					where: { waveId: firstPendingWave.id, status: 'PENDING' },
 					data: { status: 'IN_PROGRESS', startedAt: new Date(), updatedBy: session.user.id }
 				});
-			}
 
-			for (const prog of pendingDevices) {
-				if (prog.bundleDevice?.deviceId) {
-					try {
-						const message = MessageFactory.createSystemMessage(
-							'device:actionRequest',
-							`subscription:device:${prog.bundleDevice.deviceId}`,
-							{
-								action: 'bundleStatus',
-								deviceId: prog.bundleDevice.deviceId,
-								waveId: firstPendingWave.id,
-								bundleId,
-								timestamp: new Date().toISOString()
-							},
-							SystemUser
-						);
-						await publisher.publish(message);
-					} catch (err) {
-						logger.warn(`[BundleRetry] Failed to send MQTT to device ${prog.bundleDevice.deviceId}: ${String(err)}`);
-					}
+				try {
+					await sendBundleInstallToWave(prisma, bundleId, firstPendingWave.id, session.user.id);
+				} catch (installErr: any) {
+					logger.warn(`[BundleRetry] Failed to send bundle_install to devices: ${String(installErr?.message || installErr)}`);
+					// Don't rollback - wave is IN_PROGRESS, devices may have received partial messages
 				}
 			}
 

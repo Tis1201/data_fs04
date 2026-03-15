@@ -26,7 +26,10 @@ import crypto from 'crypto';
  * @returns Result object with status and body
  */
 export async function publishBundleCore(prisma: any, bundleId: string, userId = 'system') {
-  const bundle = await prisma.bundle.findUnique({ where: { id: bundleId } });
+  const bundle = await prisma.bundle.findUnique({
+    where: { id: bundleId },
+    include: { apps: { include: { resource: true }, orderBy: { order: 'asc' } } }
+  });
   if (!bundle) {
     return { status: 404, body: { success: false, error: 'Bundle not found' } };
   }
@@ -34,6 +37,18 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
   // Enforce that only DRAFT bundles can be published
   if (bundle.status !== 'DRAFT') {
     return { status: 409, body: { success: false, error: 'Only DRAFT bundles can be published' } };
+  }
+
+  // Fail early if any app references a deleted resource (enterprise: explicit failure)
+  const appsWithDeletedResource = (bundle.apps || []).filter((a: any) => !a.resource);
+  if (appsWithDeletedResource.length > 0) {
+    return {
+      status: 400,
+      body: {
+        success: false,
+        error: `Cannot publish: ${appsWithDeletedResource.length} app(s) reference deleted resources. Remove or replace them before publishing.`
+      }
+    };
   }
 
   const updated = await prisma.bundle.update({
@@ -418,6 +433,122 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
     logger.error(`Error publishing bundle: ${error instanceof Error ? error.message : String(error)}`);
     return { status: 500, body: { success: false, error: 'Failed to publish bundle' } };
   }
+}
+
+/**
+ * Send full bundle_install payload to all devices in a wave.
+ * Used by retry and resume so devices receive presigned URLs (not just bundleStatus).
+ * Throws if any app references a deleted resource.
+ */
+export async function sendBundleInstallToWave(
+	prisma: any,
+	bundleId: string,
+	waveId: string,
+	userId: string
+): Promise<void> {
+	const [bundleMeta, bundleWithApps, progresses] = await Promise.all([
+		prisma.bundle.findUnique({ where: { id: bundleId }, select: { id: true, name: true, accountId: true, reboot: true, forceUpdate: true, autoOpen: true } }),
+		prisma.bundle.findUnique({ where: { id: bundleId }, include: { apps: { include: { resource: true }, orderBy: { order: 'asc' } } } }),
+		prisma.bundleDeviceProgress.findMany({ where: { bundleId, waveId }, include: { bundleDevice: true } })
+	]);
+
+	if (!bundleMeta || !bundleWithApps) {
+		throw new Error('Bundle not found');
+	}
+	if (!bundleMeta.accountId) {
+		throw new Error('Bundle has no accountId');
+	}
+
+	const appsWithDeletedResource = (bundleWithApps.apps || []).filter((a: any) => !a.resource);
+	if (appsWithDeletedResource.length > 0) {
+		throw new Error(`Cannot send install: ${appsWithDeletedResource.length} app(s) reference deleted resources. Remove or replace them before retrying.`);
+	}
+
+	const apps = await Promise.all(
+		(bundleWithApps.apps || []).map(async (a: any, idx: number) => {
+			if (!a.resource?.path) {
+				logger.warn(`[sendBundleInstallToWave] App ${a.resourceId} has no path, skipping presigned URL`);
+				return {
+					resourceId: a.resourceId,
+					name: a.resource?.name,
+					packageName: a.resource?.packageName,
+					path: a.resource?.path,
+					version: a.resource?.version,
+					format: a.resource?.format,
+					size: a.resource?.size,
+					order: a.order ?? idx + 1,
+					autoOpen: !!a.autoOpen
+				};
+			}
+			try {
+				const result = await convertGCloudUrlToSignedDownloadUrl(a.resource.path, 3600, a.resource.name);
+				if (!result?.downloadUrl) throw new Error('Failed to generate presigned URL');
+				return {
+					resourceId: a.resourceId,
+					name: a.resource.name,
+					packageName: a.resource.packageName,
+					path: result.downloadUrl,
+					version: a.resource.version,
+					format: a.resource.format,
+					size: a.resource.size,
+					order: a.order ?? idx + 1,
+					autoOpen: !!a.autoOpen
+				};
+			} catch (err) {
+				logger.error(`[sendBundleInstallToWave] Error generating presigned URL for app ${a.resourceId}: ${err instanceof Error ? err.message : String(err)}`);
+				return {
+					resourceId: a.resourceId,
+					name: a.resource?.name,
+					packageName: a.resource?.packageName,
+					path: a.resource?.path,
+					version: a.resource?.version,
+					format: a.resource?.format,
+					size: a.resource?.size,
+					order: a.order ?? idx + 1,
+					autoOpen: !!a.autoOpen
+				};
+			}
+		})
+	);
+
+	const anyAutoOpen = apps.some((a: any) => !!a.autoOpen);
+
+	for (const prog of progresses) {
+		const deviceId = (prog as any).bundleDevice?.deviceId;
+		if (!deviceId) continue;
+
+		try {
+			await queueNotification({
+				sub: `user:system:${bundleMeta.accountId}`,
+				recipient: `device:${deviceId}`,
+				type: DeviceNotificationType.ActionRequest,
+				flowId: crypto.randomUUID(),
+				params: {
+					action: 'bundle_install',
+					sessionId: `wave:${waveId}`,
+					batchId: `wave:${waveId}`,
+					deviceId,
+					bundles: [
+						{
+							id: bundleId,
+							name: bundleMeta?.name || 'Bundle',
+							order: 1,
+							apps
+						}
+					],
+					options: {
+						reboot: bundleMeta?.reboot ?? false,
+						autoOpen: anyAutoOpen,
+						forceUpdate: bundleMeta?.forceUpdate ?? false
+					}
+				},
+				expiresIn: '5m'
+			});
+			logger.info(`[sendBundleInstallToWave] Queued bundle_install for device ${deviceId} in wave ${waveId}`);
+		} catch (pubErr) {
+			logger.warn(`[sendBundleInstallToWave] Failed to queue for device ${deviceId}: ${pubErr instanceof Error ? pubErr.message : String(pubErr)}`);
+		}
+	}
 }
 
 // Export as _publishBundleCore for backward compatibility
