@@ -161,7 +161,7 @@
                             throw new Error(err.details || err.error || 'Failed to get upload URL');
                         }
                         const { data: presignedData } = await presignedRes.json();
-                        const { url, bucket, objectPath, contentType } = presignedData;
+                        const { url, bucket, objectPath, contentType, resourcePath: apiResourcePath } = presignedData;
                         if (!url || !bucket || !objectPath) {
                             throw new Error('Invalid presigned URL response');
                         }
@@ -173,7 +173,7 @@
                         if (!uploadRes.ok) {
                             throw new Error(`Upload failed: ${uploadRes.status}`);
                         }
-                        uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                        uploadedCloudPath = apiResourcePath ?? `https://storage.googleapis.com/${bucket}/${objectPath}`;
                         $form.path = uploadedCloudPath;
                         $form.size = file.size;
                         apkResult = await parseApkByPath(objectPath, bucket);
@@ -211,7 +211,7 @@
                         throw new Error(err.details || err.error || 'Failed to get upload URL');
                     }
                     const { data: presignedData } = await presignedRes.json();
-                    const { url, bucket, objectPath, contentType } = presignedData;
+                    const { url, bucket, objectPath, contentType, resourcePath: apiResourcePath } = presignedData;
                     if (!url || !bucket || !objectPath) {
                         throw new Error('Invalid presigned URL response');
                     }
@@ -223,7 +223,7 @@
                     if (!uploadRes.ok) {
                         throw new Error(`Upload failed: ${uploadRes.status}`);
                     }
-                    uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                    uploadedCloudPath = apiResourcePath ?? `https://storage.googleapis.com/${bucket}/${objectPath}`;
                     $form.path = uploadedCloudPath;
                     $form.size = file.size;
 

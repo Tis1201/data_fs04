@@ -202,7 +202,7 @@
                         throw new Error(err.details || err.error || 'Failed to get upload URL');
                     }
                     const { data: presignedData } = await presignedRes.json();
-                    const { url, bucket, objectPath, contentType } = presignedData;
+                    const { url, bucket, objectPath, contentType, resourcePath: apiResourcePath } = presignedData;
                     if (!url || !bucket || !objectPath) {
                         throw new Error('Invalid presigned URL response');
                     }
@@ -216,7 +216,8 @@
                         (p) => { uploadProgress = p; }
                     );
                     uploadProgress = null;
-                    uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
+                    // Use resourcePath (object path) from API for storage; fallback for legacy
+                    uploadedCloudPath = apiResourcePath ?? `https://storage.googleapis.com/${bucket}/${objectPath}`;
                     $form.path = uploadedCloudPath;
                     $form.size = file.size;
                 }

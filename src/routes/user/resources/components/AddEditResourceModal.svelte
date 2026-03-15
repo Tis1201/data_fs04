@@ -75,7 +75,7 @@
         { id: 'Production', label: 'Production' }
     ];
 
-    const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file';
+    const RESOURCE_PATH_TOOLTIP = 'Path is automatically generated from uploaded file. This is a temporary path — the final URL will be set after you add the resource.';
     const MAX_FILE_SIZE_MB = 500;
     const MAX_NAME_LENGTH = NAME_MAX;
     const FILE_HELPER = `Maximum file size ${MAX_FILE_SIZE_MB} MB, and allowed file types: .zip, .cpk, .deb, .apk, .exe.`;
@@ -299,7 +299,7 @@
                     }
                     const { data: presignedData } = await presignedRes.json();
                     if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
-                    const { url, bucket, objectPath, contentType } = presignedData;
+                    const { url, bucket, objectPath, contentType, resourcePath: apiResourcePath, resourceDisplayUrl } = presignedData;
                     if (!url || !bucket || !objectPath) {
                         throw new Error('Invalid presigned URL response');
                     }
@@ -320,8 +320,9 @@
                     if (signal.aborted) throw new Error(UPLOAD_CANCELLED);
                     uploadProgress = null;
                     uploadedFiles = [{ id: uploadedFiles[0]?.id ?? crypto.randomUUID(), name: file.name, size: file.size, progress: 100, state: 'success' }];
-                    uploadedCloudPath = `https://storage.googleapis.com/${bucket}/${objectPath}`;
-                    resourcePath = uploadedCloudPath;
+                    // Use resourcePath from API (object path for R2) for DB storage; resourceDisplayUrl for UI (CDN URL)
+                    uploadedCloudPath = apiResourcePath ?? objectPath;
+                    resourcePath = resourceDisplayUrl ?? `${apiResourcePath ?? objectPath}`;
                 }
 
                 // Type-specific parsing (metadata only; file already in GCloud when isCloudMode)

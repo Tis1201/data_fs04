@@ -32,6 +32,10 @@ export interface PresignedUrlResult {
     objectPath: string;
     contentType: string;
     expires: number;
+    /** Canonical path to store in DB (object path for R2, etc.) */
+    resourcePath?: string;
+    /** Display URL for UI (CDN URL for R2; avoids hardcoded storage.googleapis.com) */
+    resourceDisplayUrl?: string;
 }
 
 export interface FileMetadata {
@@ -146,12 +150,20 @@ export async function generatePresignedUrlR2(
 
         logger.info(`Generated presigned URL for R2: bucket=${bucket}, objectPath=${objectPath}`);
 
+        const config = getStorageConfig();
+        const resourcePath = objectPath;
+        const resourceDisplayUrl = config.r2CdnUrl
+            ? `${config.r2CdnUrl.replace(/\/$/, '')}/${objectPath.startsWith('/') ? objectPath.slice(1) : objectPath}`
+            : undefined;
+
         return {
             url,
             bucket,
             objectPath,
             contentType,
-            expires
+            expires,
+            resourcePath,
+            resourceDisplayUrl
         };
     } catch (error) {
         logger.error(`Failed to generate presigned URL for R2: ${error}`);
@@ -256,12 +268,15 @@ export async function generatePresignedUrl(
             
             logger.info(`Generated LOCAL presigned URL: ${url}`);
             
+            const localDisplayUrl = `${baseUrl.replace(/\/$/, '')}/api/upload/local?path=${encodeURIComponent(objectPath)}`;
             return {
                 url,
                 bucket: 'local',
                 objectPath,
                 contentType,
-                expires: Date.now() + (expiresSeconds * 1000)
+                expires: Date.now() + (expiresSeconds * 1000),
+                resourcePath: objectPath,
+                resourceDisplayUrl: localDisplayUrl
             };
 
 
