@@ -31,12 +31,29 @@ export const load = restrict(
                 accountId: currentAccountId,
                 includeUserInfo: true
             });
-            if (result.pinRule.createdBy !== auth.user.id && result.pinRule.ruleType !== 'admin_default') {
+            // Access: admin_default → anyone; user_default → account members (loadPinRuleDetail verifies accountId);
+            // user_custom → creator only
+            const canView =
+                result.pinRule.ruleType === 'admin_default' ||
+                result.pinRule.ruleType === 'user_default' ||
+                (result.pinRule.ruleType === 'user_custom' && result.pinRule.createdBy === auth.user.id);
+            if (!canView) {
                 throw redirect(302, '/user/iot/pin-rules');
             }
+            const accountRole =
+                (locals as { currentAccount?: { role?: string } }).currentAccount?.role ?? null;
+            // Match API PUT logic: admin_* → system ADMIN only; user_default → OWNER/ADMIN; user_custom → creator only
+            const canEdit =
+                (result.pinRule.ruleType === 'admin_default' || result.pinRule.ruleType === 'admin_custom')
+                    ? auth.user.systemRole === 'ADMIN'
+                    : result.pinRule.ruleType === 'user_default'
+                        ? !!(accountRole && ['OWNER', 'ADMIN'].includes(accountRole))
+                        : result.pinRule.ruleType === 'user_custom' && result.pinRule.createdBy === auth.user.id;
             return {
                 user: auth.user,
-                rule: result.pinRule
+                rule: result.pinRule,
+                accountRole,
+                canEdit
             };
         } catch (error) {
             console.error('Error loading pin rule:', error);

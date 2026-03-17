@@ -249,7 +249,8 @@ export class DeviceAppService {
             : undefined;
 
       if (!latestTime) {
-        // No apps found for this device
+        // No apps found for this device (device never reported apps, or no data in ClickHouse)
+        logger.info('[DeviceAppService] No apps in ClickHouse for device', { deviceId, pinnedPackagesCount: pinnedPackages?.length ?? 0 });
         return {
           apps: [],
           total: 0,
@@ -262,13 +263,12 @@ export class DeviceAppService {
       whereConditions += ' AND created_at = {latestTime:String}';
       queryParams.latestTime = latestTime;
 
-      // TC-RDM-APR-0118: Order pinned apps first so they appear on page 1
       const pinnedFirst =
         pinnedPackages.length > 0
-          ? `has({pinnedPackages:Array(String)}, package_name) DESC, ${orderBy}`
+          ? `has({pinnedPackagesLower:Array(String)}, lower(package_name)) DESC, ${orderBy}`
           : orderBy;
       if (pinnedPackages.length > 0) {
-        queryParams.pinnedPackages = pinnedPackages;
+        queryParams.pinnedPackagesLower = pinnedPackages.map(p => p.toLowerCase());
       }
 
       // Get total count (all apps from latest sync)

@@ -128,21 +128,33 @@ export const GET: RequestHandler = restrict(
       // ---------------- Rule selection FIRST (TC-RDM-APR-0118: pass pinnedPackages to CH) ----------------
       const systemRole: SystemRole = auth.user.systemRole;
 
-      const applicableRules = await prisma.pinRule.findMany({
+      const allApplicableRules = await prisma.pinRule.findMany({
         where:
           systemRole === 'ADMIN'
             ? {
                 isActive: true,
+                isDraft: false,
                 OR: [{ ruleType: 'admin_default' }, { ruleType: 'admin_custom' }]
               }
             : {
                 isActive: true,
+                isDraft: false,
                 OR: [
                   { ruleType: 'admin_default' },
                   { ruleType: 'user_default', accountId: device.accountId },
                   { ruleType: 'user_custom', accountId: device.accountId, createdBy: auth.user.id }
                 ]
-              }
+              },
+        select: { id: true, ruleType: true, name: true, apps: true, targetType: true, targetValue: true, createdAt: true, createdBy: true }
+      });
+
+      const applicableRules = allApplicableRules.filter((r) => {
+        const targetType = r.targetType || 'all';
+        if (targetType === 'all') return true;
+        if ((targetType === 'specific' || targetType === 'devices') && Array.isArray(r.targetValue)) {
+          return r.targetValue.includes(deviceId);
+        }
+        return false;
       });
 
       const sortedRules = applicableRules.sort(
@@ -204,25 +216,34 @@ export const GET: RequestHandler = restrict(
         }`
       );
 
-      // Build pin map ONLY from the selected top rule
+      // Build pin map ONLY from the selected top rule (case-insensitive lookup)
       const pinStatusMap = new Map<string, any>();
+      const pinStatusMapByLower = new Map<string, any>();
 
       for (const pkg of topRuleApps) {
         if (typeof pkg === 'string' && pkg.length > 0 && !pinStatusMap.has(pkg)) {
-          pinStatusMap.set(pkg, {
+          const pinInfo = {
             isPinned: true,
             pinnedBy: topRule?.name,
             ruleType: topRule?.ruleType,
             pinnedAt: new Date().toISOString(),
             ruleId: topRule?.id,
             createdBy: topRule?.createdBy
-          });
+          };
+          pinStatusMap.set(pkg, pinInfo);
+          const keyLower = pkg.toLowerCase();
+          if (!pinStatusMapByLower.has(keyLower)) {
+            pinStatusMapByLower.set(keyLower, pinInfo);
+          }
         }
       }
 
-      // Combine CH apps with pin info (from single rule)
+      // Combine CH apps with pin info (case-insensitive fallback)
       const appsWithPins = appData.apps.map((app: any) => {
-        const pinInfo = pinStatusMap.get(app.package_name) || null;
+        const pinInfo =
+          pinStatusMap.get(app.package_name) ||
+          pinStatusMapByLower.get((app.package_name || '').toLowerCase()) ||
+          null;
         return { ...app, isPinned: !!pinInfo, pinInfo };
       });
 

@@ -85,7 +85,7 @@
             </p>
           </FormField>
 
-          <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt}>
+          <FormField id="expiresAt" label="Expires At" error={$errors.expiresAt} required={true}>
             <EnhancedDatePicker
               id="expiresAt"
               name="expiresAt"
@@ -94,6 +94,7 @@
               error={$errors.expiresAt}
               placeholder="Select expiry date"
               format_string="yyyy-MM-dd"
+              clearable={false}
               minDate={new Date()}
               timelineOptions="future"
               showFutureDates={true}

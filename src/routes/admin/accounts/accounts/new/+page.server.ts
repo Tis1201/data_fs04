@@ -7,6 +7,7 @@ import { logger } from '$lib/server/logger';
 import { accountEditSchema } from '../schema';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { createAccountSystemRule } from '$lib/server/pin-rules/createAccountSystemRule';
 
 export const load = restrictModule(
     async ({ locals }: { locals: any }) => {
@@ -65,6 +66,9 @@ export const actions: Actions = {
                     status: form.data.status
                 }
             });
+
+            // Create per-account system rule (always active, cannot delete)
+            await createAccountSystemRule(locals.prisma, account.id, locals.user?.id ?? '');
 
             // Log the account creation
             logger.info(`Account created: ${account.id} (${account.name})`);

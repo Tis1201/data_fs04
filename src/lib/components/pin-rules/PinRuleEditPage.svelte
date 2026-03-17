@@ -22,6 +22,8 @@
     export let readOnly: boolean = false;
     /** When provided and readOnly, Edit button calls this instead of navigating to edit page (e.g. open edit modal) */
     export let onEditClick: (() => void) | undefined = undefined;
+    /** When false, hide Edit button in read-only view (e.g. for user role view-only) */
+    export let showEditButton: boolean = true;
 
     $: rule = rule;
 
@@ -55,32 +57,54 @@
         appPickerOpen = true;
     }
 
-    /** Persist current apps and devices to the server (used after add/remove app or device on detail page) */
-    async function saveRuleToServer() {
-        if (!rule?.id || savingUpdates) return;
+    /** Extract API error message from v2 response format (error.message or message) */
+    function getApiErrorMessage(result: any): string {
+        const msg = result?.error?.message ?? result?.message ?? 'Failed to update rule';
+        if (typeof msg === 'string') {
+            if (msg.includes('last app') || msg.includes('at least one app'))
+                return 'At least one pinned app is required for a pin rule.';
+            if (msg.includes('last device') || msg.includes('Switch to "All Devices"'))
+                return 'At least one device is required when targeting specific devices.';
+        }
+        return msg;
+    }
+
+    /** Persist current apps and devices to the server. On failure, calls revert() to restore UI state. */
+    async function saveRuleToServer(revert?: () => void) {
+        if (!rule?.id || savingUpdates) return false;
         savingUpdates = true;
         try {
+            const payload: Record<string, unknown> = {
+                apps: Array.from(selectedApps),
+                targetType: formData.targetType,
+                targetValue: formData.targetType === 'specific' ? selectedDevices.map((d) => d.id) : [],
+                isActive: formData.isActive
+            };
+            if (!rule?.isSystemRule) {
+                payload.name = formData.name.trim();
+                payload.description = formData.description?.trim() || null;
+            }
             const response = await fetch(`${apiPrefix}/pin-rules/${rule.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: formData.name.trim(),
-                    description: formData.description?.trim() || null,
-                    apps: Array.from(selectedApps),
-                    targetType: formData.targetType,
-                    targetValue: formData.targetType === 'specific' ? selectedDevices.map((d) => d.id) : [],
-                    isActive: formData.isActive
-                })
+                body: JSON.stringify(payload)
             });
             const result = await response.json();
             if (result.success) {
                 toast.success('Rule updated');
                 await invalidate('app:pin-rules');
+                return true;
             } else {
-                toast.error(result.message || 'Failed to update rule');
+                if (revert) revert();
+                toast.error(getApiErrorMessage(result));
+                await invalidate('app:pin-rules'); // Refetch so UI reflects server state
+                return false;
             }
         } catch {
+            if (revert) revert();
             toast.error('Failed to update rule');
+            await invalidate('app:pin-rules'); // Refetch so UI reflects server state
+            return false;
         } finally {
             savingUpdates = false;
         }
@@ -105,8 +129,15 @@
     let appDetailsMap: Record<string, AppDetail> = {};
 
     let selectedApps = new Set<string>();
-    $: if (rule?.apps) {
-        selectedApps = new Set<string>(rule.apps);
+    /** Sync from rule prop whenever apps change (including after invalidate from modal save) */
+    let lastSyncedAppsKey = '';
+    $: {
+        const appsKey = rule?.id && Array.isArray(rule.apps) ? `${rule.id}:${rule.apps.join(',')}` : '';
+        if (appsKey && appsKey !== lastSyncedAppsKey) {
+            lastSyncedAppsKey = appsKey;
+            selectedApps = new Set<string>(rule.apps.filter(Boolean));
+            loadAppDetails();
+        }
     }
 
     async function loadAppDetails() {
@@ -149,6 +180,10 @@
         status?: string;
         connected?: boolean;
         lastUsedAt?: string | null;
+        lastSeenAt?: string | null;
+        last_connected_at?: string | null;
+        last_status_at?: string | null;
+        createdAt?: string | null;
     };
     let selectedDevices: SelectedDevice[] = [];
 
@@ -175,7 +210,11 @@
                         macAddress: d.macAddress ?? null,
                         status: d.status,
                         connected: d.connected,
-                        lastUsedAt: d.lastUsedAt ?? null
+                        lastUsedAt: d.lastUsedAt ?? null,
+                        lastSeenAt: d.lastSeenAt ?? null,
+                        last_connected_at: d.last_connected_at ?? null,
+                        last_status_at: d.last_status_at ?? null,
+                        createdAt: d.createdAt ?? null
                     }));
                 }
             }
@@ -184,6 +223,7 @@
         }
     }
 
+    /** Match DeviceTable format: "x minutes ago", "x hours ago", "Yesterday" */
     function formatLastSeen(lastUsedAt: string | null | undefined): string {
         if (!lastUsedAt) return '—';
         try {
@@ -192,12 +232,19 @@
             const now = new Date();
             const diffMs = now.getTime() - d.getTime();
             const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = diffMs / (1000 * 60 * 60);
+            const diffDays = diffHours / 24;
             if (diffMins < 1) return 'Just now';
-            if (diffMins < 60) return `${diffMins} min ago`;
-            const diffHours = Math.floor(diffMins / 60);
-            if (diffHours < 24) return `${diffHours} hr ago`;
-            const diffDays = Math.floor(diffHours / 24);
-            if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+            if (diffHours < 1) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+            if (diffHours < 24) {
+                const hrs = Math.floor(diffHours);
+                return `${hrs} ${hrs === 1 ? 'hour' : 'hours'} ago`;
+            }
+            if (diffDays < 2) return 'Yesterday';
+            if (diffDays < 7) {
+                const days = Math.floor(diffDays);
+                return `${days} ${days === 1 ? 'day' : 'days'} ago`;
+            }
             return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         } catch {
             return '—';
@@ -209,30 +256,50 @@
     }
 
     async function handleDevicesSelected(e: CustomEvent<{ id: string; name: string }[]>) {
+        const prev = [...selectedDevices];
         selectedDevices = [...selectedDevices, ...e.detail];
         devicePickerOpen = false;
-        await saveRuleToServer();
+        await saveRuleToServer(() => {
+            selectedDevices = prev;
+        });
     }
 
     async function removeDevice(deviceId: string) {
+        if (formData.targetType === 'specific' && selectedDevices.length <= 1) {
+            toast.error('At least one device is required when targeting specific devices.');
+            return;
+        }
+        const prev = [...selectedDevices];
         selectedDevices = selectedDevices.filter((d) => d.id !== deviceId);
-        await saveRuleToServer();
+        await saveRuleToServer(() => {
+            selectedDevices = prev;
+        });
     }
 
     async function removeApp(pkg: string) {
+        if (selectedApps.size <= 1) {
+            toast.error('At least one pinned app is required for a pin rule.');
+            openMoreMenuKey = null;
+            return;
+        }
+        const prev = new Set(selectedApps);
         selectedApps.delete(pkg);
         selectedApps = new Set(selectedApps);
         syncAppsToForm();
         openMoreMenuKey = null;
-        await saveRuleToServer();
+        await saveRuleToServer(() => {
+            selectedApps = new Set(prev);
+            syncAppsToForm();
+            loadAppDetails();
+        });
     }
 
     async function handleSubmit() {
-        if (!formData.name.trim()) {
+        if (!rule?.isSystemRule && !formData.name.trim()) {
             toast.error('Name is required');
             return;
         }
-        if (!formData.apps.trim()) {
+        if (!rule?.isSystemRule && !formData.apps.trim()) {
             toast.error('At least one app is required');
             return;
         }
@@ -242,27 +309,7 @@
         }
         isSubmitting = true;
         try {
-            const response = await fetch(`/api/v2/pin-rules/${rule.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: formData.name.trim(),
-                    description: formData.description.trim() || null,
-                    apps: Array.from(selectedApps),
-                    targetType: formData.targetType,
-                    targetValue: formData.targetType === 'specific' ? selectedDevices.map((d) => d.id) : [],
-                    isActive: formData.isActive
-                })
-            });
-            const result = await response.json();
-            if (result.success) {
-                toast.success('Pin rule updated successfully');
-                goto(`${basePath}/iot/pin-rules`);
-            } else {
-                toast.error(result.message || 'Failed to update pin rule');
-            }
-        } catch {
-            toast.error('Failed to update pin rule');
+            await saveRuleToServer();
         } finally {
             isSubmitting = false;
         }
@@ -402,11 +449,13 @@
             Back to Pin Rules
         </Button>
         <div class="flex flex-row items-center gap-3">
-            <Button variant="outline" color="gray" size="lg" iconLeft={true} disabled={duplicateLoading} on:click={handleDuplicate}>
-                <Copy size={18} slot="icon-left" />
-                {duplicateLoading ? 'Duplicating...' : 'Duplicate'}
-            </Button>
-            {#if readOnly}
+            {#if !rule?.isSystemRule}
+                <Button variant="outline" color="gray" size="lg" iconLeft={true} disabled={duplicateLoading} on:click={handleDuplicate}>
+                    <Copy size={18} slot="icon-left" />
+                    {duplicateLoading ? 'Duplicating...' : 'Duplicate'}
+                </Button>
+            {/if}
+            {#if readOnly && showEditButton}
                 <Button
                     variant="filled"
                     color="primary"
@@ -418,7 +467,7 @@
                 >
                     Edit
                 </Button>
-            {:else}
+            {:else if !readOnly}
                 <Button
                     variant="filled"
                     color="primary"
@@ -478,7 +527,7 @@
             <div class="overview-divider" aria-hidden="true"></div>
             <div class="overview-field overview-field-full-width overview-audit">
                 <p class="overview-muted">Created at {formatDateTime(rule?.createdAt)}</p>
-                <p class="overview-muted">Last updated at {formatDateTime(rule?.updatedAt)}</p>
+                <p class="overview-muted">Last updated at {formatDateTime(rule?.updatedAt ?? rule?.createdAt)}</p>
             </div>
         </div>
     </Card>
@@ -501,12 +550,14 @@
                         <h4 class="pin-rule-apps-title">Pinned Apps</h4>
                         <p class="pin-rule-apps-subtitle">List of selected pinned apps</p>
                     </div>
-                    <div class="pin-rule-apps-header-actions">
-                        <Button variant="filled" color="primary" size="lg" iconLeft={true} on:click={openAddAppModal}>
-                            <Plus size={20} slot="icon-left" />
-                            Add App
-                        </Button>
-                    </div>
+                    {#if showEditButton || !readOnly}
+                        <div class="pin-rule-apps-header-actions">
+                            <Button variant="filled" color="primary" size="lg" iconLeft={true} on:click={openAddAppModal}>
+                                <Plus size={20} slot="icon-left" />
+                                Add App
+                            </Button>
+                        </div>
+                    {/if}
                 </div>
                 <div class="pin-rule-apps-content">
                     <div class="pin-rule-apps-search-row">
@@ -533,13 +584,21 @@
                                     <th class="pin-rule-apps-th pin-rule-apps-th-format">Format</th>
                                     <th class="pin-rule-apps-th pin-rule-apps-th-release">Release Type</th>
                                     <th class="pin-rule-apps-th pin-rule-apps-th-size">Size</th>
-                                    <th class="pin-rule-apps-th pin-rule-apps-th-actions">Actions</th>
+                                    {#if showEditButton || !readOnly}
+                                        <th class="pin-rule-apps-th pin-rule-apps-th-actions">Actions</th>
+                                    {/if}
                                 </tr>
                             </thead>
                             <tbody>
                                 {#if paginatedApps.length === 0}
                                     <tr>
-                                        <td colspan="6" class="pin-rule-apps-empty">No pinned apps. Click &quot;Add App&quot; to select apps.</td>
+                                        <td colspan={showEditButton || !readOnly ? 6 : 5} class="pin-rule-apps-empty">
+                                            {#if showEditButton || !readOnly}
+                                                No pinned apps. Click &quot;Add App&quot; to select apps.
+                                            {:else}
+                                                No pinned apps.
+                                            {/if}
+                                        </td>
                                     </tr>
                                 {:else}
                                     {#each paginatedApps as pkg}
@@ -564,6 +623,7 @@
                                                 {/if}
                                             </td>
                                             <td class="pin-rule-apps-td pin-rule-apps-td-size">{formatSize(detail?.size)}</td>
+                                            {#if showEditButton || !readOnly}
                                             <td class="pin-rule-apps-td pin-rule-apps-td-actions">
                                                 <ActionMenu
                                                     open={openMoreMenuKey === pkg}
@@ -578,6 +638,7 @@
                                                     on:select={(e) => e.detail.id === 'remove' && removeApp(pkg)}
                                                 />
                                             </td>
+                                            {/if}
                                         </tr>
                                     {/each}
                                 {/if}
@@ -702,7 +763,7 @@
                                                             —
                                                         {/if}
                                                     </td>
-                                                    <td class="pin-rule-last-seen">{formatLastSeen(device.lastUsedAt)}</td>
+                                                    <td class="pin-rule-last-seen">{formatLastSeen(device.last_connected_at ?? device.last_status_at ?? device.lastUsedAt ?? device.lastSeenAt ?? device.createdAt)}</td>
                                                     <td class="pin-rule-td-actions">
                                                         <ActionMenu
                                                             items={[{ id: 'remove', label: 'Remove', destructive: true }]}

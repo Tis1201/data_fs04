@@ -13,6 +13,7 @@ import { createSessionWithCronjob } from '$lib/server/auth/session-helper';
 import { EmailService } from '$lib/server/email/emailService';
 import { resetUserPassword } from '$lib/server/services/password-reset';
 import prisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack for settings
+import { createAccountSystemRule } from '$lib/server/pin-rules/createAccountSystemRule';
 
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
@@ -417,6 +418,8 @@ export const actions: Actions = {
             await authPrisma.accountMembership.create({
                 data: { userId: user.id, accountId: defaultAccount.id, role: 'OWNER' }
             });
+
+            await createAccountSystemRule(authPrisma, defaultAccount.id, user.id);
 
             await authPrisma.user.update({
                 where: { id: user.id },

@@ -11,8 +11,8 @@ export const preclaimSetEditSchema = z.object({
   name: z.string().min(1, 'Name is required').max(NAME_MAX, { message: `Name must be ${NAME_MAX} characters or less` }),
   description: z.string().max(DESCRIPTION_MAX, { message: `Description must be ${DESCRIPTION_MAX} characters or less` }).optional().nullable(),
   status: z.enum(['ACTIVE', 'INACTIVE'], { required_error: 'Status is required' }),
-  // Accept string from form; server will convert to Date | null
-  expiresAt: z.string().optional().nullable(),
+  // Accept string from form; server will convert to Date
+  expiresAt: z.string().min(1, 'Valid Until is required'),
   // Optional device profile assignment
   profileId: z.string().optional().nullable()
 });

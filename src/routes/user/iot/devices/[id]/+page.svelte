@@ -1770,7 +1770,7 @@
                 </div>
                 <div class="info-row">
                     <span class="info-label">Last Seen</span>
-                    <span class="info-value-text">{formatLastSeen(device?.lastUsedAt ?? device?.lastSeenAt ?? deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                    <span class="info-value-text">{formatLastSeen(deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.lastUsedAt ?? device?.lastSeenAt ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">Public IP</span>
@@ -1919,7 +1919,7 @@
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Last Seen</span>
-                                <span class="value">{formatLastSeen(device?.lastUsedAt ?? device?.lastSeenAt ?? deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                                <span class="value">{formatLastSeen(deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.lastUsedAt ?? device?.lastSeenAt ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Network Interface</span>

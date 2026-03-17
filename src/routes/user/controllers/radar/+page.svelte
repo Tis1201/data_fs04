@@ -137,13 +137,9 @@
     }
 
     function clearFilter() {
+        // Only reset selection; user must click Apply to apply changes (modal stays open)
         filterStatuses = ['__all__'];
         filterLocations = ['__all__'];
-        const url = new URL($page.url);
-        url.searchParams.delete('statuses');
-        url.searchParams.delete('locations');
-        url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function openFilterModal() {

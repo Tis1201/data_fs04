@@ -155,6 +155,7 @@
 
   function handleConfirm() {
     if (selectedDevices.length === 0) return;
+    console.log('[DeviceSelector] handleConfirm dispatching', { count: selectedDevices.length, devices: selectedDevices.map((d) => d.id) });
     dispatch(
       'select',
       selectedDevices.map((d) => ({ id: d.id, name: d.name }))

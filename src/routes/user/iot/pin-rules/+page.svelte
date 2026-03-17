@@ -25,16 +25,37 @@
         id: string;
         name: string;
         ruleType: string;
+        createdBy?: string;
         apps: string[];
         targetType: string;
         targetValue: string[];
         isActive: boolean;
         isDraft?: boolean;
+        isSystemRule?: boolean;
         fallbackScreenEnabled?: boolean;
         fallbackScreenUrl?: string | null;
         createdAt: Date | string;
         updatedAt: Date | string;
         account?: { id: string; name: string };
+    }
+
+    /** Can edit: user_default → account OWNER/ADMIN; user_custom → creator only (matches API PUT) */
+    function canEditRow(row: PinRuleRow): boolean {
+        const accountRole = data.accountRole;
+        if (row.ruleType === 'user_default') {
+            return !!(accountRole && ['OWNER', 'ADMIN'].includes(accountRole));
+        }
+        if (row.ruleType === 'user_custom') {
+            return row.createdBy === data.user?.id;
+        }
+        return false;
+    }
+
+    /** Hide Duplicate for system rules (isSystemRule or user_default "Account System Rule") */
+    function canDuplicate(row: PinRuleRow): boolean {
+        if (row.isSystemRule === true) return false;
+        if (row.ruleType === 'user_default' && row.name === 'Account System Rule') return false;
+        return true;
     }
 
     $: rules = (data.rules || []) as PinRuleRow[];
@@ -106,12 +127,8 @@
     }
 
     function clearFilter() {
+        // Only reset selection; user must click Apply to apply changes (modal stays open)
         filterStatuses = ['__all__'];
-        const url = new URL($page.url);
-        url.searchParams.delete('isActive');
-        url.searchParams.delete('isDraft');
-        url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
     function openFilterModal() {
@@ -332,19 +349,12 @@
                         label: 'View',
                         onClick: () => goto(`${basePath}/pin-rules/${row.id}`)
                     },
-                    {
-                        id: 'edit',
-                        label: 'Edit',
-                        onClick: () => {
-                            ruleToEdit = row;
-                            editModalOpen = true;
-                        }
-                    },
-                    {
-                        id: 'duplicate',
-                        label: 'Duplicate',
-                        onClick: () => openDuplicateModal(row)
-                    },
+                    ...(canEditRow(row)
+                        ? [{ id: 'edit', label: 'Edit', onClick: () => { ruleToEdit = row; editModalOpen = true; } }]
+                        : []),
+                    ...(canDuplicate(row)
+                        ? [{ id: 'duplicate', label: 'Duplicate', onClick: () => openDuplicateModal(row) }]
+                        : []),
                     ...(row.ruleType !== 'user_default'
                         ? [{ id: 'delete', label: 'Delete', color: 'danger' as const, onClick: () => openDeleteModal(row) }]
                         : [])

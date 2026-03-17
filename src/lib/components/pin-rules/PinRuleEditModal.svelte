@@ -48,6 +48,7 @@
 
     $: {
         if (open && !prevOpen) {
+            console.log('[PinRuleEditModal] modal opened', { ruleId: rule?.id, ruleName: rule?.name });
             nameError = '';
             descriptionError = '';
             appsError = '';
@@ -192,10 +193,15 @@
         const existingIds = new Set(selectedDevices.map((d) => d.id));
         const toAdd = added.filter((d) => !existingIds.has(d.id));
         selectedDevices = [...selectedDevices, ...toAdd];
+        if (toAdd.length) applyTo = 'devices';
         devicePickerOpen = false;
     }
 
     function removeDevice(id: string) {
+        if (applyTo === 'devices' && selectedDevices.length <= 1) {
+            toast.error('At least one device is required when targeting specific devices.');
+            return;
+        }
         selectedDevices = selectedDevices.filter((d) => d.id !== id);
     }
 
@@ -212,6 +218,10 @@
         appPickerOpen = false;
     }
     function removeApp(pkg: string) {
+        if (selectedApps.size <= 1) {
+            toast.error('At least one pinned app is required for a pin rule.');
+            return;
+        }
         selectedApps.delete(pkg);
         selectedApps = new Set(selectedApps);
     }
@@ -391,28 +401,30 @@
     }
 
     let saving = false;
+    $: isSystemRule = rule?.isSystemRule === true;
+
     async function saveRule(asDraft: boolean) {
         if (!isCreateMode && !rule?.id) return;
         nameError = '';
         descriptionError = '';
         appsError = '';
         applyToError = '';
-        if (!formData.name?.trim()) {
+        if (!isSystemRule && !formData.name?.trim()) {
             nameError = 'Name is required';
             return;
         }
         const nameLen = formData.name.trim().length;
-        if (nameLen > PIN_RULE_NAME_MAX) {
+        if (!isSystemRule && nameLen > PIN_RULE_NAME_MAX) {
             nameError = `Name must be at most ${PIN_RULE_NAME_MAX} characters`;
             return;
         }
         const descVal = formData.description?.trim() || '';
-        if (descVal.length > PIN_RULE_DESCRIPTION_MAX) {
+        if (!isSystemRule && descVal.length > PIN_RULE_DESCRIPTION_MAX) {
             descriptionError = `Description must be at most ${PIN_RULE_DESCRIPTION_MAX} characters`;
             return;
         }
-        if (selectedApps.size === 0) {
-            appsError = 'At least one app is required';
+        if (!isSystemRule && selectedApps.size === 0) {
+            appsError = 'At least one pinned app is required for a pin rule.';
             activeTab = 'pinned_app';
             return;
         }
@@ -422,23 +434,25 @@
             return;
         }
         if (applyTo === 'devices' && selectedDevices.length === 0) {
-            applyToError = 'Please select at least one device';
+            applyToError = 'At least one device is required when targeting specific devices.';
             activeTab = 'apply_to';
             return;
         }
         saving = true;
         try {
-            const payload = {
-                name: formData.name.trim(),
-                description: formData.description?.trim() || null,
+            const payload: Record<string, unknown> = {
                 apps: Array.from(selectedApps),
                 targetType: applyTo === 'all' ? 'all' : 'specific',
                 targetValue: applyTo === 'all' ? [] : selectedDevices.map((d) => d.id),
-                isActive: asDraft ? false : formData.isActive,
+                isActive: isSystemRule ? true : (asDraft ? false : formData.isActive),
                 isDraft: asDraft,
                 fallbackScreenEnabled,
                 fallbackScreenUrl: fallbackScreenEnabled ? (fallbackScreenUrl || null) : null
             };
+            if (!isSystemRule) {
+                payload.name = formData.name.trim();
+                payload.description = formData.description?.trim() || null;
+            }
 
             const res = isCreateMode
                 ? await fetch(`${apiPrefix}/pin-rules`, {
@@ -504,7 +518,7 @@
     <div class="edit-rule-modal-body">
         <div class="edit-rule-fields">
             <div class="field">
-                <label for="edit-rule-name" class="label">Name <span class="required">*</span></label>
+                <label for="edit-rule-name" class="label">Name {#if !isSystemRule}<span class="required">*</span>{/if}</label>
                 <InputField
                     id="edit-rule-name"
                     type="text"
@@ -514,15 +528,24 @@
                     state={nameError ? 'error' : 'default'}
                     helperText={nameError}
                     on:input={handleNameInput}
+                    disabled={isSystemRule}
                 />
-                <CharacterCount current={formData.name.length} max={PIN_RULE_NAME_MAX} />
+                {#if isSystemRule}
+                    <p class="field-hint">System rule name cannot be changed.</p>
+                {:else}
+                    <CharacterCount current={formData.name.length} max={PIN_RULE_NAME_MAX} />
+                {/if}
             </div>
             <div class="field toggle-field">
                 <Toggle
                     bind:checked={formData.isActive}
                     label="Active"
                     labelPosition="right"
+                    disabled={isSystemRule}
                 />
+                {#if isSystemRule}
+                    <p class="field-hint">System rules are always active.</p>
+                {/if}
             </div>
             <div class="field">
                 <label for="edit-rule-desc" class="label">Description</label>
@@ -535,8 +558,13 @@
                     state={descriptionError ? 'error' : 'default'}
                     helperText={descriptionError}
                     on:input={() => (descriptionError = '')}
+                    disabled={isSystemRule}
                 />
-                <CharacterCount current={formData.description.length} max={PIN_RULE_DESCRIPTION_MAX} />
+                {#if isSystemRule}
+                    <p class="field-hint">System rule description cannot be changed.</p>
+                {:else}
+                    <CharacterCount current={formData.description.length} max={PIN_RULE_DESCRIPTION_MAX} />
+                {/if}
             </div>
         </div>
 
@@ -551,7 +579,7 @@
         {#if activeTab === 'pinned_app'}
             <div class="tab-panel pinned-app-tab">
                 <div class="pinned-app-actions">
-                    <Button variant="filled" color="primary" size="md" iconLeft={true} on:click={() => (appPickerOpen = true)}>
+                    <Button variant="filled" color="primary" size="md" iconLeft={true} on:click={() => { console.log('[PinRuleEditModal] Add App clicked'); appPickerOpen = true; }}>
                         <Plus size={18} slot="icon-left" />
                         Add App
                     </Button>
@@ -568,16 +596,17 @@
                             {#each selectedAppsList as pkg}
                                 <li class="pinned-app-item">
                                     <span class="pinned-app-package">{pkg}</span>
-                                    <Button
-                                        variant="text"
-                                        color="gray"
-                                        size="sm"
-                                        icon={X}
-                                        iconPosition="only"
-                                        iconSize={18}
+                                    <button
+                                        type="button"
+                                        class="remove-btn-inline"
                                         aria-label="Remove app"
-                                        on:click={() => removeApp(pkg)}
-                                    />
+                                        on:click={() => {
+                                            console.log('[PinRuleEditModal] Remove app button clicked', pkg);
+                                            removeApp(pkg);
+                                        }}
+                                    >
+                                        <X size={18} />
+                                    </button>
                                 </li>
                             {/each}
                         </ul>
@@ -730,7 +759,7 @@
                                 variant="outline"
                                 color="primary"
                                 size="md"
-                                on:click={() => (devicePickerOpen = true)}
+                                on:click={() => { console.log('[PinRuleEditModal] Add devices clicked'); devicePickerOpen = true; }}
                             >
                                 <Plus size={18} slot="icon-left" />
                                 Add devices
@@ -748,16 +777,17 @@
                                         <span class="apply-to-device-name">{device.name || device.id}</span>
                                         <span class="apply-to-device-id">{device.macAddress || device.id}</span>
                                     </div>
-                                    <Button
-                                        variant="text"
-                                        color="gray"
-                                        size="sm"
-                                        icon={X}
-                                        iconPosition="only"
-                                        iconSize={18}
+                                    <button
+                                        type="button"
+                                        class="remove-btn-inline"
                                         aria-label="Remove device"
-                                        on:click={() => removeDevice(device.id)}
-                                    />
+                                        on:click={() => {
+                                            console.log('[PinRuleEditModal] Remove device button clicked', device.id);
+                                            removeDevice(device.id);
+                                        }}
+                                    >
+                                        <X size={18} />
+                                    </button>
                                 </div>
                             {/each}
                             {#if selectedDevices.length === 0}
@@ -803,6 +833,7 @@
     size="md"
     confirmText="Assign"
     appsEndpoint={`${apiPrefix}/resources/apps`}
+    excludePackages={Array.from(selectedApps).filter(Boolean)}
     selectionMode="packageName"
     showAlreadyBadge={false}
     on:close={() => (appPickerOpen = false)}

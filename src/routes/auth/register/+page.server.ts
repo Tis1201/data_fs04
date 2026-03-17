@@ -11,6 +11,7 @@ import { logSessionActivity } from '$lib/server/session-logger';
 import { createSessionWithCronjob } from '$lib/server/auth/session-helper';
 import prisma from '$lib/server/prisma'; // Raw Prisma client to bypass ZenStack for settings
 import { validatePassword } from '$lib/server/auth/password-validation';
+import { createAccountSystemRule } from '$lib/server/pin-rules/createAccountSystemRule';
 
 // Create a separate Prisma client for auth to bypass Zenstack
 const authPrisma = new PrismaClient();
@@ -165,6 +166,9 @@ export const actions: Actions = {
                     role: 'OWNER'
                 }
             });
+
+            // Create per-account system rule (always active, cannot delete)
+            await createAccountSystemRule(authPrisma, defaultAccount.id, user.id);
 
             // Set this as the user's primary account
             await authPrisma.user.update({

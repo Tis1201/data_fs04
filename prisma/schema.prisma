@@ -1246,6 +1246,7 @@ model PinRule {
   targetValue           String[]
   priority              Int
   isActive              Boolean         @default(true)
+  isSystemRule          Boolean         @default(false)
   isDraft               Boolean         @default(false)
   fallbackScreenEnabled Boolean         @default(false)
   fallbackScreenUrl     String?

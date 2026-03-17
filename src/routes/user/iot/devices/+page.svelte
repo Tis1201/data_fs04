@@ -173,8 +173,13 @@
                 powerManagementSchedule: device.powerManagementSchedule ?? false,
                 rebootSchedule: device.rebootSchedule ?? false,
                 downloadSchedule: device.downloadSchedule ?? false,
-                // Database uses lastUsedAt, UI expects lastSeenAt
-                lastSeenAt: device.lastUsedAt ? new Date(device.lastUsedAt) : (device.lastSeenAt ? new Date(device.lastSeenAt) : undefined),
+                // Prefer ClickHouse (real-time heartbeats) over Prisma for Last Seen alignment
+                lastSeenAt: (() => {
+                    const ch = deviceInfo?.last_connected_at || deviceInfo?.last_status_at;
+                    const prisma = device.lastUsedAt || device.lastSeenAt;
+                    const raw = ch || prisma;
+                    return raw ? new Date(raw) : undefined;
+                })(),
                 tags: (device.tags || []).map((tag: any) => ({
                     id: tag.id || tag.tagId,
                     name: tag.name || tag.tagName

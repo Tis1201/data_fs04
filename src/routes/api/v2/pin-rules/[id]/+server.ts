@@ -171,7 +171,23 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 
 	const updateData: any = {};
 
-	if (name !== undefined) {
+	// Account System Rules: cannot change name or description; only apps, devices, fallback screen
+	if (existingRule.isSystemRule) {
+		if (name !== undefined) {
+			throw Object.assign(
+				new Error('System rule name cannot be changed'),
+				{ status: 400, code: ErrorCodes.VALIDATION_ERROR }
+			);
+		}
+		if (description !== undefined) {
+			throw Object.assign(
+				new Error('System rule description cannot be changed'),
+				{ status: 400, code: ErrorCodes.VALIDATION_ERROR }
+			);
+		}
+	}
+
+	if (name !== undefined && !existingRule.isSystemRule) {
 		if (typeof name === 'string' && name.length > PIN_RULE_NAME_MAX) {
 			throw Object.assign(
 				new Error(`Name must be at most ${PIN_RULE_NAME_MAX} characters`),
@@ -199,7 +215,7 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 		}
 		updateData.name = name;
 	}
-	if (description !== undefined) {
+	if (description !== undefined && !existingRule.isSystemRule) {
 		if (description !== null && typeof description === 'string' && description.length > PIN_RULE_DESCRIPTION_MAX) {
 			throw Object.assign(
 				new Error(`Description must be at most ${PIN_RULE_DESCRIPTION_MAX} characters`),
@@ -212,6 +228,13 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 		if (!Array.isArray(apps)) {
 			throw Object.assign(new Error('apps must be an array'), { status: 400 });
 		}
+		// System rules can have empty apps; other rules must have at least one
+		if (apps.length === 0 && !existingRule.isSystemRule) {
+			throw Object.assign(
+				new Error('Cannot remove the last app. A pin rule must have at least one app.'),
+				{ status: 400 }
+			);
+		}
 		updateData.apps = apps;
 	}
 	if (targetType !== undefined) updateData.targetType = targetType;
@@ -221,7 +244,34 @@ export const PUT = unifiedEndpoint(async ({ context, event, params }) => {
 		}
 		updateData.targetValue = targetValue;
 	}
-	if (isActive !== undefined) updateData.isActive = isActive;
+
+	// Validate: cannot remove last device when targetType is specific (not "all devices")
+	// Only check when targetType or targetValue is being updated
+	if (targetType !== undefined || targetValue !== undefined) {
+		const effectiveTargetType = (targetType !== undefined ? targetType : existingRule.targetType) || 'all';
+		const effectiveTargetValue = targetValue !== undefined ? targetValue : (existingRule.targetValue ?? []);
+		if (
+			(effectiveTargetType === 'specific' || effectiveTargetType === 'devices') &&
+			(!Array.isArray(effectiveTargetValue) || effectiveTargetValue.length === 0)
+		) {
+			throw Object.assign(
+				new Error(
+					'Cannot remove the last device. Switch to "All Devices" or add at least one device.'
+				),
+				{ status: 400 }
+			);
+		}
+	}
+	if (isActive !== undefined) {
+		// System rules must always stay active
+		if (existingRule.isSystemRule && isActive === false) {
+			throw Object.assign(
+				new Error('System rules cannot be deactivated'),
+				{ status: 400, code: ErrorCodes.VALIDATION_ERROR }
+			);
+		}
+		updateData.isActive = isActive;
+	}
 	if (isDraft !== undefined) updateData.isDraft = !!isDraft;
 	if (fallbackScreenEnabled !== undefined) updateData.fallbackScreenEnabled = !!fallbackScreenEnabled;
 	if (fallbackScreenUrl !== undefined) updateData.fallbackScreenUrl = fallbackScreenUrl == null || fallbackScreenUrl === '' ? null : String(fallbackScreenUrl);
@@ -326,6 +376,14 @@ export const DELETE = unifiedEndpoint(async ({ context, event, params }) => {
 	if (!canDelete) {
 		throw Object.assign(
 			new Error('You do not have permission to delete this pin rule'),
+			{ status: 403, code: ErrorCodes.FORBIDDEN }
+		);
+	}
+
+	// Prevent deletion of system rules (per-account system rules cannot be deleted)
+	if (existingRule.isSystemRule) {
+		throw Object.assign(
+			new Error('System rules cannot be deleted'),
 			{ status: 403, code: ErrorCodes.FORBIDDEN }
 		);
 	}

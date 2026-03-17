@@ -74,13 +74,23 @@ export const load = restrict(
         description: profile.description
       }));
 
+      // Default expiresAt to 1 month from now when null (required field; helps fix legacy sets)
+      let expiresAtVal: string;
+      if (preclaimSet.expiresAt) {
+        expiresAtVal = new Date(preclaimSet.expiresAt).toISOString().slice(0, 10);
+      } else {
+        const d = new Date();
+        d.setMonth(d.getMonth() + 1);
+        expiresAtVal = d.toISOString().slice(0, 10);
+      }
+
       const form = await superValidate(
         {
           id: preclaimSet.id,
           name: preclaimSet.name,
           description: preclaimSet.description ?? '',
           status: preclaimSet.status,
-          expiresAt: preclaimSet.expiresAt ? new Date(preclaimSet.expiresAt).toISOString().slice(0, 16) : null,
+          expiresAt: expiresAtVal,
           profileId: preclaimSet.profileId ?? null,
         },
         zod(preclaimSetEditSchema)

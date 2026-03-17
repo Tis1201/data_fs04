@@ -1,6 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { PrismaClient } from '@prisma/client';
+import { getStorageConfig, generateDownloadUrlR2 } from '$lib/server/storage';
+import { isR2Url, parseR2Url } from '$lib/server/storage/gcloudUrlUtils';
 
 // Hardcoded API key for device agent installation
 // TODO: Move to environment variable for production
@@ -173,6 +175,44 @@ export const GET: RequestHandler = async (event) => {
 			const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 			const hasNext = page < totalPages;
 
+			const includeDownloadUrl = url.searchParams.get('includeDownloadUrl') === 'true';
+			let responseItems: any[] = items;
+
+			if (includeDownloadUrl && items.length > 0) {
+				const storageConfig = getStorageConfig();
+				responseItems = await Promise.all(
+					items.map(async (item) => {
+						if (!item.path) return item;
+						try {
+							if (storageConfig.mode === 'R2') {
+								let objectPath: string;
+								if (isR2Url(item.path)) {
+									const parsed = parseR2Url(item.path);
+									objectPath = parsed?.objectPath ?? item.path;
+								} else if (item.path.startsWith('https://') || item.path.startsWith('http://')) {
+									objectPath = new URL(item.path).pathname.replace(/^\//, '');
+								} else {
+									objectPath = item.path;
+								}
+								const result = await generateDownloadUrlR2(
+									storageConfig.r2Bucket,
+									objectPath,
+									3600,
+									item.name ?? undefined
+								);
+								return { ...item, downloadUrl: result.url };
+							}
+						} catch (err) {
+							logger.warn('[InstallAppsAPI] Failed to generate download URL', {
+								id: item.id,
+								error: err instanceof Error ? err.message : String(err)
+							});
+						}
+						return item;
+					})
+				);
+			}
+
 			const clientIp = await event.getClientAddress();
 			logger.info('[InstallAppsAPI] Apps list fetched', {
 				search,
@@ -182,13 +222,14 @@ export const GET: RequestHandler = async (event) => {
 				page,
 				pageSize,
 				totalItems,
+				includeDownloadUrl,
 				clientIp
 			});
 
 			return json({
 				success: true,
 				data: {
-					items,
+					items: responseItems,
 					meta: {
 						page,
 						pageSize,

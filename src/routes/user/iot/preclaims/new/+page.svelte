@@ -231,14 +231,14 @@
           </FormRow>
 
           <FormRow columns={1}>
-            <FormField id="expiresAt" label="Expiry Date" error={$errors.expiresAt}>
+            <FormField id="expiresAt" label="Expiry Date" error={$errors.expiresAt} required={true}>
               <EnhancedDatePicker
                 id="expiresAt"
                 name="expiresAt"
                 form={$form}
                 field="expiresAt"
                 format_string="yyyy-MM-dd"
-                clearable={true}
+                clearable={false}
                 minDate={new Date()}
                 showFutureDates={true}
                 timelineOptions="future"

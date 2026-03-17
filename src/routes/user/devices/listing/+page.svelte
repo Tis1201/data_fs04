@@ -660,14 +660,9 @@
     }
 
     function clearSensorFilter() {
+        // Only reset selection; user must click Apply to apply changes (modal stays open)
         sensorFilterStatuses = [];
         sensorFilterLocations = [];
-        const url = new URL($page.url);
-        url.searchParams.delete('statuses');
-        url.searchParams.delete('locations');
-        url.searchParams.set('page', '1');
-        goto(url.pathname + url.search, { noScroll: true });
-        showSensorFilterModal = false;
     }
 
     function openSensorFilterModal() {

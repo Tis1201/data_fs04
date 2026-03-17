@@ -61,38 +61,49 @@
     }
 
     function removeDevice(id: string) {
+        if (formData.targetType === 'specific' && selectedDevices.length <= 1) {
+            toast.error('At least one device is required when targeting specific devices.');
+            return;
+        }
         selectedDevices = selectedDevices.filter((d) => d.id !== id);
     }
 
     async function saveRule(asDraft: boolean) {
-        if (!formData.name?.trim()) {
+        if (!rule?.isSystemRule && !formData.name?.trim()) {
             toast.error('Name is required');
             return;
         }
         if (formData.targetType === 'specific' && selectedDevices.length === 0) {
-            toast.error('Please select at least one device');
+            toast.error('At least one device is required when targeting specific devices.');
             return;
         }
         isSubmitting = true;
         try {
+            const payload: Record<string, unknown> = {
+                apps: rule?.apps ?? [],
+                targetType: formData.targetType,
+                targetValue: formData.targetType === 'specific' ? selectedDevices.map((d) => d.id) : [],
+                isActive: asDraft ? false : true
+            };
+            if (!rule?.isSystemRule) {
+                payload.name = formData.name.trim();
+                payload.description = formData.description?.trim() || null;
+            }
             const res = await fetch(`${apiPrefix}/pin-rules/${rule.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: formData.name.trim(),
-                    description: formData.description?.trim() || null,
-                    apps: rule?.apps ?? [],
-                    targetType: formData.targetType,
-                    targetValue: formData.targetType === 'specific' ? selectedDevices.map((d) => d.id) : [],
-                    isActive: asDraft ? false : true
-                })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data?.success) {
                 toast.success(asDraft ? 'Rule saved as draft successfully.' : 'Rule updated & published successfully.');
                 goto(`${basePath}/iot/pin-rules/${rule.id}`);
             } else {
-                toast.error(asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update & publish Rule. Please try again!');
+                let msg = data?.error?.message || data?.message || '';
+                if (typeof msg === 'string' && (msg.includes('last device') || msg.includes('Switch to "All Devices"'))) {
+                    msg = 'At least one device is required when targeting specific devices.';
+                }
+                toast.error(msg || (asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update & publish Rule. Please try again!'));
             }
         } catch {
             toast.error(asDraft ? 'Unable to save as draft. Please try again.' : 'Unable to update & publish Rule. Please try again!');
@@ -117,21 +128,27 @@
 
         <div class="pin-rule-edit-fields" style="display: flex; flex-direction: column; gap: var(--ds-space-6);">
             <div>
-                <label class="pin-rule-edit-label" for="edit-name" style="display: block; font-weight: 500; margin-bottom: var(--ds-space-2);">Name <span style="color: var(--ds-color-error-500);">*</span></label>
+                <label class="pin-rule-edit-label" for="edit-name" style="display: block; font-weight: 500; margin-bottom: var(--ds-space-2);">Name {#if !rule?.isSystemRule}<span style="color: var(--ds-color-error-500);">*</span>{/if}</label>
                 <InputField
                     id="edit-name"
                     type="text"
                     bind:value={formData.name}
                     placeholder="Rule name"
                     maxlength={PIN_RULE_NAME_MAX}
+                    disabled={rule?.isSystemRule}
                 />
-                <CharacterCount current={formData.name.length} max={PIN_RULE_NAME_MAX} />
+                {#if rule?.isSystemRule}
+                    <p class="text-xs" style="color: var(--ds-color-neutral-true-500); margin-top: var(--ds-space-1);">System rule name cannot be changed</p>
+                {:else}
+                    <CharacterCount current={formData.name.length} max={PIN_RULE_NAME_MAX} />
+                {/if}
             </div>
             <div>
                 <Toggle
                     bind:checked={formData.isActive}
                     label="Active"
                     labelPosition="right"
+                    disabled={rule?.isSystemRule}
                 />
             </div>
             <div>
@@ -142,8 +159,13 @@
                     placeholder="Description (optional)"
                     rows={3}
                     maxlength={PIN_RULE_DESCRIPTION_MAX}
+                    disabled={rule?.isSystemRule}
                 />
-                <CharacterCount current={formData.description.length} max={PIN_RULE_DESCRIPTION_MAX} />
+                {#if rule?.isSystemRule}
+                    <p class="text-xs" style="color: var(--ds-color-neutral-true-500); margin-top: var(--ds-space-1);">System rule description cannot be changed</p>
+                {:else}
+                    <CharacterCount current={formData.description.length} max={PIN_RULE_DESCRIPTION_MAX} />
+                {/if}
             </div>
 
             <div>

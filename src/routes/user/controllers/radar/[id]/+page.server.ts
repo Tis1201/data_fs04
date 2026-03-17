@@ -179,7 +179,10 @@ export const load = restrict(
                             id: true,
                             name: true,
                             hardwareId: true,
-                            connected: true
+                            connected: true,
+                            macAddress: true,
+                            wifiMac: true,
+                            lanMac: true
                         }
                     },
                     sensors: {

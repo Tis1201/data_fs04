@@ -19,7 +19,7 @@ import { upsertEntityExpirationCronjob } from '$lib/server/cron/helpers/entityCr
 const preclaimSetSchema = z.object({
     name: z.string().min(1, { message: 'Name is required' }).max(50, { message: 'Name must be 50 characters or less' }),
     description: z.string().max(DESCRIPTION_MAX, { message: `Description must be ${DESCRIPTION_MAX} characters or less` }).optional().nullable(),
-    expiresAt: z.string().optional().nullable(), // yyyy-MM-dd from date picker
+    expiresAt: z.string().min(1, { message: 'Valid Until is required' }), // yyyy-MM-dd from date picker
     profileId: z.string().optional().nullable(), // Optional device profile assignment
 });
 

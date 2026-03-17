@@ -154,7 +154,7 @@
         });
       }
 
-      const base = endpoint ?? `/api/v2/devices/${deviceId}/apps`;
+      const base = endpoint ?? `/api/v2/devices/${deviceId}/apps-with-pins`;
       const res = await fetch(`${base}?${params.toString()}`);
       if (!res.ok) throw new Error(`Failed to load apps: ${res.statusText}`);
 
@@ -174,7 +174,28 @@
       totalApps = paginationPayload?.total ?? appsPayload.length ?? 0;
       totalPages = paginationPayload?.totalPages ?? 1;
       lastSync = new Date(payload.timestamp ?? data.meta?.timestamp ?? Date.now());
+
       calculateSummary();
+
+      // Debug: log apps-with-pins response (pin rule source, CH vs placeholders) - trace why pinned apps appear when rules appear empty
+      if (browser && base?.includes('apps-with-pins')) {
+        const rule = payload.rule;
+        const pinStats = payload.pinStats;
+        const pinnedApps = appsPayload.filter((a: any) => a.isPinned ?? a.pinInfo);
+        const placeholders = appsPayload.filter((a: any) => a.isInstalled === false);
+        console.log('[DeviceAppList:AppsWithPins] API response', {
+          deviceId,
+          endpoint: base,
+          filter: filterType,
+          rule: rule ? { id: rule.id, name: rule.name, type: rule.type, appsCount: rule.appsCount } : null,
+          pinStats: pinStats ?? null,
+          totalApps: appsPayload.length,
+          pinnedAppsCount: pinnedApps.length,
+          placeholdersCount: placeholders.length,
+          placeholders: placeholders.slice(0, 10).map((a: any) => ({ package_name: a.package_name, app_name: a.app_name, pinInfo: a.pinInfo })),
+          samplePinned: pinnedApps.slice(0, 5).map((a: any) => ({ package_name: a.package_name, isInstalled: a.isInstalled, pinInfo: a.pinInfo }))
+        });
+      }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load data';
       toast.error('Failed to load device apps', { description: error });

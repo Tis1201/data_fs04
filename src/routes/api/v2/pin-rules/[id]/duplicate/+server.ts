@@ -29,6 +29,7 @@ export const POST = unifiedEndpoint(
 				targetValue: true,
 				priority: true,
 				isActive: true,
+				isSystemRule: true,
 				fallbackScreenEnabled: true,
 				fallbackScreenUrl: true
 			}
@@ -38,6 +39,14 @@ export const POST = unifiedEndpoint(
 			throw Object.assign(new Error('Pin rule not found'), {
 				status: 404,
 				code: ErrorCodes.NOT_FOUND
+			});
+		}
+
+		// Account system rules cannot be duplicated
+		if (original.isSystemRule) {
+			throw Object.assign(new Error('System rules cannot be duplicated'), {
+				status: 403,
+				code: ErrorCodes.FORBIDDEN
 			});
 		}
 

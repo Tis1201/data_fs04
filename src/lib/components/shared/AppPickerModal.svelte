@@ -202,6 +202,7 @@
         const selectedApps = selected
             .map((key) => findAppByKey(key))
             .filter((a): a is AppPickerItem => !!a);
+        console.log('[AppPickerModal] handleConfirm dispatching', { selected, appsCount: selectedApps.length });
         dispatch('confirm', { selected, apps: selectedApps });
     }
 </script>

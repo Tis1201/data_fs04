@@ -59,14 +59,17 @@
     const SET_NAME_TOO_LONG = `Set name must be ${MAX_NAME_LENGTH} characters or less`;
     const FILE_REQUIRED = 'Device upload file is required';
     const PROFILE_REQUIRED = 'Please select Device Profile';
+    const EXPIRES_AT_REQUIRED = 'Valid Until is required';
 
     $: setNameError = (errorMessage === SET_NAME_REQUIRED || errorMessage === SET_NAME_TOO_LONG) ? errorMessage : '';
+    $: expiresAtError = errorMessage === EXPIRES_AT_REQUIRED;
     $: fileUploadError = errorMessage === FILE_REQUIRED;
     $: fileUploadShowError = fileUploadError || fileRejectMessage != null;
     $: profileError = errorMessage === PROFILE_REQUIRED;
     $: if (name?.trim() && name.length <= MAX_NAME_LENGTH && (errorMessage === SET_NAME_REQUIRED || errorMessage === SET_NAME_TOO_LONG)) errorMessage = null;
     $: if (mode === 'add' && (selectedFile != null || uploadedFiles.length > 0) && errorMessage === FILE_REQUIRED) errorMessage = null;
     $: if (profileId?.trim() && errorMessage === PROFILE_REQUIRED) errorMessage = null;
+    $: if (expiresAt?.trim() && errorMessage === EXPIRES_AT_REQUIRED) errorMessage = null;
 
     /** Today's date in yyyy-MM-dd for min attribute (no past dates) */
     $: minDateStr = (() => {
@@ -234,6 +237,10 @@
                 return;
             }
         }
+        if (!expiresAt?.trim()) {
+            errorMessage = EXPIRES_AT_REQUIRED;
+            return;
+        }
 
         submitting = true;
         try {
@@ -320,6 +327,10 @@
             errorMessage = PROFILE_REQUIRED;
             return;
         }
+        if (!expiresAt?.trim()) {
+            errorMessage = EXPIRES_AT_REQUIRED;
+            return;
+        }
         submitting = true;
         try {
             const fd = new FormData();
@@ -397,10 +408,13 @@
                 <div class="preclaim-field">
                     <InputField
                         type="date"
-                        label="Expiry Date"
+                        label="Valid Until"
                         placeholder="MM/DD/YYYY"
                         bind:value={expiresAt}
                         min={minDateStr}
+                        required={true}
+                        state={expiresAtError ? 'error' : 'default'}
+                        helperText={expiresAtError ? EXPIRES_AT_REQUIRED : ''}
                     />
                 </div>
                 <div class="preclaim-field">

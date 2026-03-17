@@ -8,6 +8,7 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { areDevicesOnline } from '$lib/server/device/devicePresence';
+import { getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
 
 /**
  * GET /api/v2/devices/select
@@ -98,19 +99,29 @@ export const GET = unifiedEndpoint(
 					macAddress: true,
 					// Keep DB field for backwards compatibility, but we'll override with Redis presence below
 					connected: true,
-					lastUsedAt: true
+					lastUsedAt: true,
+					createdAt: true
 				}
 			})
 		]);
 
 		// Fetch real-time presence from Redis (MQTT presence tracker)
 		const deviceIds = devices.map((d: { id: string }) => d.id);
-		const presenceMap = await areDevicesOnline(deviceIds);
-		const devicesWithPresence = devices.map((device: typeof devices[number]) => ({
-			...device,
-			// Override DB-connected with Redis presence (fallback to false)
-			connected: presenceMap.get(device.id) ?? false
-		}));
+		const [presenceMap, deviceInfoMap] = await Promise.all([
+			areDevicesOnline(deviceIds),
+			getBulkDeviceInformationByDeviceIds(deviceIds).catch(() => new Map())
+		]);
+		const devicesWithPresence = devices.map((device: typeof devices[number]) => {
+			const info = deviceInfoMap.get(device.id);
+			return {
+				...device,
+				// Override DB-connected with Redis presence (fallback to false)
+				connected: presenceMap.get(device.id) ?? false,
+				// Enrich with ClickHouse heartbeat timestamps for Last Seen (align with Device detail page)
+				last_connected_at: info?.last_connected_at ?? null,
+				last_status_at: info?.last_status_at ?? null
+			};
+		});
 		
 		return successResponse(
 			{

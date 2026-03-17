@@ -348,6 +348,7 @@
     }
 
     function clearFilter() {
+        // Only reset selection; user must click Apply to apply changes (modal stays open)
         filterDeviceId = '';
         filterFrom = '';
         filterTo = '';

@@ -201,6 +201,17 @@ export const POST = unifiedEndpoint(async ({ context, event }) => {
 	if (!ruleType || !name || !apps || !Array.isArray(apps)) {
 		throw Object.assign(new Error('ruleType, name, and apps are required'), { status: 400 });
 	}
+	if (apps.length === 0) {
+		throw Object.assign(new Error('At least one app is required'), { status: 400 });
+	}
+	const effectiveTargetType = targetType || 'all';
+	const effectiveTargetValue = targetValue || [];
+	if ((effectiveTargetType === 'specific' || effectiveTargetType === 'devices') && effectiveTargetValue.length === 0) {
+		throw Object.assign(
+			new Error('When applying to specific devices, at least one device is required. Use "All Devices" if you want to target all devices.'),
+			{ status: 400 }
+		);
+	}
 	if (typeof name === 'string' && name.length > PIN_RULE_NAME_MAX) {
 		throw Object.assign(
 			new Error(`Name must be at most ${PIN_RULE_NAME_MAX} characters`),

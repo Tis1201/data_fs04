@@ -1853,6 +1853,7 @@ model PinRule {
   targetValue           String[] // ["tag:retail"] or ["android"] or ["device-1"]
   priority              Int      // 1=default (admin_default/user_default), higher numbers override
   isActive              Boolean  @default(true)
+  isSystemRule          Boolean  @default(false) // true = per-account system rule, auto-created, always active, cannot delete
   isDraft               Boolean  @default(false) // true when saved via "Save as Draft" (work in progress)
   fallbackScreenEnabled Boolean  @default(false) // show custom image/video when kiosk app crashes
   fallbackScreenUrl     String?  // storage path or URL of uploaded fallback image/video

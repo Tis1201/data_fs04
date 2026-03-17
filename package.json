@@ -35,6 +35,7 @@
 		"seed:test-data": "tsx scripts/seed-test-data.ts",
 		"seed:plans": "tsx scripts/seed-plans.ts",
 		"seed:pin-rules": "tsx scripts/seed-pin-rules.ts",
+		"seed:account-system-rules": "tsx scripts/seed-account-system-rules.ts",
 		"seed:radar-logs": "dotenv -- tsx scripts/seed-radar-logs.ts",
 		"maildev": "maildev --smtp 1025 --web 1080",
 		"dev:all": "concurrently \"npm run dev\" \"npm run maildev\"",

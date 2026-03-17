@@ -55,7 +55,7 @@ export const GET = unifiedEndpoint(
 
 		// Pagination & query params
 		const page = parseInt(url.searchParams.get('page') || '1');
-		const limit = parseInt(url.searchParams.get('limit') || '10');
+		const limit = parseInt(url.searchParams.get('limit') || url.searchParams.get('pageSize') || '10');
 		const search = (url.searchParams.get('search') || '').trim();
 		const filter = url.searchParams.get('filter') || 'all';
 		const sortBy = url.searchParams.get('sortBy') || 'name';
@@ -111,10 +111,26 @@ export const GET = unifiedEndpoint(
 			select: { id: true, ruleType: true, name: true, apps: true, targetType: true, targetValue: true, createdAt: true, createdBy: true }
 		});
 
+		logger.info('[AppsWithPinsV2] Rules fetched', {
+			deviceId,
+			accountId: device.accountId,
+			systemRole,
+			allApplicableRulesCount: allApplicableRules.length,
+			allApplicableRules: allApplicableRules.map((r: { id: string; ruleType: string; name: string; apps: unknown; targetType: string | null; targetValue: unknown }) => ({
+				id: r.id,
+				ruleType: r.ruleType,
+				name: r.name,
+				targetType: r.targetType,
+				targetValue: r.targetValue,
+				appsCount: Array.isArray(r.apps) ? r.apps.length : 0,
+				apps: (r.apps as string[])?.slice(0, 10)
+			}))
+		});
+
 		// Filter by device target:
 		// - 'all' applies to all devices
 		// - 'specific' (from Pin Rules UI "Apply To → Specific Devices") and 'devices' (from manual Pin/Unpin API) apply when deviceId is in targetValue
-		const applicableRules = allApplicableRules.filter((r) => {
+		const applicableRules = allApplicableRules.filter((r: { targetType?: string | null; targetValue?: unknown }) => {
 			const targetType = r.targetType || 'all';
 			if (targetType === 'all') return true;
 			if ((targetType === 'specific' || targetType === 'devices') && Array.isArray(r.targetValue)) {
@@ -135,6 +151,16 @@ export const GET = unifiedEndpoint(
 			}
 		}
 		const topRuleApps: string[] = Array.from(topRuleAppsSet);
+
+		logger.info('[AppsWithPinsV2] Rules after device filter + topRuleApps', {
+			deviceId,
+			applicableRulesCount: applicableRules.length,
+			topRule: topRule ? { id: topRule.id, name: topRule.name, ruleType: topRule.ruleType } : null,
+			topRuleAppsCount: topRuleApps.length,
+			topRuleApps: topRuleApps.slice(0, 20)
+		});
+
+		// Filter by device target:
 
 		// Fetch apps from ClickHouse - pass pinnedPackages so pinned apps appear first on page 1 (TC-RDM-APR-0118)
 		// Use larger limit to fetch enough for merge + in-memory pagination when we add pin-rule placeholders
@@ -174,6 +200,12 @@ export const GET = unifiedEndpoint(
 			}
 		}
 
+		logger.info('[AppsWithPinsV2] ClickHouse result', {
+			deviceId,
+			chAppsCount: appData.apps.length,
+			chTotal: appData.total
+		});
+
 		const pinStatusMap = new Map<string, any>();
 		// TC-RDM-APR-0118: Case-insensitive lookup (rule may have different casing than ClickHouse/device report)
 		// For merged rules: assign pinInfo from the first (highest precedence) rule that contains each package
@@ -198,57 +230,19 @@ export const GET = unifiedEndpoint(
 			}
 		}
 
-		// Add apps from pin rule that are NOT yet installed (so they appear in list for "Install" action)
-		// Case-insensitive: device report (CH) may have different casing than rule
-		const installedPackageLower = new Set(appData.apps.map((a: any) => (a.package_name || '').toLowerCase()));
-		const pinnedNotInstalled = topRuleApps.filter(
-			(p: string) => typeof p === 'string' && p.length > 0 && !installedPackageLower.has(p.toLowerCase())
-		);
+		// Do NOT add placeholders for pinned apps that are not in ClickHouse.
+		// "Installed Apps" shows only apps the device has actually reported (CH data).
+		// Pinned-but-not-installed apps can be installed via Install New App flow (picks from pin rules).
+		const placeholders: any[] = [];
+		const chPackages = new Set((appData.apps || []).map((a: any) => (a.package_name || '').toLowerCase()));
+		const pinnedNotInstalled = topRuleApps.filter((p) => !chPackages.has(p.toLowerCase()));
 
-		let placeholders: any[] = [];
-		if (pinnedNotInstalled.length > 0) {
-			const pkgToName = new Map<string, string>();
-			if (device.accountId) {
-				const resources = await context.prisma.resource.findMany({
-					where: {
-						accountId: device.accountId,
-						packageName: { in: pinnedNotInstalled }
-					},
-					select: { packageName: true, name: true }
-				});
-				for (const r of resources) {
-					if (r.packageName && !pkgToName.has(r.packageName)) {
-						pkgToName.set(r.packageName, r.name || r.packageName);
-					}
-				}
-			}
-			// When searching, only include placeholders that match the search term
-			const searchLower = search ? search.toLowerCase() : '';
-			const includePlaceholder = (pkg: string) => {
-				if (!searchLower) return true;
-				const name = (pkgToName.get(pkg) || pkg).toLowerCase();
-				const pkgLower = pkg.toLowerCase();
-				return name.includes(searchLower) || pkgLower.includes(searchLower);
-			};
-			placeholders = pinnedNotInstalled.filter(includePlaceholder).map((pkg: string) => {
-				const pinInfo = pinStatusMap.get(pkg);
-				return {
-					device_id: deviceId,
-					package_name: pkg,
-					app_name: pkgToName.get(pkg) || pkg,
-					version: '-',
-					app_type: 'Normal',
-					metadata: '{}',
-					created_at: null,
-					last_modified: null,
-					size_bytes: 0,
-					isPinned: true,
-					pinInfo,
-					is_system_app: false,
-					isInstalled: false
-				};
-			});
-		}
+		logger.info('[AppsWithPinsV2] No placeholders added (CH-only); pinned but not in CH', {
+			deviceId,
+			pinnedNotInstalledCount: pinnedNotInstalled.length,
+			pinnedNotInstalled: pinnedNotInstalled.slice(0, 15),
+			placeholdersCount: placeholders.length
+		});
 
 		const appsWithPins = appData.apps.map((app: any) => {
 			const pinInfo =
@@ -272,6 +266,15 @@ export const GET = unifiedEndpoint(
 		const pinnedByUserCustom = mergedApps.filter((a) => a.pinInfo && a.pinInfo.ruleType === 'user_custom').length;
 		const pinnedByRule = totalPinned - pinnedByUserCustom;
 		const manualPins = pinnedByUserCustom;
+
+		logger.info('[AppsWithPinsV2] Response summary', {
+			deviceId,
+			mergedAppsCount: mergedApps.length,
+			placeholdersInMerged: mergedApps.filter((a) => a.isInstalled === false).length,
+			totalPinned,
+			paginatedAppsCount: paginatedApps.length,
+			topRule: topRule ? { id: topRule.id, name: topRule.name, ruleType: topRule.ruleType } : null
+		});
 
 		return successResponse(
 			{

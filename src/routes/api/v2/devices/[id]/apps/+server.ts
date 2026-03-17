@@ -72,6 +72,47 @@ export const GET = unifiedEndpoint(
 				{ requestId: context.requestId, warning: 'App data service unavailable' }
 			);
 		}
+
+		let pinnedPackages: string[] = [];
+		try {
+			const systemRole = context.session?.user?.systemRole ?? 'USER';
+			const roleWhere =
+				systemRole === 'ADMIN'
+					? { isActive: true, isDraft: false, OR: [{ ruleType: 'admin_default' }, { ruleType: 'admin_custom' }] }
+					: {
+							isActive: true,
+							isDraft: false,
+							OR: [
+								{ ruleType: 'admin_default' },
+								{ ruleType: 'user_default', accountId: device.accountId },
+								{ ruleType: 'user_custom', accountId: device.accountId, createdBy: context.session?.user?.id ?? '' }
+							]
+					  };
+			const applicableRules = await context.prisma.pinRule.findMany({
+				where: roleWhere,
+				select: { apps: true, targetType: true, targetValue: true }
+			});
+			const rulesForDevice = applicableRules.filter((r) => {
+				const targetType = r.targetType || 'all';
+				if (targetType === 'all') return true;
+				if ((targetType === 'specific' || targetType === 'devices') && Array.isArray(r.targetValue)) {
+					return r.targetValue.includes(deviceId);
+				}
+				return false;
+			});
+			const pkgSet = new Set<string>();
+			for (const r of rulesForDevice) {
+				for (const pkg of (r.apps as string[]) || []) {
+					if (typeof pkg === 'string' && pkg.length > 0) pkgSet.add(pkg);
+				}
+			}
+			pinnedPackages = Array.from(pkgSet);
+		} catch (e) {
+			logger.warn('[DeviceAppsAPI] Failed to fetch pin rules for ordering, continuing without pin prioritization', {
+				error: e instanceof Error ? e.message : String(e),
+				deviceId
+			});
+		}
 		
 		// Get apps from ClickHouse (with search/filter/sort from query params)
 		try {
@@ -79,7 +120,8 @@ export const GET = unifiedEndpoint(
 				search,
 				filter,
 				sortBy,
-				sortOrder
+				sortOrder,
+				pinnedPackages
 			});
 			
 			return paginatedResponse(

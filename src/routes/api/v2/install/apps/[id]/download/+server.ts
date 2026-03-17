@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
-import { generateDownloadUrl } from '$lib/server/storage';
+import { generateDownloadUrl, generateDownloadUrlR2, getStorageConfig } from '$lib/server/storage';
+import { parseR2Url, isR2Url } from '$lib/server/storage/gcloudUrlUtils';
 import { PrismaClient } from '@prisma/client';
 
 // Hardcoded API key for device agent installation
@@ -185,31 +186,51 @@ export const GET: RequestHandler = async (event) => {
 				);
 			}
 
-			// Generate presigned download URL (expires in 1 hour)
+			// Generate download URL (expires in 1 hour)
 			const expiresSeconds = 3600; // 1 hour
-			const objectPath = extractObjectPath(app.path);
 
 			let downloadUrl: string;
 			let expiresAt: string;
 
-			try {
-				const downloadUrlResult = await generateDownloadUrl(
+			const storageConfig = getStorageConfig();
+
+			if (storageConfig.mode === 'R2') {
+				// R2 mode: generate a presigned S3 URL (works without HMAC headers)
+				let objectPath: string;
+
+				if (isR2Url(app.path)) {
+					const parsed = parseR2Url(app.path);
+					objectPath = parsed?.objectPath ?? extractObjectPath(app.path);
+				} else if (app.path.startsWith('https://') || app.path.startsWith('http://')) {
+					// Generic HTTPS URL (e.g. legacy GCS) — extract the tail as object path
+					objectPath = extractObjectPath(app.path);
+				} else {
+					objectPath = app.path;
+				}
+
+				const result = await generateDownloadUrlR2(
+					storageConfig.r2Bucket,
 					objectPath,
 					expiresSeconds,
-					app.name
+					app.name ?? undefined
 				);
-
-				downloadUrl = downloadUrlResult.url;
-				expiresAt = new Date(downloadUrlResult.expires).toISOString();
-			} catch (storageError) {
-				// If storage URL generation fails, fall back to returning the original path
-				logger.warn('[InstallAppDownloadAPI] Failed to generate presigned URL, using original path', {
-					appId: id,
-					error: storageError instanceof Error ? storageError.message : String(storageError)
-				});
-
-				downloadUrl = app.path;
-				expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
+				downloadUrl = result.url;
+				expiresAt = new Date(result.expires).toISOString();
+			} else {
+				// LOCAL mode
+				const objectPath = extractObjectPath(app.path);
+				try {
+					const result = await generateDownloadUrl(objectPath, expiresSeconds, app.name ?? undefined);
+					downloadUrl = result.url;
+					expiresAt = new Date(result.expires).toISOString();
+				} catch (storageError) {
+					logger.warn('[InstallAppDownloadAPI] Failed to generate download URL, using original path', {
+						appId: id,
+						error: storageError instanceof Error ? storageError.message : String(storageError)
+					});
+					downloadUrl = app.path;
+					expiresAt = new Date(Date.now() + expiresSeconds * 1000).toISOString();
+				}
 			}
 
 			const clientIp = await event.getClientAddress();

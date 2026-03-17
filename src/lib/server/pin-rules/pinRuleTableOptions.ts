@@ -51,6 +51,7 @@ const basePinRuleTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         fallbackScreenUrl: true,
         createdAt: true,
         updatedAt: true,
+        isSystemRule: true,
         account: true
     }
 };
@@ -85,11 +86,16 @@ export function createPinRuleTableOptions(options?: {
 
     // Add baseWhere for ownership filtering if needed
     if (options?.checkOwnership && options?.userId && options?.accountId) {
-        // User routes: show user_default for their account, and user_custom created by them
+        // User routes: only user_default and user_custom for their account (never admin_default/admin_custom)
         tableOptions.baseWhere = {
-            OR: [
-                { ruleType: 'user_default', accountId: options.accountId },
-                { ruleType: 'user_custom', accountId: options.accountId, createdBy: options.userId }
+            AND: [
+                { ruleType: { in: ['user_default', 'user_custom'] } },
+                {
+                    OR: [
+                        { ruleType: 'user_default', accountId: options.accountId },
+                        { ruleType: 'user_custom', accountId: options.accountId, createdBy: options.userId }
+                    ]
+                }
             ]
         };
     } else if (!options?.checkOwnership) {

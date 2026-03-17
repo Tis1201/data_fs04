@@ -1117,8 +1117,8 @@
           <span class="text-display-value">—</span>
         </div>
         <div class="text-display">
-          <span class="text-display-label">Firmware</span>
-          <span class="text-display-value">{data.radarSensor.firmware || "—"}</span>
+          <span class="text-display-label">MAC Address</span>
+          <span class="text-display-value">{data.radarSensor.controller?.device?.macAddress || data.radarSensor.controller?.device?.wifiMac || data.radarSensor.controller?.device?.lanMac || "—"}</span>
         </div>
       </div>
       <Divider />
