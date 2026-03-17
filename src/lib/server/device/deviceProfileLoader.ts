@@ -83,6 +83,23 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
             });
 
             if (deviceLevelProfile) {
+                if (!deviceLevelProfile.isActive) {
+                    console.log('[DeviceProfileLoader] DEVICE-level profile is inactive — returning empty shell (TC-RDM-PR-0137)', {
+                        profileId: deviceLevelProfile.id,
+                        deviceId
+                    });
+                    return {
+                        id: '',
+                        name: '',
+                        description: '',
+                        level: 'NONE',
+                        isActive: true,
+                        settings: [],
+                        hasOverrides: false,
+                        overrideCount: 0,
+                        account: null
+                    };
+                }
                 console.log('[DeviceProfileLoader] Found DEVICE-level profile (legacy, no assignment)', {
                     profileId: deviceLevelProfile.id,
                     deviceId
@@ -107,6 +124,26 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
         }
 
         const globalProfile = assignment.profile;
+
+        // TC-RDM-PR-0137: Inactive profile configuration must not be applied to device.
+        // When profile is inactive, return empty shell so UI shows no effective config (defaults).
+        if (!globalProfile.isActive) {
+            console.log('[DeviceProfileLoader] Profile is inactive — returning empty config for device', {
+                profileId: globalProfile.id,
+                deviceId
+            });
+            return {
+                id: globalProfile.id,
+                name: globalProfile.name,
+                description: globalProfile.description || '',
+                level: 'GLOBAL',
+                isActive: false,
+                settings: [],
+                hasOverrides: false,
+                overrideCount: 0,
+                account: globalProfile.account
+            };
+        }
 
         // Check for device-specific overrides
         const override = await prisma.deviceProfileOverride.findUnique({

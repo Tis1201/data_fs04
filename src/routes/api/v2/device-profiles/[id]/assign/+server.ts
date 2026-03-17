@@ -128,9 +128,9 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 				});
 			}
 
-			// Only send config to device when profile is active
+			// TC-RDM-PR-0137: When profile is inactive, don't send config — device retains previous configuration
 			if (!deviceProfile.isActive) {
-				logger.info(`Profile ${profileId} is inactive — device ${deviceId} assigned (PENDING), config will be sent when profile is activated`);
+				logger.info(`Profile ${profileId} is inactive — device ${deviceId} assigned (PENDING), retaining previous config`);
 				return;
 			}
 

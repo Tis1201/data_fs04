@@ -184,6 +184,8 @@ export const actions: Actions = {
                 }
             });
 
+            // TC-RDM-PR-0137: Only broadcast config when profile is active.
+            // When profile becomes inactive, retain previous configuration (don't push anything).
             if (updatedProfile.isActive && deviceProfile?.assignments?.length) {
                 try {
                     const config = mapToConfigPayload(deviceProfile as any);

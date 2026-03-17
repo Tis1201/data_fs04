@@ -2014,6 +2014,17 @@
         {:else if activeTab === 'configuration'}
             <!-- Key on profile so section re-renders when load returns after save -->
             {#key (deviceProfile?.overrideCount ?? 0) + (deviceProfile?.settings?.length ?? 0)}
+            <!-- TC-RDM-PR-0137: Inactive profile — no config applied, device retains previous configuration -->
+            {#if deviceProfile?.isActive === false && deviceProfile?.id}
+                <div class="config-inactive-notice">
+                    <Alert
+                        severity="info"
+                        variant="outline"
+                        message="Profile is inactive. No configuration is being applied to this device. The device retains its previous configuration."
+                        dismissible={false}
+                    />
+                </div>
+            {/if}
             <Card variant="default" padding="none" class="config-card">
                 <!-- Header -->
                 <div slot="header" class="config-header">
@@ -3450,6 +3461,10 @@
     }
 
     /* Configuration Card - Override layout properties only */
+    .config-inactive-notice {
+        margin-bottom: var(--ds-space-4);
+    }
+
     :global(.config-card .ds-card) {
         box-sizing: border-box !important;
         display: flex !important;
