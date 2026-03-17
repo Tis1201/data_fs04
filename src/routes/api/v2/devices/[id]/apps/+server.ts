@@ -90,7 +90,7 @@ export const GET = unifiedEndpoint(
 					  };
 			const applicableRules = await context.prisma.pinRule.findMany({
 				where: roleWhere,
-				select: { apps: true, targetType: true, targetValue: true }
+				select: { apps: true, targetType: true, targetValue: true, ruleType: true, createdAt: true }
 			});
 			const rulesForDevice = applicableRules.filter((r) => {
 				const targetType = r.targetType || 'all';
@@ -100,13 +100,28 @@ export const GET = unifiedEndpoint(
 				}
 				return false;
 			});
-			const pkgSet = new Set<string>();
-			for (const r of rulesForDevice) {
-				for (const pkg of (r.apps as string[]) || []) {
-					if (typeof pkg === 'string' && pkg.length > 0) pkgSet.add(pkg);
+			// TC-RDM-APR-0133: Sort by precedence and build pinnedPackages in rule-priority order
+			const precedence = (rt: string) =>
+				systemRole === 'ADMIN'
+					? rt === 'admin_custom' ? 2 : rt === 'admin_default' ? 1 : 0
+					: rt === 'user_custom' ? 3 : rt === 'user_default' ? 2 : rt === 'admin_default' ? 1 : 0;
+			const sortedRules = [...rulesForDevice].sort((a, b) => {
+				const pa = precedence((a as any).ruleType);
+				const pb = precedence((b as any).ruleType);
+				if (pa !== pb) return pb - pa;
+				return new Date((b as any).createdAt).getTime() - new Date((a as any).createdAt).getTime();
+			});
+			const seenLower = new Set<string>();
+			for (const r of sortedRules) {
+				const apps = ((r.apps as string[]) || []).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+				for (const pkg of apps) {
+					if (typeof pkg !== 'string' || pkg.length === 0) continue;
+					const key = pkg.toLowerCase();
+					if (seenLower.has(key)) continue;
+					seenLower.add(key);
+					pinnedPackages.push(pkg);
 				}
 			}
-			pinnedPackages = Array.from(pkgSet);
 		} catch (e) {
 			logger.warn('[DeviceAppsAPI] Failed to fetch pin rules for ordering, continuing without pin prioritization', {
 				error: e instanceof Error ? e.message : String(e),

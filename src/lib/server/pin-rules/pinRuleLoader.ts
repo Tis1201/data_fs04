@@ -34,8 +34,10 @@ export async function loadPinRuleList(
             meta: result.meta
         };
     } catch (e) {
-        logger.error(`Error loading pin rules: ${JSON.stringify(e)}`);
-        throw error(500, 'Failed to load pin rules');
+        const errMsg = e instanceof Error ? e.message : String(e);
+        const errStack = e instanceof Error ? e.stack : undefined;
+        logger.error(`Error loading pin rules`, { error: errMsg, stack: errStack });
+        throw error(500, `Failed to load pin rules: ${errMsg}`);
     }
 }
 

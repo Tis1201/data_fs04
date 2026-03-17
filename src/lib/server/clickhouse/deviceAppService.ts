@@ -263,9 +263,11 @@ export class DeviceAppService {
       whereConditions += ' AND created_at = {latestTime:String}';
       queryParams.latestTime = latestTime;
 
+      // TC-RDM-APR-0133: Order pinned apps by their position in pinnedPackages (rule-priority order).
+      // indexOf returns 1-based position, 0 if not found. Unpinned get 999999 so they sort last.
       const pinnedFirst =
         pinnedPackages.length > 0
-          ? `has({pinnedPackagesLower:Array(String)}, lower(package_name)) DESC, ${orderBy}`
+          ? `has({pinnedPackagesLower:Array(String)}, lower(package_name)) DESC, if(has({pinnedPackagesLower:Array(String)}, lower(package_name)), indexOf({pinnedPackagesLower:Array(String)}, lower(package_name)), 999999) ASC, ${orderBy}`
           : orderBy;
       if (pinnedPackages.length > 0) {
         queryParams.pinnedPackagesLower = pinnedPackages.map(p => p.toLowerCase());

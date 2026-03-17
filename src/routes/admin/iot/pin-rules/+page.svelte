@@ -1,21 +1,39 @@
 <script lang="ts">
-    import type { PageData } from "./$types";
-    import PinRuleListPage from "$lib/components/pin-rules/PinRuleListPage.svelte";
-    import { getPinRuleListBreadcrumbs } from "$lib/utils/navigation";
+    import { Plus } from "lucide-svelte";
+    import { goto } from "$app/navigation";
     import PinRulesTable from "./table.svelte";
+    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
+    import { initPagination, getDefaultPagination, getDefaultSort } from "$lib/components/ui_components_sveltekit/table/pagination/pagination-utils";
+    import type { PageData } from "./$types";
 
     export let data: PageData;
 
-    // Generate breadcrumbs using navigation utility
-    const breadcrumbs = getPinRuleListBreadcrumbs('admin');
+    $: tableProps = {
+        records: (data.rules || []) as any[],
+        pagination: getDefaultPagination(data.meta, 10),
+        sort: getDefaultSort(data.meta, "createdAt", "desc"),
+        loading: false
+    };
+
+    initPagination('preferredPageSize', true);
+
+    const pageCrumbs: [string, string][] = [
+        ["Admin", "/admin"],
+        ["IoT", "/admin/iot"],
+        ["Pin Rules", "/admin/iot/pin-rules"]
+    ];
 </script>
 
-<PinRuleListPage
-    {data}
-    {breadcrumbs}
-    baseUrl="/admin/iot/pin-rules"
-    newPinRulePath="/admin/iot/pin-rules/new"
+<AdminPageLayout
     title="Pin Rules"
-    context="admin"
-    tableComponent={PinRulesTable}
-/>
+    crumbs={pageCrumbs}
+    actionButtons={[
+        {
+            label: "Add Pin Rule",
+            icon: Plus,
+            onClick: () => goto("/admin/iot/pin-rules/new")
+        }
+    ]}
+>
+    <PinRulesTable props={tableProps} />
+</AdminPageLayout>

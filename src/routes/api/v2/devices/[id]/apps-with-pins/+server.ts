@@ -29,10 +29,19 @@ function sortByPrecedenceThenCreatedAtDesc(systemRole: SystemRole) {
 	};
 }
 
-function sortApps(apps: any[], sortBy: string, sortOrder: string) {
+/**
+ * @param pinnedOrder Map from package_name (lowercase) -> priority index (0-based). Lower index = higher priority rule.
+ */
+function sortApps(apps: any[], sortBy: string, sortOrder: string, pinnedOrder?: Map<string, number>) {
 	return [...apps].sort((a, b) => {
 		if (a.isPinned && !b.isPinned) return -1;
 		if (!a.isPinned && b.isPinned) return 1;
+		// TC-RDM-APR-0133: When both pinned, order by rule priority (lower index first)
+		if (a.isPinned && b.isPinned && pinnedOrder) {
+			const idxA = pinnedOrder.get((a.package_name || '').toLowerCase()) ?? 999999;
+			const idxB = pinnedOrder.get((b.package_name || '').toLowerCase()) ?? 999999;
+			if (idxA !== idxB) return idxA - idxB;
+		}
 		const dir = sortOrder === 'desc' ? -1 : 1;
 		if (sortBy === 'name' || sortBy === 'app') return (a.app_name || '').localeCompare(b.app_name || '') * dir;
 		if (sortBy === 'package' || sortBy === 'package_name') return (a.package_name || '').localeCompare(b.package_name || '') * dir;
@@ -141,16 +150,21 @@ export const GET = unifiedEndpoint(
 
 		const sortedRules = applicableRules.sort(sortByPrecedenceThenCreatedAtDesc(systemRole));
 		const topRule = sortedRules[0] || null;
-		// Merge apps from ALL applicable rules (per PIN_APP_DATA.md: apply all matching rules)
-		// For each package, use pinInfo from the first (highest precedence) rule that contains it
-		const topRuleAppsSet = new Set<string>();
+		// TC-RDM-APR-0133: Build pinned packages in rule-priority order (higher priority first).
+		// Within each rule: alphabetical. Dedupe: first occurrence wins (from higher-priority rule).
+		const pinnedPackagesOrdered: string[] = [];
+		const seenLower = new Set<string>();
 		for (const r of sortedRules) {
-			const apps = (r.apps as string[]) || [];
+			const apps = ((r.apps as string[]) || []).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 			for (const pkg of apps) {
-				if (typeof pkg === 'string' && pkg.length > 0) topRuleAppsSet.add(pkg);
+				if (typeof pkg !== 'string' || pkg.length === 0) continue;
+				const key = pkg.toLowerCase();
+				if (seenLower.has(key)) continue;
+				seenLower.add(key);
+				pinnedPackagesOrdered.push(pkg);
 			}
 		}
-		const topRuleApps: string[] = Array.from(topRuleAppsSet);
+		const topRuleApps = pinnedPackagesOrdered;
 
 		logger.info('[AppsWithPinsV2] Rules after device filter + topRuleApps', {
 			deviceId,
@@ -253,7 +267,9 @@ export const GET = unifiedEndpoint(
 		});
 
 		const mergedApps = [...placeholders, ...appsWithPins];
-		const sortedApps = sortApps(mergedApps, sortBy, sortOrder);
+		const pinnedOrder = new Map<string, number>();
+		topRuleApps.forEach((pkg, i) => pinnedOrder.set(pkg.toLowerCase(), i));
+		const sortedApps = sortApps(mergedApps, sortBy, sortOrder, pinnedOrder);
 		const isPinnedOnly = filter === 'pinned';
 		const filteredApps = isPinnedOnly ? sortedApps.filter((a) => a.isPinned) : sortedApps;
 

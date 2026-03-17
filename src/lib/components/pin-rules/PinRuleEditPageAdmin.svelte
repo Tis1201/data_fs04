@@ -1,46 +1,82 @@
 <script lang="ts">
-    import { ArrowLeft } from "lucide-svelte";
-    import { goto } from "$app/navigation";
-    import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
-    import { Button } from "$lib/components/ui/button";
-    import { Input } from "$lib/components/ui/input";
-    import { Label } from "$lib/components/ui/label";
-    import { Textarea } from "$lib/components/ui/textarea";
-    import * as Dialog from "$lib/components/ui/dialog";
-    import AppSelector from "$lib/components/ui_components_sveltekit/bundles/app_select/AppSelector.svelte";
-    import DeviceSelector from "$lib/components/ui_components_sveltekit/bundles/device_select/DeviceSelector.svelte";
-    import { Plus } from "lucide-svelte";
-    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
-    import { toast } from "svelte-sonner";
+    import { ArrowLeft, Plus } from 'lucide-svelte';
+    import { goto } from '$app/navigation';
+    import AdminPageLayout from '$lib/components/admin/layout/AdminPageLayout.svelte';
+    import { Button } from '$lib/components/ui/button';
+    import { Input } from '$lib/components/ui/input';
+    import { Label } from '$lib/components/ui/label';
+    import { Textarea } from '$lib/components/ui/textarea';
+    import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '$lib/components/ui/card';
+    import AppSelector from '$lib/components/ui_components_sveltekit/bundles/app_select/AppSelector.svelte';
+    import DeviceSelector from '$lib/components/ui_components_sveltekit/bundles/device_select/DeviceSelector.svelte';
+    import { toast } from 'svelte-sonner';
+    import { onMount } from 'svelte';
+
+    export let rule: any;
+    export let basePath: string;
+    export let apiPrefix: string;
 
     let formData = {
         name: '',
         description: '',
-        apps: '',
         targetType: 'all',
-        targetValue: '',
         isActive: true
     };
 
     let isSubmitting = false;
     let appPickerOpen = false;
-    let selectedApps = new Set<string>();
-    let selectedDevices = new Map<string, string>(); // id -> name
     let devicePickerOpen = false;
 
-    function syncAppsToForm() {
-        formData.apps = Array.from(selectedApps).join(', ');
+    let selectedApps = new Set<string>();
+    let selectedDevices = new Map<string, string>(); // id -> name
+
+    let initialized = false;
+    $: if (rule && !initialized) {
+        // Initialize form from rule once; do not overwrite user edits
+        formData.name = rule.name || '';
+        formData.description = rule.description || '';
+        formData.targetType = (rule.targetType === 'specific' || (rule.targetValue && rule.targetValue.length > 0)) ? 'specific' : 'all';
+        formData.isActive = rule.isActive ?? true;
+        selectedApps = new Set<string>(rule.apps || []);
+        initialized = true;
     }
 
-    function handleAppsSelected(e: CustomEvent<{ id: string; name: string; packageName?: string | null; autoOpen: boolean }[]>) {
-        const pkgs = e.detail.map(x => x.packageName || x.name).filter(Boolean) as string[];
-        selectedApps = new Set([ ...Array.from(selectedApps), ...pkgs ]);
-        syncAppsToForm();
-        appPickerOpen = false;
+    onMount(() => {
+        if (rule?.targetType === 'specific' && rule?.targetValue?.length) {
+            loadSelectedDevices();
+        }
+    });
+
+    async function loadSelectedDevices() {
+        if (!rule?.targetValue?.length) return;
+        try {
+            const res = await fetch(`${apiPrefix}/devices/select?includeDeviceIds=${rule.targetValue.join(',')}`);
+            if (res.ok) {
+                const data = await res.json();
+                const devices = data?.data?.devices ?? data?.devices ?? [];
+                selectedDevices = new Map(devices.map((d: any) => [d.id, d.name || d.id]));
+            }
+        } catch {
+            selectedDevices = new Map();
+        }
     }
 
     function syncDevicesToForm() {
-        formData.targetValue = Array.from(selectedDevices.keys()).join(', ');
+        // Kept for consistency with Add; Edit submits selectedDevices directly
+    }
+
+    function handleAppsSelected(e: CustomEvent<{ id: string; name: string; packageName?: string | null; autoOpen: boolean }[]>) {
+        const pkgs = e.detail.map((x) => x.packageName || x.name).filter(Boolean) as string[];
+        selectedApps = new Set([...Array.from(selectedApps), ...pkgs]);
+        appPickerOpen = false;
+    }
+
+    function handleDevicesSelected(e: CustomEvent<{ id: string; name: string }[]>) {
+        for (const d of e.detail) {
+            selectedDevices.set(d.id, d.name);
+        }
+        selectedDevices = new Map(selectedDevices);
+        devicePickerOpen = false;
     }
 
     async function handleSubmit() {
@@ -48,77 +84,71 @@
             toast.error('Name is required');
             return;
         }
-
-        if (!formData.apps.trim()) {
+        if (selectedApps.size === 0) {
             toast.error('At least one app is required');
             return;
         }
-
+        if (formData.targetType === 'specific' && selectedDevices.size === 0) {
+            toast.error('Please select at least one device for specific targeting');
+            return;
+        }
         isSubmitting = true;
-
         try {
-            const response = await fetch('/api/v2/pin-rules', {
-                method: 'POST',
+            const response = await fetch(`${apiPrefix}/pin-rules/${rule.id}`, {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: formData.name.trim(),
-                    description: formData.description.trim() || null,
-                    apps: formData.apps.split(',').map((app: string) => app.trim()).filter(Boolean),
+                    description: formData.description?.trim() || null,
+                    apps: Array.from(selectedApps),
                     targetType: formData.targetType,
-                    targetValue: formData.targetType === 'all' ? [] : formData.targetValue.split(',').map((v: string) => v.trim()).filter(Boolean),
-                    isActive: formData.isActive,
-                    ruleType: 'admin_custom'
+                    targetValue: formData.targetType === 'specific' ? Array.from(selectedDevices.keys()) : [],
+                    isActive: formData.isActive
                 })
             });
-
             const result = await response.json();
-
             if (result.success) {
-                toast.success('Pin rule created successfully');
-                goto('/admin/iot/pin-rules');
+                toast.success('Pin rule updated successfully');
+                goto(`${basePath}/iot/pin-rules`);
             } else {
-                toast.error('Failed to create pin rule', {
-                    description: result.message || 'Unknown error'
-                });
+                toast.error(result.message || 'Failed to update pin rule');
             }
-        } catch (error) {
-            toast.error('Failed to create pin rule', {
-                description: error instanceof Error ? error.message : 'Unknown error'
-            });
+        } catch {
+            toast.error('Failed to update pin rule');
         } finally {
             isSubmitting = false;
         }
     }
 
     const pageCrumbs: [string, string][] = [
-        ["Admin", "/admin"],
-        ["IoT", "/admin/iot"],
-        ["Pin Rules", "/admin/iot/pin-rules"]
+        ['Admin', '/admin'],
+        ['IoT', '/admin/iot'],
+        ['Pin Rules', `${basePath}/iot/pin-rules`]
     ];
 </script>
 
 <svelte:head>
-    <title>New Pin Rule - Admin Panel</title>
-    <meta name="description" content="Create a new pin rule for device apps" />
+    <title>Edit Pin Rule - Admin Panel</title>
+    <meta name="description" content="Edit pin rule for device apps" />
 </svelte:head>
 
 <AdminPageLayout
-    title="New Pin Rule"
+    title="Edit Pin Rule"
     crumbs={pageCrumbs}
     actionButtons={[
         {
-            label: "Back to Pin Rules",
+            label: 'Back to Pin Rules',
             icon: ArrowLeft,
-            onClick: () => goto('/admin/iot/pin-rules')
+            onClick: () => goto(`${basePath}/iot/pin-rules`)
         }
     ]}
 >
     <div class="max-w-5xl mx-auto">
         <Card>
             <CardHeader class="text-center">
-                <CardTitle>Create New Pin Rule</CardTitle>
+                <CardTitle>Edit Pin Rule</CardTitle>
                 <CardDescription>
-                    Create a new pin rule to manage app pinning on devices
+                    Update pin rule to manage app pinning on devices
                 </CardDescription>
             </CardHeader>
             <CardContent class="space-y-6">
@@ -152,13 +182,13 @@
                             <div class="border rounded-md bg-muted/30 p-3">
                                 <div class="flex items-center justify-between mb-2">
                                     <h4 class="font-medium text-sm">Selected Apps <span class="text-muted-foreground">({selectedApps.size})</span></h4>
-                                    <Button type="button" variant="ghost" size="sm" on:click={() => { selectedApps = new Set(); syncAppsToForm(); }}>Clear</Button>
+                                    <Button type="button" variant="ghost" size="sm" on:click={() => { selectedApps = new Set(); }}>Clear</Button>
                                 </div>
                                 <div class="flex flex-wrap gap-2">
                                     {#each Array.from(selectedApps) as pkg}
                                         <div class="flex items-center gap-2 bg-background border rounded-md px-3 py-1 text-sm">
                                             <span>{pkg}</span>
-                                            <button type="button" class="text-muted-foreground hover:text-destructive" on:click={() => { selectedApps.delete(pkg); selectedApps = new Set(selectedApps); syncAppsToForm(); }}>✕</button>
+                                            <button type="button" class="text-muted-foreground hover:text-destructive" on:click={() => { selectedApps.delete(pkg); selectedApps = new Set(selectedApps); }}>✕</button>
                                         </div>
                                     {/each}
                                 </div>
@@ -169,19 +199,18 @@
                                 <Plus class="w-4 h-4" /> Select Apps
                             </Button>
                             {#if appPickerOpen}
-                                <AppSelector
-                                    open={true}
-                                    bundleId={''}
-                                    apiPrefix={'/api/v2'}
-                                    resourceMode={true}
-                                    resourcesEndpoint={'/api/v2/resources/apps'}
-                                    resourceExcludePackages={Array.from(selectedApps)}
-                                    on:select={handleAppsSelected}
-                                    on:close={() => (appPickerOpen = false)}
-                                />
+                            <AppSelector
+                                open={true}
+                                bundleId={''}
+                                apiPrefix={apiPrefix}
+                                resourceMode={true}
+                                resourcesEndpoint={`${apiPrefix}/resources/apps`}
+                                resourceExcludePackages={Array.from(selectedApps)}
+                                on:select={handleAppsSelected}
+                                on:close={() => (appPickerOpen = false)}
+                            />
                             {/if}
                         </div>
-                        <input type="hidden" name="apps" value={formData.apps} />
                         <p class="text-sm text-gray-500">Choose one or more apps to pin on devices.</p>
                     </div>
 
@@ -206,13 +235,13 @@
                                 <div class="border rounded-md bg-muted/30 p-3">
                                     <div class="flex items-center justify-between mb-2">
                                         <h4 class="font-medium text-sm">Selected Devices <span class="text-muted-foreground">({selectedDevices.size})</span></h4>
-                                        <Button type="button" variant="ghost" size="sm" on:click={() => { selectedDevices = new Map(); syncDevicesToForm(); }}>Clear</Button>
+                                        <Button type="button" variant="ghost" size="sm" on:click={() => { selectedDevices = new Map(); }}>Clear</Button>
                                     </div>
                                     <div class="flex flex-wrap gap-2">
                                         {#each Array.from(selectedDevices.entries()) as [devId, devName]}
                                             <div class="flex items-center gap-2 bg-background border rounded-md px-3 py-1 text-sm">
                                                 <span>{devName || devId}</span>
-                                                <button type="button" class="text-muted-foreground hover:text-destructive" on:click={() => { selectedDevices.delete(devId); selectedDevices = new Map(selectedDevices); syncDevicesToForm(); }}>✕</button>
+                                                <button type="button" class="text-muted-foreground hover:text-destructive" on:click={() => { selectedDevices.delete(devId); selectedDevices = new Map(selectedDevices); }}>✕</button>
                                             </div>
                                         {/each}
                                     </div>
@@ -225,14 +254,14 @@
                                 <DeviceSelector
                                     open={true}
                                     bundleId={''}
-                                    apiPrefix={'/api/v2'}
-                                    devicesEndpoint={'/api/v2/devices/select'}
+                                    apiPrefix={apiPrefix}
+                                    devicesEndpoint={`${apiPrefix}/devices/select`}
                                     excludeDeviceIds={Array.from(selectedDevices.keys())}
                                     on:select={(e) => {
                                         for (const d of e.detail) {
                                             selectedDevices.set(d.id, d.name);
                                         }
-                                        syncDevicesToForm();
+                                        selectedDevices = new Map(selectedDevices);
                                         devicePickerOpen = false;
                                     }}
                                     on:close={() => (devicePickerOpen = false)}
@@ -258,7 +287,7 @@
                         <Button
                             type="button"
                             variant="outline"
-                            on:click={() => goto('/admin/iot/pin-rules')}
+                            on:click={() => goto(`${basePath}/iot/pin-rules`)}
                         >
                             Cancel
                         </Button>
@@ -272,7 +301,7 @@
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
                             {/if}
-                            {isSubmitting ? 'Creating...' : 'Create Rule'}
+                            {isSubmitting ? 'Updating...' : 'Update Rule'}
                         </Button>
                     </div>
                 </form>
