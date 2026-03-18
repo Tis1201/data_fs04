@@ -109,7 +109,50 @@ export async function loadBundleList(
     
     // Fetch table data with the appropriate options
     const result = await fetchTableData(locals, url, tableOptions);
-    return { bundles: result.records, meta: result.meta };
+    const records = result.records as any[];
+
+    // Enrich terminal bundles with actual start/end from waves (when scheduledAt is null)
+    const terminalStatuses = ['COMPLETED', 'FAILED', 'CANCELLED', 'STOPPED'];
+    const terminalBundles = records.filter((b: any) => terminalStatuses.includes((b.status || '').toUpperCase()));
+    if (terminalBundles.length > 0) {
+      const { prisma } = locals;
+      const bundleIds = terminalBundles.map((b: any) => b.id);
+      const waves = await prisma.bundleWave.findMany({
+        where: { bundleId: { in: bundleIds } },
+        select: { bundleId: true, startTime: true, endTime: true, status: true }
+      });
+      const byBundle = new Map<string, { starts: Date[]; ends: Date[]; allTerminal: boolean }>();
+      for (const w of waves) {
+        if (!byBundle.has(w.bundleId)) {
+          byBundle.set(w.bundleId, { starts: [], ends: [], allTerminal: false });
+        }
+        const entry = byBundle.get(w.bundleId)!;
+        if (w.startTime) entry.starts.push(w.startTime);
+        if (w.endTime) entry.ends.push(w.endTime);
+      }
+      const bundleWaveCounts = new Map<string, number>();
+      for (const w of waves) {
+        bundleWaveCounts.set(w.bundleId, (bundleWaveCounts.get(w.bundleId) || 0) + 1);
+      }
+      for (const [bundleId, entry] of byBundle.entries()) {
+        const count = bundleWaveCounts.get(bundleId) || 0;
+        entry.allTerminal = count > 0 && waves.filter((w: any) => w.bundleId === bundleId)
+          .every((w: any) => ['COMPLETED', 'FAILED', 'CANCELLED', 'STOPPED'].includes((w.status || '').toUpperCase()));
+      }
+      for (const b of records) {
+        const entry = byBundle.get(b.id);
+        if (entry) {
+          if (entry.starts.length > 0) {
+            b.actualStartedAt = new Date(Math.min(...entry.starts.map((d) => d.getTime())));
+          }
+          if (entry.allTerminal && entry.ends.length > 0) {
+            b.actualEndedAt = new Date(Math.max(...entry.ends.map((d) => d.getTime())));
+          }
+        }
+      }
+    }
+
+    return { bundles: records, meta: result.meta };
   } catch (e) {
     logger.error(`Error loading bundles: ${JSON.stringify(e)}`);
     throw error(500, 'Failed to load bundles');

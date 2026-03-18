@@ -14,6 +14,7 @@
     import { toast } from "$lib/stores/alertToast";
     import { browser } from "$app/environment";
     import type { Sensor } from '@prisma/client';
+    import { parseAsUtc } from "$lib/utils/deviceDetailsUtils";
 
     // Local SortState type for DataTable
     interface DataTableSortState {
@@ -187,7 +188,13 @@
                 powerManagementSchedule: device.powerManagementSchedule ?? false,
                 rebootSchedule: device.rebootSchedule ?? false,
                 downloadSchedule: device.downloadSchedule ?? false,
-                lastSeenAt: device.lastUsedAt ? new Date(device.lastUsedAt) : (device.lastSeenAt ? new Date(device.lastSeenAt) : undefined),
+                // Prefer Postgres lastUsedAt (HTTP + MQTT heartbeats) over ClickHouse; parseAsUtc for correct UTC parsing
+                lastSeenAt: (() => {
+                    const prisma = device.lastUsedAt || device.lastSeenAt;
+                    const ch = deviceInfo?.last_connected_at || deviceInfo?.last_status_at;
+                    const raw = prisma || ch;
+                    return raw ? parseAsUtc(raw) ?? undefined : undefined;
+                })(),
                 tags: (device.tags || []).map((tag: any) => ({
                     id: tag.id || tag.tagId,
                     name: tag.name || tag.tagName

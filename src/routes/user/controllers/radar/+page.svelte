@@ -715,7 +715,7 @@
         },
         {
             id: 'updatedAt',
-            header: 'Last Seen',
+            header: 'Last ping',
             accessor: (row: SensorRow) => row.updatedAt ?? row.createdAt,
             type: 'relativeTime' as const,
             sortable: true,

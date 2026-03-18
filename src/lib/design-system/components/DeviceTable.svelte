@@ -66,6 +66,7 @@
     } from "lucide-svelte";
     import { Checkbox, Tag, Badge } from "$lib/design-system/components";
     import UsageIndicators from "./UsageIndicators.svelte";
+    import { parseAsUtc } from "$lib/utils/deviceDetailsUtils";
     import { ColumnFilter } from "$lib/design-system/components";
 
     const dispatch = createEventDispatcher();
@@ -130,9 +131,9 @@
             ],
             width: "120px"
         },
-        // Use disconnectedAt for "Last Seen" - this is when device was last online
-        // Note: connectedAt = when device connected, disconnectedAt = when device went offline (last seen)
-        { id: "disconnectedAt", label: "Last Seen", sortable: true, width: "150px" },
+        // Use disconnectedAt for "Last ping" - this is when device was last online
+        // Note: connectedAt = when device connected, disconnectedAt = when device went offline (last ping)
+        { id: "disconnectedAt", label: "Last ping", sortable: true, width: "150px" },
         { id: "actions", label: "Actions", sortable: false, width: "80px" }
     ];
 
@@ -317,7 +318,7 @@
             return { text: "N/A", isRed: false };
         }
 
-        const date = new Date(lastSeenDate);
+        const date = parseAsUtc(lastSeenDate) ?? new Date(lastSeenDate);
         const now = new Date();
         const diffMs = now.getTime() - date.getTime();
         const diffMins = Math.floor(diffMs / (1000 * 60));

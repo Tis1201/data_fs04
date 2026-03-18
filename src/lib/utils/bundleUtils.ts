@@ -196,6 +196,20 @@ export function getDeviceTypeFilterForBundleOs(bundleOs: string | null | undefin
 }
 
 /**
+ * App resource formats per device/bundle OS.
+ * Used to filter installable apps: Linux → deb, Windows → exe, Android → apk, others → deb.
+ */
+export function getAppFormatsForDeviceType(deviceType: string | null | undefined): string[] {
+  const dt = (deviceType ?? '').trim().toLowerCase();
+  if (!dt) return ['deb'];
+  if (dt === 'linux') return ['deb'];
+  if (dt === 'windows') return ['exe'];
+  if (dt === 'android') return ['apk'];
+  // macOS, darwin, apple, unknown, etc.
+  return ['deb'];
+}
+
+/**
  * OS options for dropdowns/selects
  */
 export const OS_OPTIONS = [
@@ -210,7 +224,7 @@ export const OS_OPTIONS = [
  * Format bundle date for display (in viewer's local timezone)
  */
 export function formatBundleDate(date: string | Date | null | undefined): string {
-    if (!date) return 'Not scheduled';
+    if (!date) return '—';
     
     try {
         return new Date(date).toLocaleString(undefined, {
@@ -226,7 +240,17 @@ export function formatBundleDate(date: string | Date | null | undefined): string
 }
 
 /**
- * Format end-on date from scheduledAt + activePeriodDays (for deployment overview)
+ * Format start-on date: scheduledAt.
+ * Shared by list and detail pages.
+ */
+export function formatBundleStartOn(scheduledAt: string | Date | null | undefined): string {
+    if (!scheduledAt) return '—';
+    return formatBundleDate(scheduledAt);
+}
+
+/**
+ * Format end-on date: scheduledAt + (activePeriodDays × 24h), clamped 1–30 days.
+ * Shared by list and detail pages.
  */
 export function formatBundleEndOn(
     scheduledAt: string | Date | null | undefined,
@@ -237,6 +261,72 @@ export function formatBundleEndOn(
     const start = new Date(scheduledAt);
     const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
     return formatBundleDate(end);
+}
+
+/**
+ * Format end-on for display: "—" for DRAFT/IN_PROGRESS, else scheduled end.
+ * Shared by list and detail pages so logic matches.
+ */
+export function formatBundleEndOnForDisplay(
+    status: string | null | undefined,
+    scheduledAt: string | Date | null | undefined,
+    activePeriodDays: number | null | undefined
+): string {
+    const statusUpper = (status ?? '').toUpperCase();
+    if (statusUpper === 'DRAFT' || statusUpper === 'IN_PROGRESS') return '—';
+    return formatBundleEndOn(scheduledAt, activePeriodDays);
+}
+
+/**
+ * Bundle-like object for Start/End On display (camelCase or snake_case)
+ */
+export interface BundleLikeForStartEnd {
+    status?: string | null;
+    scheduledAt?: string | Date | null;
+    scheduled_at?: string | Date | null;
+    activePeriodDays?: number | null;
+    active_period_days?: number | null;
+    /** From waves: min(wave.startTime). Use when scheduledAt is null (run-immediate deployments). */
+    actualStartedAt?: string | Date | null;
+    actual_started_at?: string | Date | null;
+    /** From waves: max(wave.endTime) when all terminal. Use for terminal statuses when scheduledAt is null. */
+    actualEndedAt?: string | Date | null;
+    actual_ended_at?: string | Date | null;
+}
+
+/**
+ * Single reuse helper: returns Start On and End On strings from a bundle-like object.
+ * Handles camelCase and snake_case. Uses actual start/end (from waves) when scheduled is null.
+ * Use in list and detail pages for identical display logic.
+ *
+ * Priority: Start On = actualStartedAt ?? scheduledAt. End On = actualEndedAt for terminal statuses, else scheduled end or "—".
+ */
+export function getBundleStartEndOnDisplay(bundle: BundleLikeForStartEnd | null | undefined, overrides?: {
+    actualStartedAt?: string | Date | null;
+    actualEndedAt?: string | Date | null;
+}): { startOn: string; endOn: string } {
+    if (!bundle) return { startOn: '—', endOn: '—' };
+    const b = bundle as Record<string, unknown>;
+    const scheduledAt = (b.scheduledAt ?? b.scheduled_at) as string | Date | null | undefined;
+    const activePeriodDays = (b.activePeriodDays ?? b.active_period_days) as number | null | undefined;
+    const status = (b.status ?? '') as string;
+    const actualStartedAt = overrides?.actualStartedAt
+        ?? (b.actualStartedAt ?? b.actual_started_at) as string | Date | null | undefined;
+    const actualEndedAt = overrides?.actualEndedAt
+        ?? (b.actualEndedAt ?? b.actual_ended_at) as string | Date | null | undefined;
+
+    // Start On: actual (from waves) preferred over scheduled
+    const startOn = formatBundleStartOn(actualStartedAt ?? scheduledAt);
+
+    // End On: for terminal statuses use actual end; for DRAFT/IN_PROGRESS show "—"; else scheduled end
+    const statusUpper = (status ?? '').toUpperCase();
+    let endOn: string;
+    if (statusUpper === 'DRAFT' || statusUpper === 'IN_PROGRESS') {
+        endOn = '—';
+    } else {
+        endOn = actualEndedAt ? formatBundleDate(actualEndedAt) : formatBundleEndOn(scheduledAt, activePeriodDays);
+    }
+    return { startOn, endOn };
 }
 
 /**

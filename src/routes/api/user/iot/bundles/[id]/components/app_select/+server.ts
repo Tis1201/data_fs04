@@ -26,14 +26,14 @@ const tableOptions = {
   }
 };
 
-/** Allowed app formats per bundle target OS */
+/** Allowed app formats per bundle target OS: Linux → deb, Windows → exe, Android → apk, others → deb */
 function getFormatsByTargetOs(os: string | null | undefined): string[] {
   const osLower = (os ?? '').toLowerCase();
-  if (osLower === 'macos' || osLower === 'darwin') return ['cpk'];
-  if (osLower === 'linux') return ['deb', 'cpk'];
+  if (osLower === 'linux') return ['deb'];
+  if (osLower === 'windows') return ['exe'];
   if (osLower === 'android') return ['apk'];
-  // fallback: all app formats
-  return ['apk', 'cpk', 'deb'];
+  // macOS, darwin, apple, unknown, etc.
+  return ['deb'];
 }
 
 // Handle GET requests to fetch resources for app selection

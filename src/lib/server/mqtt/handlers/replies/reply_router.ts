@@ -218,6 +218,31 @@ export async function handleReplyMessage(
         const hadConflictingType = 'type' in cleanParams;
         delete cleanParams.type;
 
+        // Ensure deviceId is in params so client can filter by device (fixes cross-device activity log contamination)
+        // Device replies often omit deviceId; get it from original request (ctx.params) or recipient (device:deviceId)
+        if (!cleanParams.deviceId) {
+            const deviceIdFromParams = ctx.params?.deviceId as string | undefined;
+            const deviceIdFromRecipient = typeof ctx.recipient === 'string' && ctx.recipient.startsWith('device:')
+                ? ctx.recipient.replace(/^device:/, '')
+                : undefined;
+            const deviceId = deviceIdFromParams ?? deviceIdFromRecipient;
+            if (deviceId) {
+                cleanParams.deviceId = deviceId;
+            } else if (logId) {
+                try {
+                    const log = await (prisma as any).deviceActionLog.findUnique({
+                        where: { id: logId },
+                        select: { deviceId: true }
+                    });
+                    if (log?.deviceId) {
+                        cleanParams.deviceId = log.deviceId;
+                    }
+                } catch {
+                    // ignore
+                }
+            }
+        }
+
         if (hadConflictingType) {
             logger.debug('[MQTT Reply] Removed conflicting type field from params', {
                 removedType: notificationParams.type,

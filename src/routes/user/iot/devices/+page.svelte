@@ -11,6 +11,8 @@
     import EditDeviceModal from "$lib/components/devices/EditDeviceModal.svelte";
     import { toast } from "$lib/stores/alertToast";
     import { browser } from "$app/environment";
+    import { getAppFormatsForDeviceType } from "$lib/utils/bundleUtils";
+    import { parseAsUtc } from "$lib/utils/deviceDetailsUtils";
 
     // Type for available tags
     interface AvailableTag {
@@ -173,12 +175,13 @@
                 powerManagementSchedule: device.powerManagementSchedule ?? false,
                 rebootSchedule: device.rebootSchedule ?? false,
                 downloadSchedule: device.downloadSchedule ?? false,
-                // Prefer ClickHouse (real-time heartbeats) over Prisma for Last Seen alignment
+                // Prefer Postgres lastUsedAt (HTTP + MQTT heartbeats) over ClickHouse for Last ping
+                // parseAsUtc: ClickHouse returns "2026-03-17 16:18:59.506" (UTC, no Z) which JS otherwise parses as local
                 lastSeenAt: (() => {
-                    const ch = deviceInfo?.last_connected_at || deviceInfo?.last_status_at;
                     const prisma = device.lastUsedAt || device.lastSeenAt;
-                    const raw = ch || prisma;
-                    return raw ? new Date(raw) : undefined;
+                    const ch = deviceInfo?.last_connected_at || deviceInfo?.last_status_at;
+                    const raw = prisma || ch;
+                    return raw ? parseAsUtc(raw) ?? undefined : undefined;
                 })(),
                 tags: (device.tags || []).map((tag: any) => ({
                     id: tag.id || tag.tagId,
@@ -711,11 +714,16 @@
         app.packageName.toLowerCase().includes(installAppSearch.toLowerCase())
     );
 
-    // Load apps from API
+    // Load apps from API (filter by format when installing to selected devices: Linux → deb, Windows → exe, Android → apk, others → deb)
     async function loadAvailableApps() {
         availableAppsLoading = true;
         try {
-            const res = await fetch('/api/user/resources/apps?pageSize=100');
+            const formats = new Set<string>();
+            for (const row of selectedRows) {
+                getAppFormatsForDeviceType(row.deviceType).forEach((f) => formats.add(f));
+            }
+            const formatParam = formats.size > 0 ? `&format=${[...formats].join(',')}` : '';
+            const res = await fetch(`/api/user/resources/apps?pageSize=100${formatParam}`);
             if (!res.ok) throw new Error('Failed to load apps');
 
             const data = await res.json();

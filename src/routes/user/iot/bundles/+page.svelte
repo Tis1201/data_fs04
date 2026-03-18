@@ -19,7 +19,7 @@
     import {
         getBundleStatusDisplayLabel,
         getBundleStatusBadgeColor,
-        formatBundleDate
+        getBundleStartEndOnDisplay
     } from '$lib/utils/bundleUtils';
     import { toast } from '$lib/stores/alertToast';
 
@@ -442,19 +442,6 @@
         ];
     }
 
-    function formatStartOn(bundle: Bundle): string {
-        if (!bundle.scheduledAt) return '—';
-        return formatBundleDate(bundle.scheduledAt);
-    }
-
-    function formatEndOn(bundle: Bundle & { activePeriodDays?: number }): string {
-        if (!bundle.scheduledAt) return '—';
-        const startDate = new Date(bundle.scheduledAt);
-        const days = bundle.activePeriodDays ?? 1;
-        const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
-        return formatBundleDate(endDate);
-    }
-
     function escapeHtml(s: string): string {
         return String(s)
             .replace(/&/g, '&amp;')
@@ -490,7 +477,7 @@
         {
             id: 'scheduledAt',
             header: 'Start On',
-            accessor: (row: Bundle) => formatStartOn(row),
+            accessor: (row: Bundle) => getBundleStartEndOnDisplay(row).startOn,
             type: 'text',
             sortable: true,
             width: '180px'
@@ -498,7 +485,7 @@
         {
             id: 'endOn',
             header: 'End On',
-            accessor: (row: Bundle) => formatEndOn(row as Bundle & { activePeriodDays?: number }),
+            accessor: (row: Bundle) => getBundleStartEndOnDisplay(row).endOn,
             type: 'text',
             sortable: true,
             width: '180px'

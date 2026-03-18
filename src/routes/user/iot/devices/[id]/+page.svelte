@@ -29,6 +29,7 @@
         formatActivityLogDate,
         formatInstallDate,
         formatLastSeen,
+        formatRelativeTime,
         formatUptime,
         formatFileSize,
         getDeploymentBadgeColor,
@@ -42,6 +43,7 @@
     } from "$lib/utils/deviceDetailsUtils";
     import { formatBytes } from "$lib/utils/format";
     import { triggerFileDownload } from "$lib/utils/download";
+    import { getAppFormatsForDeviceType } from "$lib/utils/bundleUtils";
     import {
         PenLine,
         RefreshCw,
@@ -762,6 +764,12 @@
 
     // Package names currently on device (for "Already on device" badge)
     $: installedPackageNames = new Set((apps || []).map((a: DeviceApp) => (a.package_name || '').trim()).filter(Boolean));
+
+    // Filter apps by device OS: Linux → deb, Windows → exe, Android → apk, others → deb
+    $: installAppExtraParams = (() => {
+        const formats = getAppFormatsForDeviceType(device?.deviceType);
+        return formats.length ? { format: formats.join(',') } : {};
+    })();
 
     function openInstallAppModal() {
         showInstallAppModal = true;
@@ -1769,8 +1777,11 @@
                     </div>
                 </div>
                 <div class="info-row">
-                    <span class="info-label">Last Seen</span>
-                    <span class="info-value-text">{formatLastSeen(deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.lastUsedAt ?? device?.lastSeenAt ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                    <span class="info-label">Last ping</span>
+                    <div class="info-value-text">
+                        <span>{formatRelativeTime(device?.lastUsedAt ?? device?.lastSeenAt ?? deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                        <span class="text-sm text-muted-foreground block mt-0.5">{formatLastSeen(device?.lastUsedAt ?? device?.lastSeenAt ?? deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                    </div>
                 </div>
                 <div class="info-row">
                     <span class="info-label">Public IP</span>
@@ -1918,8 +1929,11 @@
                                 />
                             </div>
                             <div class="info-row-detail">
-                                <span class="label">Last Seen</span>
-                                <span class="value">{formatLastSeen(deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.lastUsedAt ?? device?.lastSeenAt ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                                <span class="label">Last ping</span>
+                                <div class="value">
+                                    <span>{formatRelativeTime(device?.lastUsedAt ?? device?.lastSeenAt ?? deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                                    <span class="text-sm text-muted-foreground block mt-0.5">{formatLastSeen(device?.lastUsedAt ?? device?.lastSeenAt ?? deviceInfo?.last_connected_at ?? deviceInfo?.last_status_at ?? device?.disconnectedAt ?? device?.connectedAt)}</span>
+                                </div>
                             </div>
                             <div class="info-row-detail">
                                 <span class="label">Network Interface</span>
@@ -2847,6 +2861,7 @@
     confirmLoadingText="Installing…"
     confirmLoading={installAppLoading}
     appsEndpoint="/api/user/resources/apps"
+    extraParams={installAppExtraParams}
     {installedPackageNames}
     showAlreadyBadge={true}
     selectionMode="id"

@@ -44,8 +44,8 @@ export const load = restrict(
                     checkOwnership: true,
                     userId,
                     accountId: currentAccountId,
-                    // This page doesn't render Usage / OS columns, so we can skip ClickHouse device info.
-                    includeDeviceInformation: false,
+                    // Include ClickHouse for Last ping (heartbeat) alignment with IoT devices page
+                    includeDeviceInformation: true,
                     // Also skip expensive cross-device stats aggregation (not used on this page).
                     includeStats: false,
                     includeRealTimeStatus: true

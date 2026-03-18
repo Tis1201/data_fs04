@@ -7,6 +7,25 @@
 // Date Formatting Functions
 // ============================================================================
 
+/**
+ * Parse a date string from server/ClickHouse as UTC.
+ * ClickHouse returns "2026-03-17 16:18:59.506" (UTC, no Z) which JS otherwise parses as local time.
+ */
+export function parseAsUtc(date: string | Date | null): Date | null {
+    if (!date) return null;
+    if (date instanceof Date) return date;
+    const s = String(date).trim();
+    if (!s) return null;
+    // Already has timezone: Z or +HH:MM / -HH:MM
+    if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) {
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    const utcStr = s.replace(' ', 'T') + 'Z';
+    const d = new Date(utcStr);
+    return isNaN(d.getTime()) ? null : d;
+}
+
 export function formatDeploymentDate(dateString: string | null): string {
     if (!dateString) return '-';
     const d = new Date(dateString);
@@ -70,14 +89,40 @@ export function formatInstallDate(dateString: string, timezone?: string): string
 }
 
 export function formatLastSeen(date: string | Date | null): string {
-    if (!date) return 'N/A';
-    const d = new Date(date);
+    const d = parseAsUtc(date);
+    if (!d) return 'N/A';
     const month = d.toLocaleString('en-US', { month: 'short' });
     const day = d.getDate().toString().padStart(2, '0');
     const year = d.getFullYear();
     const hours = d.getHours().toString().padStart(2, '0');
     const minutes = d.getMinutes().toString().padStart(2, '0');
     return `${month} ${day}, ${year} ${hours}:${minutes}`;
+}
+
+/**
+ * Format timestamp as relative time (e.g. "just now", "2 min ago") for recent dates.
+ * Falls back to absolute format for older dates.
+ */
+export function formatRelativeTime(date: string | Date | null): string {
+    const d = parseAsUtc(date);
+    if (!d) return 'N/A';
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffMs < 0) return formatLastSeen(date); // Future: show absolute
+    if (diffSec < 10) return 'just now';
+    if (diffSec < 60) return 'a few seconds ago';
+    if (diffMin < 2) return '1 min ago';
+    if (diffMin < 60) return `${diffMin} min ago`;
+    if (diffHour < 2) return '1 hour ago';
+    if (diffHour < 24) return `${diffHour} hours ago`;
+    if (diffDay < 2) return '1 day ago';
+    if (diffDay < 7) return `${diffDay} days ago`;
+    return formatLastSeen(date);
 }
 
 export function formatUptime(seconds: number | null): string {

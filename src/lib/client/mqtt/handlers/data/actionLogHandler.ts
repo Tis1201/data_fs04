@@ -236,7 +236,18 @@ export function subscribeActionLogUpdates(
     }
   });
 
+  /** Ignore notifications for other devices (prevents cross-device activity log contamination) */
+  const isForThisDevice = (p: any): boolean => {
+    const payloadDeviceId = p?.deviceId ?? p?.params?.deviceId ?? p?.payload?.deviceId;
+    // Reject notifications without deviceId - they cannot be reliably attributed to a device
+    // and would otherwise appear on ALL device pages (cross-device contamination bug)
+    if (!payloadDeviceId) return false;
+    return payloadDeviceId === deviceId;
+  };
+
   const unsubscribeMqttStatus = mqttClient.onNotification('device:statusUpdate', (payload: any) => {
+    if (!isForThisDevice(payload)) return;
+
     const logId = payload?.logId || payload?.id;
     const action = payload?.action;
     const status = payload?.status;
@@ -257,6 +268,8 @@ export function subscribeActionLogUpdates(
   });
 
   const unsubscribeMqttProgress = mqttClient.onNotification('device:progressUpdate', (payload: any) => {
+    if (!isForThisDevice(payload)) return;
+
     actionHandlerManager.handle('device:progressUpdate', {
       type: 'device:progressUpdate',
       ...payload
@@ -264,6 +277,8 @@ export function subscribeActionLogUpdates(
   });
 
   const unsubscribeMqttScreenshot = mqttClient.onNotification('device.screenshot', (payload: any) => {
+    if (!isForThisDevice(payload)) return;
+
     const message = payload?.message;
     const durationMs = payload?.durationMs;
     const objectPath = payload?.objectPath;
@@ -284,6 +299,8 @@ export function subscribeActionLogUpdates(
   });
 
   const unsubscribeMqttGetLogs = mqttClient.onNotification('device:getLogsStatus', (payload: any) => {
+    if (!isForThisDevice(payload)) return;
+
     actionHandlerManager.handle('device:getLogsStatus', {
       type: 'device:getLogsStatus',
       ...payload,

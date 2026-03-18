@@ -7,6 +7,7 @@
     import type { AppPickerItem } from '$lib/components/shared/AppPickerModal.svelte';
     import { toast } from 'svelte-sonner';
     import { triggerFileDownload } from '$lib/utils/download';
+    import { formatRelativeTime } from '$lib/utils/deviceDetailsUtils';
     import { onMount } from 'svelte';
     
     import { browser } from '$app/environment';
@@ -223,33 +224,6 @@
         }
     }
 
-    /** Match DeviceTable format: "x minutes ago", "x hours ago", "Yesterday" */
-    function formatLastSeen(lastUsedAt: string | null | undefined): string {
-        if (!lastUsedAt) return '—';
-        try {
-            const d = new Date(lastUsedAt);
-            if (Number.isNaN(d.getTime())) return '—';
-            const now = new Date();
-            const diffMs = now.getTime() - d.getTime();
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffHours = diffMs / (1000 * 60 * 60);
-            const diffDays = diffHours / 24;
-            if (diffMins < 1) return 'Just now';
-            if (diffHours < 1) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
-            if (diffHours < 24) {
-                const hrs = Math.floor(diffHours);
-                return `${hrs} ${hrs === 1 ? 'hour' : 'hours'} ago`;
-            }
-            if (diffDays < 2) return 'Yesterday';
-            if (diffDays < 7) {
-                const days = Math.floor(diffDays);
-                return `${days} ${days === 1 ? 'day' : 'days'} ago`;
-            }
-            return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-        } catch {
-            return '—';
-        }
-    }
 
     function syncAppsToForm() {
         formData.apps = Array.from(selectedApps).join(', ');
@@ -743,7 +717,7 @@
                                                 <th>Device Name</th>
                                                 <th>MAC Address</th>
                                                 <th>Status</th>
-                                                <th>Last Seen</th>
+                                                <th>Last ping</th>
                                                 <th class="pin-rule-th-actions">Actions</th>
                                             </tr>
                                         </thead>
@@ -763,7 +737,7 @@
                                                             —
                                                         {/if}
                                                     </td>
-                                                    <td class="pin-rule-last-seen">{formatLastSeen(device.last_connected_at ?? device.last_status_at ?? device.lastUsedAt ?? device.lastSeenAt ?? device.createdAt)}</td>
+                                                    <td class="pin-rule-last-seen">{formatRelativeTime(device.lastUsedAt ?? device.lastSeenAt ?? device.last_connected_at ?? device.last_status_at ?? device.createdAt)}</td>
                                                     <td class="pin-rule-td-actions">
                                                         <ActionMenu
                                                             items={[{ id: 'remove', label: 'Remove', destructive: true }]}

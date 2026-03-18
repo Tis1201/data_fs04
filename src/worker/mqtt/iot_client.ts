@@ -251,10 +251,10 @@ export async function connectWorkerClient(): Promise<void> {
     });
 
     activeClient.on('message', async (topic, payload) => {
-        // Only log non-data topics to reduce spam
-        if (!topic.endsWith('/data')) {
+        // Only log non-data, non-heartbeat topics to reduce spam (high-frequency)
+        if (!topic.endsWith('/data') && !topic.endsWith('/heartbeat')) {
             logger.debug(`[MQTT Transport] Received message on ${topic}`);
-        } else {
+        } else if (topic.endsWith('/data')) {
             // TEMP DEBUG: Log data topic messages to diagnose radar preview issue
             logger.info(`[MQTT Transport] [DEBUG] Received /data message on ${topic}, payload length=${payload.length}`);
         }

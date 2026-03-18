@@ -85,8 +85,8 @@ export { broadcastDeviceActionUpdate, publishDeviceStatusNotification };
  * await handleIncoming('device/abc123/replies', messageBuffer, prisma);
  */
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
-    // Only log non-data topics to reduce spam (data streams are high-frequency)
-    if (!topic.endsWith('/data')) {
+    // Only log non-data, non-heartbeat topics to reduce spam (high-frequency)
+    if (!topic.endsWith('/data') && !topic.endsWith('/heartbeat')) {
         logger.debug(`[MQTT Messaging] Received message on ${topic}`);
     }
 
@@ -208,6 +208,16 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     if (topic.endsWith('/data')) {
         const { handlePreviewDataMessage } = await import('./streams/preview_data_handler');
         await handlePreviewDataMessage(topic, payload, prisma);
+        return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // ROUTE 5: Device Heartbeats (Last ping / presence)
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // device/{deviceId}/heartbeat - batched for Redis + ClickHouse
+    if (topic.endsWith('/heartbeat') && topic.startsWith('device/')) {
+        const { handleHeartbeatMessage } = await import('./device/heartbeat_handler');
+        await handleHeartbeatMessage(topic, payload, prisma);
         return;
     }
 

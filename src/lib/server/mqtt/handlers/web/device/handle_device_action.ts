@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { logger } from '$lib/server/logger';
 import { DeviceNotificationType, sendNotificationWithTicket } from '../../../core/publish';
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
@@ -295,24 +296,25 @@ export async function handlePullFile(
         throw new Error('sourcePath and destinationPath are required');
     }
 
-    const { deviceId, sourcePath } = params;
-    
-    // Extract filename from sourcePath
-    const fileName = sourcePath ? sourcePath.split('/').pop() || 'file' : 'file';
-    
-    // Generate file path in GCloud: devices/{deviceId}/pull-files/{timestamp}/{fileName}
+    const { deviceId, sourcePath: rawSourcePath } = params;
+    // Strip surrounding double quotes and normalize Windows backslashes so path.basename works on Linux server
+    const sourcePathNorm = (rawSourcePath ?? '').replace(/^"|"$/g, '').trim().replace(/\\/g, '/');
+    const fileName = sourcePathNorm ? path.basename(sourcePathNorm) || 'file' : 'file';
+
+    // Generate object path like get_logs: devices/{deviceId}/pull-files/{timestamp}/{fileName} (filename only)
     const timestamp = Date.now();
     const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
-    
+
     const storageConfig = getStorageConfig();
     if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
         throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
     }
-    
-    logger.info(`[WebPull File] Generating presigned upload URL`, {
+
+    logger.info(`[WebPull File] Generating presigned upload URL (filename-only objectPath like get_logs)`, {
         mode: storageConfig.mode,
         bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
-        objectPath
+        objectPath,
+        fileName,
     });
     
     const presignedUrlResult = await generatePresignedUrl(

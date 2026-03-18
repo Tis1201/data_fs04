@@ -124,11 +124,13 @@ export class FileOperationHandler extends StreamActionHandler {
       const dbActionType = this.operationType === 'pull' ? 'pull_file' : 'push_file';
       this.handleError(message || `${this.operationType}File failed`, logId, dbActionType);
     } else if (progress !== undefined) {
-      // Handle progress updates
-      this.handleProgress(progress, message || `${this.operationType}File progress: ${progress}%`, logId);
+      // Handle progress updates (pass actionType so actionLogHandler can create log if missing)
+      const dbActionType = this.operationType === 'pull' ? 'pull_file' : 'push_file';
+      this.handleProgress(progress, message || `${this.operationType}File progress: ${progress}%`, logId, dbActionType);
     } else {
       // Handle general status updates (in_progress, etc.)
-      this.handleProgress(0, message || `${this.operationType}File in progress`, logId);
+      const dbActionType = this.operationType === 'pull' ? 'pull_file' : 'push_file';
+      this.handleProgress(0, message || `${this.operationType}File in progress`, logId, dbActionType);
     }
   }
 

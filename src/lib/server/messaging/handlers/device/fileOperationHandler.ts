@@ -95,10 +95,11 @@ export async function handlePullFile(message: InMessage): Promise<void> {
       throw new Error('User ID not found in message context');
     }
 
-    // Extract filename from sourcePath or use resourceId to get resource name
-    const fileName = sourcePath ? path.basename(sourcePath) : (resourceId ? `${resourceId}` : 'file');
-    
-    // Generate file path in GCloud: devices/{deviceId}/pull-files/{timestamp}/{fileName}
+    // Extract filename only (normalize Windows backslashes so path.basename works on Linux server)
+    const sourcePathNorm = (sourcePath ?? '').replace(/^"|"$/g, '').trim().replace(/\\/g, '/');
+    const fileName = sourcePathNorm ? path.basename(sourcePathNorm) || 'file' : (resourceId ? `${resourceId}` : 'file');
+
+    // Generate file path in GCloud: devices/{deviceId}/pull-files/{timestamp}/{fileName} (filename only, like get_logs)
     const timestamp = Date.now();
     const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
 

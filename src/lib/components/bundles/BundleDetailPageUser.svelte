@@ -63,7 +63,7 @@
         getDeviceTypeDisplayName,
         formatBundleDate,
         formatBundleDateWithTimezone,
-        formatBundleEndOn
+        getBundleStartEndOnDisplay
     } from '$lib/utils/bundleUtils';
     import {
         formatUptime,
@@ -829,7 +829,6 @@
     $: canResume = bundleStatusUpper === 'STOPPED';
     $: canRetry = bundleStatusUpper === 'FAILED';
     $: canRun = isScheduled || bundleStatusUpper === 'COMPLETED';
-
     // Action buttons are now rendered inline with status-based visibility (see template below)
 
     $: tabItems = [
@@ -1152,18 +1151,18 @@
                     <p class="overview-label">Version</p>
                     <p class="overview-value">{bundle.version || 'N/A'}</p>
                 </div>
-                <!-- Row 2: Batch Size, Start on Date & Time, End on Date & Time, (empty) -->
+                <!-- Row 2: Batch Size, Start On, End On (scheduled only; both pages use same logic) -->
                 <div class="overview-field">
                     <p class="overview-label">Batch Size</p>
                     <p class="overview-value">{bundle.waveSize ?? '—'}</p>
                 </div>
                 <div class="overview-field">
-                    <p class="overview-label">Start on Date & Time</p>
-                    <p class="overview-value">{$bundleActualStartTime ? formatBundleDate($bundleActualStartTime) : '—'}</p>
+                    <p class="overview-label">Start On</p>
+                    <p class="overview-value">{getBundleStartEndOnDisplay(bundle, { actualStartedAt: $bundleActualStartTime, actualEndedAt: $bundleActualEndTime }).startOn}</p>
                 </div>
                 <div class="overview-field">
-                    <p class="overview-label">End on Date & Time</p>
-                    <p class="overview-value">{$bundleActualEndTime ? formatBundleDate($bundleActualEndTime) : '—'}</p>
+                    <p class="overview-label">End On</p>
+                    <p class="overview-value">{getBundleStartEndOnDisplay(bundle, { actualStartedAt: $bundleActualStartTime, actualEndedAt: $bundleActualEndTime }).endOn}</p>
                 </div>
                 <div class="overview-field-empty" aria-hidden="true"></div>
                 <!-- Row 3: Description (full width) -->

@@ -566,7 +566,7 @@
             showDot: () => true,
             width: '120px'
         },
-        { id: 'lastSeen', header: 'Last Seen', accessor: (r) => r.lastSeen, type: 'text', sortable: true, width: '140px' },
+        { id: 'lastSeen', header: 'Last ping', accessor: (r) => r.lastSeen, type: 'text', sortable: true, width: '140px' },
         {
             id: 'actions',
             header: 'Actions',

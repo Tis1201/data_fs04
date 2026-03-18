@@ -274,22 +274,43 @@
 	// Remote Desktop Input Handling Functions
 	let lastMouseMoveTime = 0;
 
-	function getVideoCoordinates(event: MouseEvent) {
+	/**
+	 * Map event coords to video pixel coords, accounting for object-contain
+	 * letterboxing. Returns null when the event is outside the visible video
+	 * frame unless clamp=true (used for mouseup to avoid stuck buttons).
+	 */
+	function getVideoCoordinates(event: MouseEvent, clamp = false): { x: number; y: number } | null {
 		const target = event.currentTarget as HTMLVideoElement | HTMLImageElement;
-		if (!target) return { x: 0, y: 0 };
+		if (!target) return null;
 		const rect = target.getBoundingClientRect();
-		if (!rect.width || !rect.height) return { x: 0, y: 0 };
-		// Use actual video dimensions when available; otherwise assume RDP stream 1280x720
+		if (!rect.width || !rect.height) return null;
 		let w = "videoWidth" in target ? target.videoWidth : (target as HTMLImageElement).naturalWidth;
 		let h = "videoHeight" in target ? target.videoHeight : (target as HTMLImageElement).naturalHeight;
 		if (!w || !h) {
 			w = 1280;
 			h = 720;
 		}
-		const scaleX = w / rect.width;
-		const scaleY = h / rect.height;
-		const x = Math.round((event.clientX - rect.left) * scaleX);
-		const y = Math.round((event.clientY - rect.top) * scaleY);
+		const rectAspect = rect.width / rect.height;
+		const videoAspect = w / h;
+		let displayW: number, displayH: number, offsetX: number, offsetY: number;
+		if (rectAspect > videoAspect) {
+			displayH = rect.height;
+			displayW = rect.height * videoAspect;
+			offsetX = (rect.width - displayW) / 2;
+			offsetY = 0;
+		} else {
+			displayW = rect.width;
+			displayH = rect.width / videoAspect;
+			offsetX = 0;
+			offsetY = (rect.height - displayH) / 2;
+		}
+		const relX = event.clientX - rect.left - offsetX;
+		const relY = event.clientY - rect.top - offsetY;
+		if (relX < 0 || relX >= displayW || relY < 0 || relY >= displayH) {
+			if (!clamp) return null;
+		}
+		const x = Math.round(Math.max(0, Math.min(w - 1, (relX / displayW) * w)));
+		const y = Math.round(Math.max(0, Math.min(h - 1, (relY / displayH) * h)));
 		return { x, y };
 	}
 
@@ -299,9 +320,9 @@
 
 	function handleRightClick(event: MouseEvent) {
 		if (!connected || !webrtcClient) return;
-
-		const { x, y } = getVideoCoordinates(event);
-		webrtcClient.sendMouseClick("right", x, y);
+		const coords = getVideoCoordinates(event);
+		if (!coords) return;
+		webrtcClient.sendMouseClick("right", coords.x, coords.y);
 	}
 
 	function buttonFromEvent(e: MouseEvent): string {
@@ -314,27 +335,25 @@
 	function handleMouseDown(event: MouseEvent) {
 		(event.currentTarget as HTMLElement)?.focus();
 		if (!connected || !webrtcClient) return;
-
-		const { x, y } = getVideoCoordinates(event);
-		webrtcClient.sendMouseDown(buttonFromEvent(event), x, y);
+		const coords = getVideoCoordinates(event);
+		if (!coords) return;
+		webrtcClient.sendMouseDown(buttonFromEvent(event), coords.x, coords.y);
 	}
 
 	function handleMouseUp(event: MouseEvent) {
 		if (!connected || !webrtcClient) return;
-
-		const { x, y } = getVideoCoordinates(event);
-		webrtcClient.sendMouseUp(buttonFromEvent(event), x, y);
+		const coords = getVideoCoordinates(event, true);
+		if (!coords) return;
+		webrtcClient.sendMouseUp(buttonFromEvent(event), coords.x, coords.y);
 	}
 
 	function handleMouseMove(event: MouseEvent) {
 		if (!connected || !webrtcClient) return;
-
-		// Throttle mouse move events (60 FPS for responsive cursor)
-		if (Date.now() - lastMouseMoveTime < 16) return; // ~60 FPS
+		if (Date.now() - lastMouseMoveTime < 16) return;
 		lastMouseMoveTime = Date.now();
-
-		const { x, y } = getVideoCoordinates(event);
-		webrtcClient.sendMouseMove(x, y);
+		const coords = getVideoCoordinates(event);
+		if (!coords) return;
+		webrtcClient.sendMouseMove(coords.x, coords.y);
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {

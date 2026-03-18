@@ -221,6 +221,7 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
                   name: a.resource.name,
                   packageName: a.resource.packageName,
                   path: result.downloadUrl, // Use presigned URL instead of raw GCS URL
+                  ...(result.downloadAuth && { downloadAuth: result.downloadAuth }), // HMAC required for CDN (R2)
                   version: a.resource.version,
                   format: a.resource.format,
                   size: a.resource.size,
@@ -488,6 +489,7 @@ export async function sendBundleInstallToWave(
 					name: a.resource.name,
 					packageName: a.resource.packageName,
 					path: result.downloadUrl,
+					...(result.downloadAuth && { downloadAuth: result.downloadAuth }), // HMAC required for CDN (R2)
 					version: a.resource.version,
 					format: a.resource.format,
 					size: a.resource.size,

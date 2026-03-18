@@ -13,6 +13,7 @@ const WORKER_TOPIC_PATTERNS = [
     'device/+/requests',
     'device/+/events',
     'device/+/replies',
+    'device/+/heartbeat',
     // User topics
     'user/+/requests',
     'user/+/events',
