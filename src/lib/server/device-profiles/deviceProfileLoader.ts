@@ -115,7 +115,10 @@ export async function loadDeviceProfileDetail(
                                 status: true,
                                 macAddress: true,
                                 wifiMac: true,
-                                lastUsedAt: true
+                                lastUsedAt: true,
+                                tags: {
+                                    select: { id: true, name: true }
+                                }
                             }
                         }
                     }

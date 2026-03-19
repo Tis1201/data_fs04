@@ -45,6 +45,8 @@
     export let displayText: string | undefined = undefined; // Custom display text (overrides displayValue, useful for toggle type)
     /** 'auto' = flip based on space, 'bottom' = always below trigger, 'top' = always above trigger (e.g. in modals) */
     export let preferPlacement: 'auto' | 'bottom' | 'top' = 'auto';
+    /** When true, close dropdown on scroll (avoids floating dropdown blocking content). When false, reposition on scroll. */
+    export let closeOnScroll: boolean = true;
 
     const dispatch = createEventDispatcher<{
         change: string | string[];
@@ -90,6 +92,44 @@
         : options;
 
     let openUpward = false;
+    let scrollListenerEls: Array<{ el: EventTarget; handler: () => void; event: string }> = [];
+
+    function isScrollable(el: Element): boolean {
+        const style = getComputedStyle(el);
+        const overflowY = style.overflowY || style.overflow;
+        return overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+    }
+
+    function attachScrollListeners() {
+        removeScrollListeners();
+        if (!triggerRef || typeof window === 'undefined') return;
+        let el: Element | null = triggerRef.parentElement;
+        while (el && el !== document.body) {
+            if (isScrollable(el)) {
+                const handler = () => {
+                    if (closeOnScroll) {
+                        isOpen = false;
+                        removeScrollListeners();
+                    } else {
+                        requestAnimationFrame(() => updateDropdownPosition());
+                    }
+                };
+                el.addEventListener('scroll', handler, { passive: true });
+                scrollListenerEls.push({ el, handler, event: 'scroll' });
+            }
+            el = el.parentElement;
+        }
+        const resizeHandler = () => updateDropdownPosition();
+        window.addEventListener('resize', resizeHandler);
+        scrollListenerEls.push({ el: window, handler: resizeHandler, event: 'resize' });
+    }
+
+    function removeScrollListeners() {
+        for (const { el, handler, event } of scrollListenerEls) {
+            el.removeEventListener(event, handler);
+        }
+        scrollListenerEls = [];
+    }
 
     // Update dropdown position - auto-detect if should open upward or downward
     function updateDropdownPosition() {
@@ -123,6 +163,7 @@
             // Wait for DOM to render then compute position
             await tick();
             updateDropdownPosition();
+            attachScrollListeners();
             // Scroll selected option into view so e.g. "22nd" is visible when reopening
             const selectedId = typeof value === 'string' ? value : (Array.isArray(value) && value.length ? value[0] : '');
             if (selectedId) {
@@ -143,6 +184,8 @@
             if (searchable) {
                 setTimeout(() => searchInputRef?.focus(), 0);
             }
+        } else if (!isOpen && wasOpen) {
+            removeScrollListeners();
         }
     }
 
@@ -167,6 +210,7 @@
             dispatch('change', option.id);
             dispatch('select', option);
             isOpen = false;
+            removeScrollListeners();
         }
         searchQuery = '';
     }
@@ -174,6 +218,7 @@
     function handleClickOutside(event: MouseEvent) {
         if (containerRef && !containerRef.contains(event.target as Node)) {
             isOpen = false;
+            removeScrollListeners();
             searchQuery = '';
         }
     }
@@ -190,6 +235,7 @@
         switch (event.key) {
             case 'Escape':
                 isOpen = false;
+                removeScrollListeners();
                 searchQuery = '';
                 break;
             case 'ArrowDown':
@@ -232,6 +278,7 @@
         if (typeof document !== 'undefined') {
             document.removeEventListener('click', handleClickOutside);
         }
+        removeScrollListeners();
     });
 </script>
 

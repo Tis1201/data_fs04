@@ -100,7 +100,6 @@ export const GET = unifiedEndpoint(
 				}
 				return false;
 			});
-			// TC-RDM-APR-0133: Sort by precedence and build pinnedPackages in rule-priority order
 			const precedence = (rt: string) =>
 				systemRole === 'ADMIN'
 					? rt === 'admin_custom' ? 2 : rt === 'admin_default' ? 1 : 0
@@ -111,17 +110,15 @@ export const GET = unifiedEndpoint(
 				if (pa !== pb) return pb - pa;
 				return new Date((b as any).createdAt).getTime() - new Date((a as any).createdAt).getTime();
 			});
-			const seenLower = new Set<string>();
-			for (const r of sortedRules) {
-				const apps = ((r.apps as string[]) || []).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-				for (const pkg of apps) {
-					if (typeof pkg !== 'string' || pkg.length === 0) continue;
-					const key = pkg.toLowerCase();
-					if (seenLower.has(key)) continue;
-					seenLower.add(key);
-					pinnedPackages.push(pkg);
-				}
-			}
+			const effectiveRule = sortedRules.find((r: any) => {
+				const apps = (r.apps as string[]) || [];
+				return apps.length > 0 && apps.some((p: any) => typeof p === 'string' && String(p).trim().length > 0);
+			}) || null;
+			pinnedPackages = effectiveRule
+				? ((effectiveRule.apps as string[]) || [])
+						.filter((p: any) => typeof p === 'string' && String(p).trim().length > 0)
+						.sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+				: [];
 		} catch (e) {
 			logger.warn('[DeviceAppsAPI] Failed to fetch pin rules for ordering, continuing without pin prioritization', {
 				error: e instanceof Error ? e.message : String(e),

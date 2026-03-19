@@ -193,7 +193,7 @@
         displaySettingsRows = DISPLAY_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
     }
 
-    $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null }; status?: string; appliedAt?: Date | string | null }) => {
+    $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null; tags?: { id: string; name: string }[] }; status?: string; appliedAt?: Date | string | null }) => {
         const d = a.device;
         const mac = d.macAddress || d.wifiMac || '—';
         return {
@@ -204,7 +204,8 @@
             status: d.status ?? 'ACTIVE',
             macAddress: mac,
             lastUsedAt: d.lastUsedAt ?? null,
-            applyStatus: a.status ?? null
+            applyStatus: a.status ?? null,
+            tags: d.tags ?? []
         };
     });
 
@@ -960,9 +961,11 @@
                                                 <td class="assigned-devices-td assigned-devices-td-name">
                                                     <div class="assigned-devices-name-cell">
                                                         <span class="assigned-devices-name-text" title={row.name}>{row.name}</span>
-                                                        {#if row.deviceType && row.deviceType !== '—'}
+                                                        {#if row.tags && row.tags.length > 0}
                                                             <div class="assigned-devices-tags">
-                                                                <span class="assigned-devices-tag">{row.deviceType}</span>
+                                                                {#each row.tags as tag (tag.id)}
+                                                                    <span class="assigned-devices-tag">{tag.name}</span>
+                                                                {/each}
                                                             </div>
                                                         {/if}
                                                     </div>

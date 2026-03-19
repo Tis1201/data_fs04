@@ -149,22 +149,15 @@ export const GET = unifiedEndpoint(
 		});
 
 		const sortedRules = applicableRules.sort(sortByPrecedenceThenCreatedAtDesc(systemRole));
-		const topRule = sortedRules[0] || null;
-		// TC-RDM-APR-0133: Build pinned packages in rule-priority order (higher priority first).
-		// Within each rule: alphabetical. Dedupe: first occurrence wins (from higher-priority rule).
-		const pinnedPackagesOrdered: string[] = [];
-		const seenLower = new Set<string>();
-		for (const r of sortedRules) {
-			const apps = ((r.apps as string[]) || []).slice().sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
-			for (const pkg of apps) {
-				if (typeof pkg !== 'string' || pkg.length === 0) continue;
-				const key = pkg.toLowerCase();
-				if (seenLower.has(key)) continue;
-				seenLower.add(key);
-				pinnedPackagesOrdered.push(pkg);
-			}
-		}
-		const topRuleApps = pinnedPackagesOrdered;
+		const topRule = sortedRules.find((r: any) => {
+			const apps = (r.apps as string[]) || [];
+			return apps.length > 0 && apps.some((p: any) => typeof p === 'string' && String(p).trim().length > 0);
+		}) || null;
+		const topRuleApps: string[] = topRule
+			? ((topRule.apps as string[]) || [])
+					.filter((p: any) => typeof p === 'string' && String(p).trim().length > 0)
+					.sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+			: [];
 
 		logger.info('[AppsWithPinsV2] Rules after device filter + topRuleApps', {
 			deviceId,
@@ -221,22 +214,20 @@ export const GET = unifiedEndpoint(
 		});
 
 		const pinStatusMap = new Map<string, any>();
-		// TC-RDM-APR-0118: Case-insensitive lookup (rule may have different casing than ClickHouse/device report)
-		// For merged rules: assign pinInfo from the first (highest precedence) rule that contains each package
 		const pinStatusMapByLower = new Map<string, any>();
-		for (const r of sortedRules) {
-			const apps = (r.apps as string[]) || [];
+		if (topRule) {
+			const apps = (topRule.apps as string[]) || [];
 			for (const pkg of apps) {
 				if (typeof pkg !== 'string' || pkg.length === 0) continue;
 				const keyLower = pkg.toLowerCase();
 				if (!pinStatusMap.has(pkg) && !pinStatusMapByLower.has(keyLower)) {
 					const pinInfo = {
 						isPinned: true,
-						pinnedBy: r.name,
-						ruleType: r.ruleType,
+						pinnedBy: topRule.name,
+						ruleType: topRule.ruleType,
 						pinnedAt: new Date().toISOString(),
-						ruleId: r.id,
-						createdBy: r.createdBy
+						ruleId: topRule.id,
+						createdBy: topRule.createdBy
 					};
 					pinStatusMap.set(pkg, pinInfo);
 					pinStatusMapByLower.set(keyLower, pinInfo);

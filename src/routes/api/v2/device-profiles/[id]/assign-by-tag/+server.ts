@@ -52,7 +52,8 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		}
 	}
 
-	// Find devices with the specified tags (Device.tags -> DeviceTag[]) that are not yet assigned
+	// Find devices with the specified tags that are either unassigned OR only have a DEVICE-level (private) config.
+	// Exclude only devices already assigned to a GLOBAL profile.
 	const devices = await prisma.device.findMany({
 		where: {
 			tags: {
@@ -61,7 +62,10 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 				}
 			},
 			...(deviceProfile.accountId && { accountId: deviceProfile.accountId }),
-			profileAssignment: null
+			OR: [
+				{ profileAssignment: null },
+				{ profileAssignment: { profile: { level: 'DEVICE' } } }
+			]
 		},
 		select: {
 			id: true
@@ -150,9 +154,9 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		{
 			profileId,
 			tagIds,
-			assignedCount: result.count,
+			assignedCount: devices.length,
 			deviceIds,
-			message: `Successfully assigned ${result.count} device(s) by tag`
+			message: `Successfully assigned ${devices.length} device(s) by tag`
 		},
 		{ requestId: context.requestId }
 	);
