@@ -8,12 +8,23 @@ import type { Prisma } from '@prisma/client';
  * Returns both home_launcher and kiosk_app packages in a single response
  * Query parameters:
  * - accountId: Optional account ID to filter by account (defaults to user's account)
+ * - formats: Optional comma-separated list (e.g. deb,exe,apk) to filter by format; used for Kiosk Application
  */
 export const GET = unifiedEndpoint(async ({ context, event }) => {
 	const { session, account, prisma, isAdmin } = context;
 	const { url } = event;
 	const searchParams = url.searchParams;
 	const accountId = searchParams.get('accountId');
+	const formatsParam = searchParams.get('formats'); // e.g. "deb,exe,apk" for kiosk apps only
+
+	// Parse formats filter (deb, exe, apk for Kiosk Application)
+	let allowedFormats: string[] | null = null;
+	if (formatsParam?.trim()) {
+		allowedFormats = formatsParam
+			.split(',')
+			.map((f) => f.trim().toLowerCase())
+			.filter(Boolean);
+	}
 
 	// Determine target account ID based on role and parameters
 	let targetAccountId: string | null = accountId ?? null;
@@ -79,7 +90,7 @@ export const GET = unifiedEndpoint(async ({ context, event }) => {
 	})) as ResourceWithPackage[];
 
 	// Transform data for frontend
-	const allPackages = resources
+	let allPackages = resources
 		.filter((resource) => resource.packageName)
 		.map((resource) => ({
 			packageName: resource.packageName!,
@@ -88,6 +99,14 @@ export const GET = unifiedEndpoint(async ({ context, event }) => {
 			type: resource.type,
 			format: resource.format
 		}));
+
+	// Filter by format when formats param is provided (e.g. deb,exe,apk for Kiosk Application)
+	if (allowedFormats && allowedFormats.length > 0) {
+		allPackages = allPackages.filter((p) => {
+			const fmt = (p.format || '').toLowerCase();
+			return allowedFormats!.some((f) => fmt === f || fmt.endsWith('.' + f));
+		});
+	}
 
 	return successResponse(
 		{

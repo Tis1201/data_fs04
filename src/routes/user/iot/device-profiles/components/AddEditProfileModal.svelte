@@ -70,13 +70,17 @@
     let downloadDay = 'monday';
     let downloadTime = '03:00';
 
-    // Packages list for Kiosk Application and Home/Launcher dropdowns
+    // Packages list for Kiosk Application (deb, exe, apk only) and Home/Launcher (all)
     interface PackageOption {
         id: string;
         label: string;
+        supportingText?: string;
     }
     let availablePackages: PackageOption[] = [];
+    let availableKioskPackages: PackageOption[] = [];
     let packagesLoading = false;
+
+    const KIOSK_FORMATS = ['deb', 'exe', 'apk'];
 
     async function loadAvailablePackages() {
         packagesLoading = true;
@@ -86,16 +90,26 @@
             const data = await res.json();
             
             if (data.success || data.data) {
-                const allPackages = data.data?.packages || [];
-                availablePackages = allPackages.map((pkg: any) => ({
+                const raw = data.data?.packages || [];
+                const toOption = (pkg: any) => ({
                     id: pkg.packageName,
-                    label: pkg.displayName ? `${pkg.displayName} (${pkg.packageName})` : pkg.packageName
-                }));
+                    label: pkg.displayName || pkg.packageName,
+                    supportingText: pkg.displayName ? pkg.packageName : undefined
+                });
+                availablePackages = raw.map(toOption);
+                availableKioskPackages = raw
+                    .filter((p: any) => {
+                        const fmt = (p.format || '').toLowerCase();
+                        return KIOSK_FORMATS.some((f) => fmt === f || fmt.endsWith('.' + f) || fmt.includes(f));
+                    })
+                    .map(toOption);
             } else {
                 availablePackages = [];
+                availableKioskPackages = [];
             }
         } catch {
             availablePackages = [];
+            availableKioskPackages = [];
         } finally {
             packagesLoading = false;
         }
@@ -568,10 +582,10 @@
                         <p class="config-label">Kiosk Application</p>
                         <p class="config-description">Application to run in kiosk mode</p>
                     </div>
-                    <div class="config-input-wrap">
+                    <div class="config-input-wrap config-input-wrap-kiosk">
                         <Dropdown
                             placeholder={packagesLoading ? 'Loading...' : 'Select application'}
-                            options={availablePackages}
+                            options={availableKioskPackages}
                             bind:value={kioskApplication}
                             disabled={packagesLoading}
                         />
@@ -956,6 +970,10 @@
 
     .config-input-wrap {
         width: 200px;
+    }
+
+    .config-input-wrap-kiosk {
+        min-width: 320px;
     }
 
     .config-datetime-wrap {

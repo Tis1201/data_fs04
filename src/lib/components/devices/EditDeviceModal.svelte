@@ -97,10 +97,13 @@
     let editTimezone = "";
     let editHomeLauncher = "";
 
-    // Packages for Home/Launcher dropdown (same as AddEditProfileModal)
-    interface PackageOption { id: string; label: string; }
+    // Packages for Kiosk Application (deb, exe, apk only) and Home/Launcher (all)
+    interface PackageOption { id: string; label: string; supportingText?: string; }
     let availablePackages: PackageOption[] = [];
+    let availableKioskPackages: PackageOption[] = [];
     let packagesLoading = false;
+
+    const KIOSK_FORMATS = ['deb', 'exe', 'apk'];
 
     async function loadAvailablePackages() {
         packagesLoading = true;
@@ -108,13 +111,22 @@
             const res = await fetch('/api/v2/resources/packages/all');
             if (!res.ok) throw new Error('Failed to load packages');
             const data = await res.json();
-            const allPackages = data.data?.packages || [];
-            availablePackages = allPackages.map((pkg: any) => ({
+            const raw = data.data?.packages || [];
+            const toOption = (pkg: any) => ({
                 id: pkg.packageName,
-                label: pkg.displayName ? `${pkg.displayName} (${pkg.packageName})` : pkg.packageName
-            }));
+                label: pkg.displayName || pkg.packageName,
+                supportingText: pkg.displayName ? pkg.packageName : undefined
+            });
+            availablePackages = raw.map(toOption);
+            availableKioskPackages = raw
+                .filter((p: any) => {
+                    const fmt = (p.format || '').toLowerCase();
+                    return KIOSK_FORMATS.some((f) => fmt === f || fmt.endsWith('.' + f) || fmt.includes(f));
+                })
+                .map(toOption);
         } catch {
             availablePackages = [];
+            availableKioskPackages = [];
         } finally {
             packagesLoading = false;
         }
@@ -331,13 +343,25 @@
             }
             
             const kioskApplicationValue = settingsMap.get('kiosk_application') || settingsMap.get('kioskApplication');
+            const parseKiosk = (v: any): string => {
+                if (v === undefined || v === null || v === '') return '';
+                if (typeof v === 'string') {
+                    try {
+                        const parsed = JSON.parse(v);
+                        if (parsed && typeof parsed === 'object' && typeof parsed.package === 'string') return parsed.package;
+                    } catch { /* not JSON */ }
+                    return v;
+                }
+                if (typeof v === 'object' && typeof v.package === 'string') return v.package;
+                return String(v);
+            };
             if (forceFromProfile) {
-                editKioskApplication = kioskApplicationValue !== undefined ? String(kioskApplicationValue) : "";
+                editKioskApplication = parseKiosk(kioskApplicationValue);
             } else {
                 if (effectiveDeviceData?.kioskApplication !== undefined && effectiveDeviceData?.kioskApplication !== null && effectiveDeviceData?.kioskApplication !== '') {
-                    editKioskApplication = effectiveDeviceData.kioskApplication;
+                    editKioskApplication = parseKiosk(effectiveDeviceData.kioskApplication);
                 } else if (kioskApplicationValue !== undefined) {
-                    editKioskApplication = String(kioskApplicationValue);
+                    editKioskApplication = parseKiosk(kioskApplicationValue);
                 }
             }
             
@@ -1062,11 +1086,16 @@
                         <p class="config-label">Kiosk Application</p>
                         <p class="config-description">Application to run in kiosk mode</p>
                     </div>
-                    <div style="width: 200px;">
-                        <InputField
-                            placeholder="Enter app name or package"
-                            bind:value={editKioskApplication}
-                            on:change={() => switchToCustom()}
+                    <div style="min-width: 320px;">
+                        <Dropdown
+                            placeholder={packagesLoading ? 'Loading...' : 'Select application'}
+                            options={availableKioskPackages}
+                            value={editKioskApplication}
+                            disabled={packagesLoading}
+                            on:change={(e) => {
+                                editKioskApplication = String(e.detail ?? '');
+                                switchToCustom();
+                            }}
                         />
                     </div>
                 </div>
