@@ -640,7 +640,7 @@
 
             <!-- Block 3: Audio Settings -->
             <div class="config-block">
-                <div class="config-row">
+                <div class="config-row{audioEnabled ? '' : ' config-row-last'}">
                     <div>
                         <p class="config-label">Audio</p>
                         <p class="config-description">Enable or disable audio output</p>
@@ -648,6 +648,7 @@
                     <Toggle bind:checked={audioEnabled} size="sm" />
                 </div>
 
+                {#if audioEnabled}
                 <div class="config-row config-row-last">
                     <div>
                         <p class="config-label">Audio Volume</p>
@@ -675,6 +676,7 @@
                         </div>
                     </div>
                 </div>
+                {/if}
             </div>
 
             <!-- Block 4: System (Timezone, Home/Launcher) -->

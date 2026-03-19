@@ -1146,7 +1146,7 @@
             <!-- Block 3: Audio Settings -->
             <div class="config-block">
                 <!-- Audio -->
-                <div class="config-row">
+                <div class="config-row{editAudioEnabled ? '' : ' config-row-last'}">
                     <div>
                         <p class="config-label">Audio</p>
                         <p class="config-description">Enable or disable audio output</p>
@@ -1158,7 +1158,8 @@
                     />
                 </div>
 
-                <!-- Audio Volume -->
+                <!-- Audio Volume (hidden when Audio is off) -->
+                {#if editAudioEnabled}
                 <div class="config-row config-row-last">
                     <div>
                         <p class="config-label">Audio Volume</p>
@@ -1187,6 +1188,7 @@
                         </div>
                     </div>
                 </div>
+                {/if}
             </div>
 
             <!-- Block 4: System Settings -->
