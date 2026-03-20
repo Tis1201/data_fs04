@@ -5,6 +5,7 @@ import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType, UserStatus } from '$lib/constants/system';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
+import prisma from '$lib/server/prisma';
 
 const table_options = {
     modelName: 'account',
@@ -18,14 +19,18 @@ const table_options = {
     },
     baseWhere: {
         isSystem: false
+    },
+    include: {
+        _count: { select: { companies: true, members: true } }
     }
 };
 
 export const load = restrictModule(
     async ({ url, locals }: AuthenticatedLoadEvent) => {
         try {
-            // Use the reusable fetchTableData function with our table options
-            const result = await fetchTableData(locals, url, table_options);
+            // Use raw Prisma for admin accounts list - ZenStack enhanced client
+            // doesn't support _count in include; raw client works correctly
+            const result = await fetchTableData({ prisma }, url, table_options);
             
             // Get module permissions for frontend
             let modulePermissions = (locals as any).modulePermissions || {};

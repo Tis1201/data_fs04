@@ -415,17 +415,30 @@
             const fd = new FormData();
             fd.set('id', device.id);
             const res = await fetch('?/delete', { method: 'POST', body: fd });
+            const payload = await res.json().catch(() => ({}));
 
-            if (!res.ok) {
-                const payload = await res.json().catch(() => ({}));
-                throw new Error(payload?.error || res.statusText);
+            const isFailure =
+                !res.ok ||
+                payload?.type === 'failure' ||
+                (typeof payload?.status === 'number' && payload.status >= 400);
+            if (isFailure) {
+                let msg = payload?.data?.error;
+                if (!msg && typeof payload?.data === 'string') {
+                    try {
+                        const d = JSON.parse(payload.data);
+                        msg = Array.isArray(d) ? d[1] : d?.error;
+                    } catch {
+                        msg = payload.data;
+                    }
+                }
+                throw new Error(msg || payload?.error || res.statusText || 'Delete failed');
             }
 
             toast.success( 'Device deleted successfully!');
             await invalidate('app:userDevices');
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-            toast.error( 'Unable to delete device. Please try again!');
+            toast.error(errorMsg);
             console.error("Failed to delete:", errorMsg);
         } finally {
             actionLoading = false;

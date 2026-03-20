@@ -70,7 +70,7 @@
     let downloadDay = 'monday';
     let downloadTime = '03:00';
 
-    // Packages list for Kiosk Application (deb, exe, apk only) and Home/Launcher (all)
+    // Packages list for Kiosk Application and Home/Launcher (both filtered to deb, exe, apk only)
     interface PackageOption {
         id: string;
         label: string;
@@ -714,10 +714,10 @@
                         <p class="config-label">Home/ Launcher</p>
                         <p class="config-description">Default home screen launcher</p>
                     </div>
-                    <div class="config-input-wrap">
+                    <div class="config-input-wrap config-input-wrap-kiosk">
                         <Dropdown
                             placeholder={packagesLoading ? 'Loading...' : 'Select launcher'}
-                            options={availablePackages}
+                            options={availableKioskPackages}
                             bind:value={homeLauncher}
                             disabled={packagesLoading}
                         />

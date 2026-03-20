@@ -97,7 +97,7 @@
     let editTimezone = "";
     let editHomeLauncher = "";
 
-    // Packages for Kiosk Application (deb, exe, apk only) and Home/Launcher (all)
+    // Packages for Kiosk Application and Home/Launcher (both filtered to deb, exe, apk only)
     interface PackageOption { id: string; label: string; supportingText?: string; }
     let availablePackages: PackageOption[] = [];
     let availableKioskPackages: PackageOption[] = [];
@@ -1247,10 +1247,10 @@
                         <p class="config-label">Home/ Launcher</p>
                         <p class="config-description">Default home screen launcher</p>
                     </div>
-                    <div style="width: 200px;">
+                    <div style="min-width: 320px;">
                         <Dropdown
                             placeholder={packagesLoading ? 'Loading...' : 'Select launcher'}
-                            options={availablePackages}
+                            options={availableKioskPackages}
                             value={editHomeLauncher}
                             disabled={packagesLoading}
                             on:change={(e) => { editHomeLauncher = String(e.detail ?? ''); switchToCustom(); }}

@@ -2162,8 +2162,15 @@
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            <div class="launcher-value">
-                                <span class="cell-value">{getProfileSettingParsed('home_launcher', 'value', '-')}</span>
+                            <div class="cell-content">
+                                {#if true}
+                                    {@const launcherName = getProfileSettingParsed('home_launcher', 'name', '-')}
+                                    {@const launcherPkg = getProfileSettingParsed('home_launcher', 'package', '-')}
+                                    <span class="cell-value">{launcherName}</span>
+                                    {#if launcherPkg && launcherPkg !== '-'}
+                                        <span class="cell-desc">{launcherPkg}</span>
+                                    {/if}
+                                {/if}
                             </div>
                         </div>
                     </div>
