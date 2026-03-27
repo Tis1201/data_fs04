@@ -49,6 +49,8 @@
   import { RADAR_CONSTRAINTS } from "$lib/components/ui_components_sveltekit/radar/constraints";
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
+  import { formatDuration, formatProximityM } from "$lib/utils/radarFormatting";
+  import { formatTimezoneLabel } from "$lib/utils/timezoneOptions";
   export let data: PageData;
 
   interface RadarConfig {
@@ -697,8 +699,8 @@
       const rows = (json.data || []).map((r: { target_id: string; log_creation_time?: string; dwell_tracking_area_sec: number; proximity_m: number | null; sensor_name: string; timezone_label: string }, i: number) => ({
         id: `${r.target_id ?? i}-${r.log_creation_time ?? i}`.replace(/\s/g, "_"),
         targetId: r.target_id ?? "",
-        dwellSec: r.dwell_tracking_area_sec != null ? String(r.dwell_tracking_area_sec) : "—",
-        proximityM: r.proximity_m != null ? String(r.proximity_m) : "—",
+        dwellSec: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : "—",
+        proximityM: formatProximityM(r.proximity_m),
         sensor: r.sensor_name ?? "—",
         timezone: r.timezone_label ?? "—",
       }));
@@ -802,8 +804,8 @@
       const raw = json.data || [];
       const rows = raw.map((r: { target_id?: string; log_creation_time?: string; dwell_tracking_area_sec?: number; proximity_m?: number | null; sensor_name?: string; timezone_label?: string }) => ({
         targetId: r.target_id ?? "",
-        dwellSec: r.dwell_tracking_area_sec != null ? String(r.dwell_tracking_area_sec) : "",
-        proximityM: r.proximity_m != null ? String(r.proximity_m) : "",
+        dwellSec: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : "",
+        proximityM: r.proximity_m != null ? formatProximityM(r.proximity_m) : "",
         sensor: r.sensor_name ?? "",
         timezone: r.timezone_label ?? "",
       }));
@@ -938,7 +940,7 @@
           id: `se-${i}-${r.target_id ?? ""}-${r.log_creation_time ?? ""}`.replace(/\s/g, "_"),
           zone: zoneLabel,
           eventType: "Session",
-          dwellTime: r.dwell_tracking_area_sec != null ? `${r.dwell_tracking_area_sec} s` : "—",
+          dwellTime: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : "—",
           occurredTime,
         };
       });
@@ -1328,7 +1330,7 @@
               </div>
               <div class="config-label-value-row">
                 <span class="config-label">Timezone</span>
-                <span class="config-value">Ho Chi Minh (UTC+7)</span>
+                <span class="config-value">{formatTimezoneLabel(config?.timezone)}</span>
               </div>
               <div class="config-label-value-row">
                 <span class="config-label">Path Tracking</span>

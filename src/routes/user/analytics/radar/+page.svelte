@@ -14,6 +14,7 @@
     import { Search, Filter, Download } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
+    import { formatDuration, formatZoneDwellJson, formatProximityM } from '$lib/utils/radarFormatting';
 
     export let data: PageData;
 
@@ -101,13 +102,6 @@
         setUrlParams({ tab, page: null });
     }
 
-    function formatDuration(sec: number): string {
-        if (sec < 60) return `${sec}s`;
-        const m = Math.floor(sec / 60);
-        const s = sec % 60;
-        return s ? `${m}m ${s}s` : `${m}m`;
-    }
-
     function parseClickHouseDateTime(value: unknown): Date | null {
         if (value == null) return null;
         const s = String(value).trim();
@@ -165,26 +159,17 @@
             const res = await fetch(`/api/sensor-data/radar_session?${params}`);
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || 'Failed to fetch session logs');
-            const rows = (json.data || []).map((r: Record<string, unknown>, i: number) => {
-                const zoneJson = r.zone_dwell_times_json;
-                const zoneStr =
-                    zoneJson == null || zoneJson === '' || String(zoneJson).trim() === '{}'
-                        ? '—'
-                        : String(zoneJson).length > 80
-                            ? String(zoneJson).slice(0, 77) + '…'
-                            : String(zoneJson);
-                return {
-                    id: `sess-${i}-${r.target_id ?? r.log_creation_time ?? i}`,
-                    sessionId: r.target_id ?? '—',
-                    sensor: r.sensor_name ?? '—',
-                    startOn: r.log_creation_time,
-                    duration: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : '—',
-                    zone: zoneStr,
-                    timezone: r.timezone_label ?? '—',
-                    proximityM: r.proximity_m != null ? Number(r.proximity_m).toFixed(2) : '—',
-                    _raw: r
-                };
-            });
+            const rows = (json.data || []).map((r: Record<string, unknown>, i: number) => ({
+                id: `sess-${i}-${r.target_id ?? r.log_creation_time ?? i}`,
+                sessionId: r.target_id ?? '—',
+                sensor: r.sensor_name ?? '—',
+                startOn: r.log_creation_time,
+                duration: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : '—',
+                zone: formatZoneDwellJson(r.zone_dwell_times_json),
+                timezone: r.timezone_label ?? '—',
+                proximityM: formatProximityM(r.proximity_m),
+                _raw: r
+            }));
             sessionLogsData = rows;
             const p = json.pagination || {};
             sessionLogsPagination = {
@@ -399,8 +384,14 @@
             for (const row of rows) {
                 const values = keys.map((k) => {
                     if (!k) return '""';
-                    const v = (row as Record<string, unknown>)[k];
+                    let v: unknown = (row as Record<string, unknown>)[k];
                     if (v == null) return '""';
+                    if (k === 'dwell_tracking_area_sec') v = formatDuration(Number(v));
+                    if (k === 'proximity_m') v = formatProximityM(v);
+                    if (k === 'zone_dwell_times_json' && v != null) {
+                        const z = formatZoneDwellJson(v);
+                        v = z === '—' ? '' : z;
+                    }
                     return `"${String(v).replace(/"/g, '""')}"`;
                 });
                 csvRows.push(values.join(','));
