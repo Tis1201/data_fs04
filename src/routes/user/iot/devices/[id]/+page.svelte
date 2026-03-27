@@ -2319,17 +2319,19 @@
                             <span class="cell-value">{getProfileSetting('enable_audio', '-')}</span>
                         </div>
                     </div>
-                    <div class="config-row">
-                        <div class="config-cell label-cell">
-                            <div class="cell-content">
-                                <span class="cell-title">Audio Volume</span>
-                                <span class="cell-desc">Audio volume level (0-100%)</span>
+                    {#if getProfileSetting('enable_audio', 'Disable') === 'Enable'}
+                        <div class="config-row">
+                            <div class="config-cell label-cell">
+                                <div class="cell-content">
+                                    <span class="cell-title">Audio Volume</span>
+                                    <span class="cell-desc">Audio volume level (0-100%)</span>
+                                </div>
+                            </div>
+                            <div class="config-cell value-cell">
+                                <span class="cell-value">{getProfileSetting('volume_level', '-')}{getProfileSetting('volume_level', '') ? '%' : ''}</span>
                             </div>
                         </div>
-                        <div class="config-cell value-cell">
-                            <span class="cell-value">{getProfileSetting('volume_level', '-')}{getProfileSetting('volume_level', '') ? '%' : ''}</span>
-                        </div>
-                    </div>
+                    {/if}
                     <div class="config-row">
                         <div class="config-cell label-cell">
                             <div class="cell-content">

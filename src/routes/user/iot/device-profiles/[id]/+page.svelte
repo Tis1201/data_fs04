@@ -168,7 +168,8 @@
             const parentVal = getSettingValue(def.dependsOn);
             const parentDef = settingsList.find((a: { key: string }) => a.key === def.dependsOn);
             if (parentDef?.dataType === 'boolean') {
-                if (parentVal !== 'enabled') return null;
+                const pv = (parentVal || '').trim().toLowerCase();
+                if (pv !== 'enabled' && pv !== 'true') return null;
             } else if (parentDef?.options && (key === 'reboot_schedule_day' || key === 'download_schedule_day')) {
                 if (parentVal !== 'weekly') return null;
             }
