@@ -7,6 +7,7 @@
     import { Button, Card, Tooltip } from '$lib/design-system/components';
     import AddEditResourceModal from '../components/AddEditResourceModal.svelte';
     import type { PageData } from './$types';
+    import { formatBytes } from '$lib/utils/format';
 
     export let data: PageData;
     export let params: Record<string, string> = {};
@@ -47,14 +48,6 @@
         const t = rt.trim();
         if (['Alpha', 'Beta', 'Production'].includes(t)) return t;
         return rt;
-    }
-
-    function formatBytes(bytes: number | null | undefined): string {
-        if (bytes == null || bytes === 0) return '0 B';
-        const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
     const TRUNCATE_FILE_NAME = 56;
@@ -176,7 +169,7 @@
                 </div>
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Size</span>
-                    <span class="resource-overview-value">{formatBytes(resource.size)}</span>
+                    <span class="resource-overview-value">{formatBytes(resource.size, false, 2)}</span>
                 </div>
                 <div class="resource-overview-field">
                     <span class="resource-overview-label">Account</span>
