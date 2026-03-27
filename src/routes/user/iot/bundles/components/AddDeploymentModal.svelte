@@ -279,9 +279,9 @@
         waveSize = 0;
     }
 
-    function handleCustomBatchSizeInput(e: Event) {
-        const target = e.currentTarget as HTMLInputElement;
-        waveSize = parseInt(target?.value || '0', 10) || 0;
+    function handleCustomBatchSizeInput(e: CustomEvent<string>) {
+        const raw = String(e.detail ?? '');
+        waveSize = parseInt(raw, 10) || 0;
     }
 
     function handleCustomBatchSizeBlur() {
@@ -386,6 +386,9 @@
                         errorMessage={scheduleError}
                         on:change={handleScheduleChange}
                     />
+                    {#if batchSizeSelect === 'custom'}
+                        <p class="field-spacer field-spacer--batch-link" aria-hidden="true">&nbsp;</p>
+                    {/if}
                 </div>
             </div>
             {#if showScheduleFields}
@@ -589,6 +592,12 @@
         min-height: 20px;
         visibility: hidden;
         pointer-events: none;
+    }
+    .field-spacer--batch-link {
+        margin-top: 4px;
+        min-height: 16px;
+        font-size: 12px;
+        line-height: 1.25;
     }
     .device-behavior-section {
         margin-top: var(--ds-space-6);

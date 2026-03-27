@@ -264,6 +264,12 @@
         waveSize = 500;
     }
 
+    function handleCustomBatchSizeInput(e: CustomEvent<string>) {
+        // InputField dispatches a custom `input` with the string in `detail`, not a native DOM event.
+        const raw = String(e.detail ?? '');
+        waveSize = parseInt(raw, 10) || 0;
+    }
+
     function handleCustomBatchSizeBlur() {
         waveSize = Math.max(1, Math.min(999999, Math.floor(Number(waveSize)) || 1));
     }
@@ -317,7 +323,8 @@
                                 label="Batch Size"
                                 placeholder="Enter number"
                                 min={1}
-                                bind:value={waveSize}
+                                value={waveSize ? String(waveSize) : ''}
+                                on:input={handleCustomBatchSizeInput}
                                 on:blur={handleCustomBatchSizeBlur}
                                 required={true}
                             />
@@ -345,6 +352,7 @@
                         required={true}
                         on:change={handleOsChange}
                     />
+                    <p class="field-spacer" aria-hidden="true">&nbsp;</p>
                 </div>
                 <div class="field-wrap">
                     <Dropdown
@@ -355,6 +363,9 @@
                         required={true}
                         on:change={handleScheduleChange}
                     />
+                    {#if batchSizeSelect === 'custom'}
+                        <p class="field-spacer field-spacer--batch-link" aria-hidden="true">&nbsp;</p>
+                    {/if}
                 </div>
             </div>
             {#if showScheduleFields}
@@ -489,6 +500,20 @@
     .date-time-row :global(.input-field-wrapper),
     .date-time-row :global(.input-container) { width: 100%; min-width: 0; box-sizing: border-box; }
     .field-error { margin: 0; font-size: var(--ds-text-xs); color: var(--ds-color-error-600); }
+    .field-spacer {
+        margin: 4px 0 0;
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        min-height: 20px;
+        visibility: hidden;
+        pointer-events: none;
+    }
+    .field-spacer--batch-link {
+        margin-top: 4px;
+        min-height: 16px;
+        font-size: 12px;
+        line-height: 1.25;
+    }
     .device-behavior-section {
         margin-top: var(--ds-space-6);
         padding-top: var(--ds-space-4);
