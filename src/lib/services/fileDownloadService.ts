@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { formatBytes } from '$lib/utils/format';
 
 export interface DownloadProgress {
   progress: number;
@@ -69,7 +70,7 @@ export class FileDownloadService {
         downloadProgress.set({
           progress,
           status: 'downloading',
-          message: `Downloading... ${progress}% (${this.formatBytes(receivedLength)}${total > 0 ? ` / ${this.formatBytes(total)}` : ''})`
+          message: `Downloading... ${progress}% (${formatBytes(receivedLength, false, 2)}${total > 0 ? ` / ${formatBytes(total, false, 2)}` : ''})`
         });
       }
 
@@ -138,17 +139,6 @@ export class FileDownloadService {
     
     // Clean up the URL
     setTimeout(() => URL.revokeObjectURL(url), 100);
-  }
-
-  /**
-   * Format bytes to human readable string
-   */
-  private formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   /**

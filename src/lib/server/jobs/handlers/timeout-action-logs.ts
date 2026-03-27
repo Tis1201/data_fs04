@@ -14,6 +14,9 @@ import { logger } from '$lib/server/logger';
 
 const DEFAULT_TIMEOUT_MINUTES = 2;
 
+/** Reboot causes device to go offline; allow longer for device to reconnect and process queued action */
+const REBOOT_TIMEOUT_MINUTES = 10;
+
 export interface TimeoutActionLogsData {
     timeoutMinutes?: number;
 }
@@ -28,21 +31,28 @@ export async function timeoutActionLogs(
 ): Promise<TimeoutActionLogsResult> {
     const timeoutMinutes = data.timeoutMinutes ?? DEFAULT_TIMEOUT_MINUTES;
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    const rebootCutoff = new Date(Date.now() - REBOOT_TIMEOUT_MINUTES * 60 * 1000);
 
     logger.info(
-        `[Jobs/timeout-action-logs] Checking for incomplete action logs older than ${timeoutMinutes} min (cutoff: ${cutoff.toISOString()})`
+        `[Jobs/timeout-action-logs] Checking for incomplete action logs (${timeoutMinutes} min default, ${REBOOT_TIMEOUT_MINUTES} min for reboot)`
     );
 
     const prisma = getAdminPrisma();
 
-    // Find action logs still stuck that are older than cutoff
-    const staleLogs = await prisma.deviceActionLog.findMany({
+    // Find action logs still stuck that are older than default cutoff
+    const candidateLogs = await prisma.deviceActionLog.findMany({
         where: {
             status: { in: ['in_progress', 'initiated', 'pending'] },
             initiatedAt: { lt: cutoff }
         },
         select: { id: true, deviceId: true, actionType: true, initiatedAt: true }
     });
+
+    // Reboot uses longer timeout (device goes offline; may be queued until device reconnects)
+    const staleLogs = candidateLogs.filter(
+        (log) =>
+            log.actionType !== 'reboot' || (log.initiatedAt && log.initiatedAt < rebootCutoff)
+    );
 
     if (staleLogs.length === 0) {
         logger.debug('[Jobs/timeout-action-logs] No stale action logs found');
@@ -59,13 +69,15 @@ export async function timeoutActionLogs(
     let updated = 0;
 
     const timeoutMs = timeoutMinutes * 60 * 1000;
+    const rebootTimeoutMs = REBOOT_TIMEOUT_MINUTES * 60 * 1000;
 
     for (const staleLog of staleLogs) {
         try {
             const completedAt = new Date();
             // Use configured timeout as duration (not actual elapsed) - the job runs every minute
             // so actual elapsed could be 2-3 min; showing the timeout value is more accurate
-            const durationMs = timeoutMs;
+            const durationMs =
+                staleLog.actionType === 'reboot' ? rebootTimeoutMs : timeoutMs;
 
             // Update individually so we get the full record back for broadcasting
             const updatedLog = await (prisma as any).deviceActionLog.update({

@@ -1,7 +1,10 @@
 <script lang="ts">
     import { goto, invalidate, invalidateAll } from '$app/navigation';
     import { page } from '$app/stores';
+    import { browser } from '$app/environment';
     import { onMount, onDestroy } from 'svelte';
+    import { initializeDeviceRealtime, deviceRealtimeStore } from '$lib/stores/deviceRealtimeStore';
+    import { isDeviceOnline } from '$lib/utils/deviceDetailsUtils';
     import { Button, Card, Badge, TabGroup, ConfirmModal, ActionMenu, Modal } from '$lib/design-system/components';
     import { Pencil, Settings2, HardDriveUpload, ChevronDown, ChevronUp, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Plus, Tag, Search, X, UserMinus } from 'lucide-svelte';
     import type { PageData } from './$types';
@@ -46,6 +49,7 @@
         stopApplyingPoll();
     }
     onMount(() => {
+        if (browser) initializeDeviceRealtime();
         if (profileId) setupProfileMqtt();
     });
     onDestroy(() => stopApplyingPoll());
@@ -193,7 +197,7 @@
         displaySettingsRows = DISPLAY_KEYS.map(settingRow).filter(Boolean) as { key: string; label: string; description: string; value: string }[];
     }
 
-    $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null; tags?: { id: string; name: string }[] }; status?: string; appliedAt?: Date | string | null }) => {
+    $: deviceRows = (profile?.assignments ?? []).map((a: { device: { id: string; name: string; description?: string | null; deviceType?: string | null; status?: string; connected?: boolean; macAddress?: string | null; wifiMac?: string | null; lastUsedAt?: Date | string | null; tags?: { id: string; name: string }[] }; status?: string; appliedAt?: Date | string | null }) => {
         const d = a.device;
         const mac = d.macAddress || d.wifiMac || '—';
         return {
@@ -202,6 +206,7 @@
             description: d.description,
             deviceType: d.deviceType ?? '—',
             status: d.status ?? 'ACTIVE',
+            connected: d.connected ?? false,
             macAddress: mac,
             lastUsedAt: d.lastUsedAt ?? null,
             applyStatus: a.status ?? null,
@@ -974,8 +979,8 @@
                                                 <td class="assigned-devices-td">{row.deviceType}</td>
                                                 <td class="assigned-devices-td assigned-devices-td-status">
                                                     <Badge
-                                                        label={row.status === 'ACTIVE' ? 'Online' : 'Offline'}
-                                                        color={row.status === 'ACTIVE' ? 'success' : 'gray'}
+                                                        label={isDeviceOnline(row.id, row.connected, $deviceRealtimeStore) ? 'Online' : 'Offline'}
+                                                        color={isDeviceOnline(row.id, row.connected, $deviceRealtimeStore) ? 'success' : 'gray'}
                                                         variant="filled"
                                                         size="md"
                                                         showDot={false}

@@ -1,6 +1,7 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import { touchDeviceProfileAfterReapply } from '$lib/server/devices/deviceProfileActions';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
@@ -36,6 +37,7 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 			id: true,
 			name: true,
 			accountId: true,
+			isActive: true,
 			settings: {
 				select: {
 					id: true,
@@ -52,6 +54,13 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 		throw Object.assign(
 			new Error('Device profile not found'),
 			{ status: 404, code: 'DEVICE_PROFILE_NOT_FOUND' }
+		);
+	}
+
+	if (!deviceProfile.isActive) {
+		throw Object.assign(
+			new Error('Cannot reapply: device profile is inactive. Activate the profile first.'),
+			{ status: 400, code: ErrorCodes.INVALID_INPUT }
 		);
 	}
 
@@ -172,6 +181,17 @@ export const POST = unifiedEndpoint(async ({ context, event, params }) => {
 			},
 			data: { status: 'FAILED', lastSyncAt: new Date() }
 		});
+	}
+
+	if (successfulDevices.length > 0) {
+		try {
+			await touchDeviceProfileAfterReapply(prisma, profileId, session.user.id);
+		} catch (e) {
+			logger.warn('[Reapply Profile] Failed to bump profile updatedAt after reapply', {
+				profileId,
+				error: e
+			});
+		}
 	}
 
 	return successResponse(

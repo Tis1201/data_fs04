@@ -700,11 +700,12 @@
                         <p class="config-label">Timezone</p>
                         <p class="config-description">Device timezone settings</p>
                     </div>
-                    <div class="config-input-wrap">
+                    <div class="config-input-wrap config-input-wrap-kiosk">
                         <Dropdown
-                            placeholder="Select"
+                            placeholder="Search timezone..."
                             options={timezoneOptions}
                             bind:value={timezone}
+                            searchable={true}
                         />
                     </div>
                 </div>

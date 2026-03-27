@@ -9,10 +9,9 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { deviceSchema } from '$lib/schemas/device';
 import {
     getCurrentProfileSettings,
-    saveCustomProfile,
+    saveDeviceLevelProfileOnly,
     assignGlobalProfile,
-    reapplyIfChanged,
-    buildSettingsArray
+    reapplyIfChanged
 } from './deviceProfileActions';
 
 /**
@@ -529,17 +528,14 @@ export function createDeviceActions(options: {
                     updatedAt: new Date()
                 };
 
-                // ── Profile Configuration ────────────────────────────────────
-                // Capture current settings before any profile changes
                 const settingsBefore = await getCurrentProfileSettings(locals.prisma, id);
 
                 if (isCustom) {
                     const baseProfileId = profileId && profileId !== '__CUSTOM__' ? profileId : null;
                     if (baseProfileId) {
-                        // Verify base profile is active before assigning
                         const baseProfile = await locals.prisma.deviceProfile.findUnique({
                             where: { id: baseProfileId },
-                            select: { isActive: true }
+                            select: { isActive: true, level: true, deviceId: true }
                         });
                         if (!baseProfile) {
                             return fail(404, { error: 'Device profile not found.' });
@@ -547,29 +543,18 @@ export function createDeviceActions(options: {
                         if (!baseProfile.isActive) {
                             return fail(400, { error: 'Cannot assign an inactive device profile. Activate the profile first.' });
                         }
-                        // Custom overrides on top of a global profile: use DeviceProfileOverride
-                        // (keeps assignment to base profile, saves overrides so dropdown shows "Custom")
-                        await assignGlobalProfile(locals.prisma, id, baseProfileId, auth.user.id);
-                        const settings = buildSettingsArray(data);
-                        const newSettings = Object.fromEntries(settings.map((s) => [s.key, s.value]));
-                        const { DeviceProfileService } = await import('$lib/server/device/profile/DeviceProfileService');
-                        const profileService = new DeviceProfileService(locals.prisma);
-                        const result = await profileService.updateDeviceSettings(id, newSettings, auth.user.id);
-                        if (!result.success && result.error) {
-                            return fail(400, { error: result.error });
-                        }
-                    } else {
-                        // No base profile: use legacy DEVICE-level profile (creates "device - X Config")
-                        const result = await saveCustomProfile(locals.prisma, id, data, auth.user.id);
-                        if (!result.success) {
-                            return fail(400, { error: result.error });
+                        if (baseProfile.level === 'DEVICE' && baseProfile.deviceId !== id) {
+                            return fail(400, { error: 'That profile belongs to another device.' });
                         }
                     }
+                    const result = await saveDeviceLevelProfileOnly(locals.prisma, id, data, auth.user.id);
+                    if (!result.success) {
+                        return fail(400, { error: result.error || 'Failed to save device configuration.' });
+                    }
                 } else if (profileId && profileId !== '__CUSTOM__') {
-                    // Verify profile is active before assigning
                     const profileToAssign = await locals.prisma.deviceProfile.findUnique({
                         where: { id: profileId },
-                        select: { isActive: true }
+                        select: { isActive: true, level: true, deviceId: true }
                     });
                     if (!profileToAssign) {
                         return fail(404, { error: 'Device profile not found.' });
@@ -577,8 +562,15 @@ export function createDeviceActions(options: {
                     if (!profileToAssign.isActive) {
                         return fail(400, { error: 'Cannot assign an inactive device profile. Activate the profile first.' });
                     }
-                    // Assign a global profile to the device
-                    await assignGlobalProfile(locals.prisma, id, profileId, auth.user.id);
+                    if (profileToAssign.level === 'DEVICE') {
+                        if (profileToAssign.deviceId !== id) {
+                            return fail(400, { error: 'That profile belongs to another device.' });
+                        }
+                        await locals.prisma.deviceProfileAssignment.deleteMany({ where: { deviceId: id } });
+                        await locals.prisma.deviceProfileOverride.deleteMany({ where: { deviceId: id } });
+                    } else {
+                        await assignGlobalProfile(locals.prisma, id, profileId, auth.user.id);
+                    }
                 } else {
                     logger.info('[updateDevice] No configuration change: only name/status/description/tags will be updated.', {
                         deviceId: id,
@@ -587,9 +579,7 @@ export function createDeviceActions(options: {
                     });
                 }
 
-                // Capture settings after changes and reapply if different
                 const settingsAfter = await getCurrentProfileSettings(locals.prisma, id);
-                // ─────────────────────────────────────────────────────────────
 
                 // Handle tags
                 updateData.tags = { set: tagIds.map(tagId => ({ id: tagId })) };
@@ -618,8 +608,7 @@ export function createDeviceActions(options: {
                 } catch (auditErr) {
                     logger.warn(`Failed to log audit for device update ${id}: ${auditErr}`);
                 }
-                
-                // Reapply profile to device if configuration changed
+
                 await reapplyIfChanged(locals.prisma, id, settingsBefore, settingsAfter, auth.user.id);
                 
                 return { success: true };

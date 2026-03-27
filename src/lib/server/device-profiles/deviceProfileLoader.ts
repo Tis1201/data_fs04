@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { createDeviceProfileTableOptions } from './deviceProfileTableOptions';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
 
 /**
  * Load device profile list data
@@ -116,6 +117,9 @@ export async function loadDeviceProfileDetail(
                                 macAddress: true,
                                 wifiMac: true,
                                 lastUsedAt: true,
+                                connected: true,
+                                connectedAt: true,
+                                disconnectedAt: true,
                                 tags: {
                                     select: { id: true, name: true }
                                 }
@@ -155,8 +159,39 @@ export async function loadDeviceProfileDetail(
             }
         }
 
+        // Align `connected` with device list: Redis presence (same as loadDeviceList), not only Prisma.
+        let profileOut = profile;
+        if (profile.assignments?.length) {
+            const deviceIds = [...new Set(profile.assignments.map((a) => a.device.id))];
+            let onlineById: Map<string, boolean> | null = null;
+            try {
+                onlineById = await areDevicesOnline(deviceIds);
+            } catch (presenceErr) {
+                logger.warn(
+                    `Device profile presence check failed, using DB connected: ${presenceErr instanceof Error ? presenceErr.message : String(presenceErr)}`
+                );
+            }
+            const assignments = profile.assignments.map((a) => {
+                const d = a.device;
+                const connected =
+                    onlineById != null ? (onlineById.get(d.id) ?? (d.connected ?? false)) : (d.connected ?? false);
+                return {
+                    ...a,
+                    device: {
+                        ...d,
+                        connected,
+                        connectedAt:
+                            d.connectedAt instanceof Date ? d.connectedAt.toISOString() : d.connectedAt,
+                        disconnectedAt:
+                            d.disconnectedAt instanceof Date ? d.disconnectedAt.toISOString() : d.disconnectedAt
+                    }
+                };
+            });
+            profileOut = { ...profile, assignments };
+        }
+
         return {
-            profile
+            profile: profileOut
         };
     } catch (err) {
         logger.error(`Error loading device profile details: ${err instanceof Error ? err.message : String(err)}`);

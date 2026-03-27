@@ -6,6 +6,7 @@
   import { useDeviceAppMqtt } from '$lib/composables/useDeviceAppMqtt';
   import { restartApp, uninstallApp, configApp } from '$lib/client/mqtt/deviceActions';
   import { isRefreshAction } from '$lib/constants/device';
+  import { formatBytes } from '$lib/utils/format';
 
   // ===== Props =====
   export let deviceId: string;
@@ -328,14 +329,6 @@
     }
   }
 
-  function formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  }
-
   function formatDate(dateString: string | null | undefined): string {
     if (dateString == null) return '-';
     return new Date(dateString).toLocaleString();
@@ -587,7 +580,7 @@
                 </td>
 
                 <td class="px-4 py-2.5 whitespace-nowrap text-xs text-gray-900">
-                  {formatBytes(app.size_bytes)}
+                  {formatBytes(app.size_bytes, false, 2)}
                 </td>
 
                 <td class="px-4 py-2.5 whitespace-nowrap text-xs text-gray-500">

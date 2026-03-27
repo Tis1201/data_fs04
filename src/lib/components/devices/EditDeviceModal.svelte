@@ -1,6 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher, tick } from 'svelte';
-    import { Modal, InputField, Toggle, TabGroup, Dropdown, TextareaField, Button, Alert } from '$lib/design-system/components';
+    import { Modal, InputField, Toggle, TabGroup, Dropdown, TextareaField, Button, Alert, ConfirmModal } from '$lib/design-system/components';
     import { DESCRIPTION_MAX, NAME_MAX } from '$lib/constants/description';
     import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
     import type { TabItem } from '$lib/design-system/components/TabGroup.svelte';
@@ -22,6 +22,8 @@
         name: string;
         description?: string;
         settings?: string;
+        level?: string | null;
+        deviceId?: string | null;
     }
 
     interface DeviceData {
@@ -31,7 +33,8 @@
         tags?: Array<{ id: string; tagId?: string }>;
         description?: string | null;
         profileId?: string | null;
-        hasCustomOverrides?: boolean | string;
+        editModalProfileId?: string | null;
+        deviceLevelProfileId?: string | null;
         kioskLockMode?: boolean | string;
         exitLockdownPassword?: string | null;
         kioskApplication?: string | null;
@@ -55,6 +58,10 @@
     export let device: DeviceData | null = null;
     export let availableTags: AvailableTag[] = [];
     export let availableProfiles: DeviceProfile[] = [];
+    export let assignProfilesLoading: boolean = false;
+    export let hasMoreAssignableProfiles: boolean = false;
+    export let assignProfilesLoadMoreLoading: boolean = false;
+    export let onLoadMoreAssignableProfiles: (() => void | Promise<void>) | null = null;
     export let saveActionUrl: string = '/user/iot/devices?/updateDevice';
     export let onSaveSuccess: (() => void) | null = null;
     export let onSaveError: ((error: string) => void) | null = null;
@@ -142,8 +149,33 @@
     let editDownloadFrequency = "daily";
     let editDownloadDay = "monday";
     let editDownloadTime = "03:00";
-    let hasCustomOverrides = false;
     let originalProfileId: string | null = null;
+    let assignedProfileIdAtLoad: string | null = null;
+    let assignmentProfileIdAtOpen: string | null = null;
+    let deviceLevelProfileIdForDevice: string | null = null;
+    let assignedProfileBaselineCaptured = false;
+    let deviceLevelTouchedThisSession = false;
+    let profileDropdownExplicitlyChanged = false;
+    let showGlobalAssignConfirm = false;
+
+    function normProfileId(v: string | null | undefined): string {
+        return String(v ?? '').trim();
+    }
+
+    function isOwnDeviceLevelSelection(profileId: string | null | undefined): boolean {
+        if (!device || !profileId) return false;
+        const sel = normProfileId(profileId);
+        if (deviceLevelProfileIdForDevice && sel === normProfileId(deviceLevelProfileIdForDevice)) {
+            return true;
+        }
+        return (profilesForAssignedDropdown ?? []).some(
+            (p) =>
+                normProfileId(p.id) === sel &&
+                p.level === 'DEVICE' &&
+                p.deviceId != null &&
+                p.deviceId === device.id
+        );
+    }
 
     // Schedule options from availableSettings (same as admin device-profiles edit)
     $: frequencyOptions = (() => {
@@ -214,21 +246,32 @@
     // Computed: Tag options for Edit Device modal
     $: editTagOptions = availableTags.map((t) => ({ id: t.id, label: t.name, type: 'checkbox' as const }));
 
-    // Profile options - Custom is NOT included by default
-    $: profileOptions = availableProfiles.map((p) => ({ 
-        id: p.id, 
-        label: p.name || 'Unnamed Profile', 
-        supportingText: p.description || undefined 
+    function isProfileAssignableToDevice(p: DeviceProfile, editingDeviceId: string | undefined): boolean {
+        if (p.level === 'DEVICE') {
+            return editingDeviceId != null && p.deviceId === editingDeviceId;
+        }
+        return true;
+    }
+
+    $: profilesForAssignedDropdown = (() => {
+        const devId = device?.id;
+        const filtered = availableProfiles.filter((p) => isProfileAssignableToDevice(p, devId));
+        const isSelfDeviceLevel = (p: DeviceProfile) =>
+            p.level === 'DEVICE' && devId != null && p.deviceId === devId;
+        return [...filtered].sort((a, b) => {
+            const aSelf = isSelfDeviceLevel(a);
+            const bSelf = isSelfDeviceLevel(b);
+            if (aSelf !== bSelf) return aSelf ? -1 : 1;
+            return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        });
+    })();
+
+    $: profileOptions = profilesForAssignedDropdown.map((p) => ({
+        id: p.id,
+        label: p.name || 'Unnamed Profile',
+        supportingText: p.description || undefined
     }));
     
-    // Computed: Profile options with Custom (only when hasCustomOverrides is true)
-    $: profileOptionsWithCustom = hasCustomOverrides 
-        ? [
-            { id: '__CUSTOM__', label: 'Custom', supportingText: 'Device-specific custom settings' },
-            ...profileOptions
-          ]
-        : profileOptions;
-
     // Build dropdown options from availableSettings
     $: displayResolutionOptions = (() => {
         const setting = availableSettings.find(s => s.key === 'display_resolution');
@@ -256,21 +299,35 @@
     // FUNCTIONS
     // ==========================================================================
     
-    // Function to switch to Custom when user edits any config field
-    function switchToCustom() {
-        if ((editAssignedProfile && editAssignedProfile !== '__CUSTOM__' && editAssignedProfile !== '') 
-            || originalProfileId) {
-            if (!originalProfileId && editAssignedProfile && editAssignedProfile !== '__CUSTOM__') {
-                originalProfileId = editAssignedProfile;
-            }
-            editAssignedProfile = '__CUSTOM__';
-            hasCustomOverrides = true;
+    function selectedSharedGlobalInDropdown(): boolean {
+        if (!device || !editAssignedProfile || editAssignedProfile === '') {
+            return false;
+        }
+        if (!deviceLevelProfileIdForDevice && assignProfilesLoading) {
+            return false;
+        }
+        return !isOwnDeviceLevelSelection(editAssignedProfile);
+    }
+
+    function switchToDeviceLevelForEdits() {
+        if (!device) return;
+        if (!selectedSharedGlobalInDropdown()) return;
+        if (deviceLevelProfileIdForDevice) {
+            deviceLevelTouchedThisSession = true;
+            editAssignedProfile = deviceLevelProfileIdForDevice;
+            return;
+        }
+        const self = profilesForAssignedDropdown.find(
+            (p) => p.level === 'DEVICE' && p.deviceId === device.id
+        );
+        if (self?.id) {
+            deviceLevelTouchedThisSession = true;
+            editAssignedProfile = self.id;
         }
     }
     
-    // Function to load profile settings and populate config fields
     async function loadProfileSettings(profileId: string, deviceData?: any, forceFromProfile: boolean = false) {
-        if (!profileId || profileId === '__CUSTOM__') {
+        if (!profileId) {
             const currentDeviceData = deviceData || device;
             editKioskLockMode = currentDeviceData?.kioskLockMode ?? false;
             editExitLockdownPassword = currentDeviceData?.exitLockdownPassword || "";
@@ -576,6 +633,12 @@
         if (currentState !== lastLoadedState) {
             console.log('[EditDeviceModal] Modal state changed, loading device data for:', device.id);
             lastLoadedState = currentState;
+            assignedProfileBaselineCaptured = false;
+            assignedProfileIdAtLoad = null;
+            assignmentProfileIdAtOpen = null;
+            deviceLevelProfileIdForDevice = null;
+            deviceLevelTouchedThisSession = false;
+            profileDropdownExplicitlyChanged = false;
             loadDeviceData();
         }
     }
@@ -583,6 +646,12 @@
     // Reset tracking when modal closes
     $: if (!open) {
         lastLoadedState = null;
+        assignedProfileBaselineCaptured = false;
+        assignedProfileIdAtLoad = null;
+        assignmentProfileIdAtOpen = null;
+        deviceLevelProfileIdForDevice = null;
+        deviceLevelTouchedThisSession = false;
+        profileDropdownExplicitlyChanged = false;
     }
 
     async function loadDeviceData() {
@@ -630,7 +699,7 @@
             id: fullDeviceData?.id,
             name: fullDeviceData?.name,
             profileId: fullDeviceData?.profileId,
-            hasCustomOverrides: fullDeviceData?.hasCustomOverrides,
+            editModalProfileId: fullDeviceData?.editModalProfileId,
             kioskLockMode: fullDeviceData?.kioskLockMode,
             displayResolution: fullDeviceData?.displayResolution,
             screenOrientation: fullDeviceData?.screenOrientation
@@ -644,114 +713,65 @@
             ? fullDeviceData.description 
             : "";
         
-        // Get profileId from API response
-        const deviceProfileId = fullDeviceData.profileId || null;
-        originalProfileId = deviceProfileId;
-        hasCustomOverrides = fullDeviceData.hasCustomOverrides === true || fullDeviceData.hasCustomOverrides === 'true';
+        const assignmentProfileId = fullDeviceData.profileId || null;
+        assignmentProfileIdAtOpen = assignmentProfileId;
+        deviceLevelProfileIdForDevice = fullDeviceData.deviceLevelProfileId ?? null;
+        const preferredDropdownId =
+            fullDeviceData.editModalProfileId ?? fullDeviceData.profileId ?? null;
+        originalProfileId = assignmentProfileId;
         
         console.log('[EditDeviceModal] Profile info:', {
-            deviceProfileId,
-            hasCustomOverrides,
-            availableProfilesCount: availableProfiles.length,
+            assignmentProfileId,
+            preferredDropdownId,
+            availableProfilesCount: profilesForAssignedDropdown.length,
             profileOptionsCount: profileOptions.length,
             fullDeviceDataKeys: Object.keys(fullDeviceData || {})
         });
         
-        // Wait for modal to render and profileOptions to be ready
         await tick();
         
-        // Set assigned profile AFTER modal is rendered and profileOptions are ready
-        if (hasCustomOverrides && deviceProfileId) {
-            console.log('[EditDeviceModal] Setting to CUSTOM profile');
-            editAssignedProfile = '__CUSTOM__';
-            originalProfileId = deviceProfileId;
-            
-            // Load effective config (device values with overrides)
-            editKioskLockMode = fullDeviceData.kioskLockMode === 'enabled' || fullDeviceData.kioskLockMode === true || fullDeviceData.kioskLockMode === 'true';
-            editExitLockdownPassword = fullDeviceData.exitLockdownPassword || "";
-            editShowPassword = false;
-            editKioskApplication = fullDeviceData.kioskApplication || "";
-            const displayResolutionSetting = availableSettings.find(s => s.key === 'display_resolution');
-            const screenOrientationSetting = availableSettings.find(s => s.key === 'screen_orientation');
-            editDisplayResolution = fullDeviceData.displayResolution || displayResolutionSetting?.defaultValue || "1920x1080";
-            const currentOrientation = fullDeviceData.screenOrientation ? String(fullDeviceData.screenOrientation).toLowerCase() : null;
-            editScreenOrientation = currentOrientation || screenOrientationSetting?.defaultValue || "landscape";
-            editBrightnessLevel = (() => {
-                const v = fullDeviceData.brightnessLevel;
-                if (v == null) return 100;
-                const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
-                return !isNaN(n) ? n : 100;
-            })();
-            editAudioEnabled = fullDeviceData.audioEnabled === 'enabled' || fullDeviceData.audioEnabled === true || fullDeviceData.audioEnabled === 'true';
-            editAudioVolume = (() => {
-                const v = fullDeviceData.audioVolume;
-                if (v == null) return 100;
-                const n = typeof v === 'string' ? parseInt(v, 10) : Number(v);
-                return !isNaN(n) ? n : 100;
-            })();
-            editTimezone = fullDeviceData.timezone || "UTC";
-            editHomeLauncher = fullDeviceData.homeLauncher || "";
-            editPowerManagementSchedule = fullDeviceData.powerManagementSchedule === 'enabled' || fullDeviceData.powerManagementSchedule === true || fullDeviceData.powerManagementSchedule === 'true';
-            editPowerOnDatetime = fullDeviceData.powerOnDatetime || '';
-            editPowerOffDatetime = fullDeviceData.powerOffDatetime || '';
-            editRebootSchedule = fullDeviceData.rebootSchedule === 'enabled' || fullDeviceData.rebootSchedule === true || fullDeviceData.rebootSchedule === 'true';
-            editRebootFrequency = fullDeviceData.rebootFrequency || 'daily';
-            editRebootDay = fullDeviceData.rebootDay || 'monday';
-            editRebootTime = fullDeviceData.rebootTime || '02:00';
-            editDownloadSchedule = fullDeviceData.downloadSchedule === 'enabled' || fullDeviceData.downloadSchedule === true || fullDeviceData.downloadSchedule === 'true';
-            editDownloadFrequency = fullDeviceData.downloadFrequency || 'daily';
-            editDownloadDay = fullDeviceData.downloadDay || 'monday';
-            editDownloadTime = fullDeviceData.downloadTime || '03:00';
-        } else if (deviceProfileId) {
-            console.log('[EditDeviceModal] Setting assigned profile:', deviceProfileId);
-            const profileIdString = String(deviceProfileId);
-            
-            // Wait for profileOptions to be ready
+        if (preferredDropdownId) {
+            const profileIdString = String(preferredDropdownId);
             let retryCount = 0;
             while (profileOptions.length === 0 && retryCount < 10) {
                 await tick();
                 retryCount++;
             }
-            
-            console.log('[EditDeviceModal] Profile options ready:', profileOptions.length, 'options');
-            console.log('[EditDeviceModal] Available profile IDs:', profileOptions.map(p => p.id));
-            
-            // Verify profile exists in options before setting
-            const profileExists = profileOptions.some(p => p.id === profileIdString);
-            if (profileExists) {
-                editAssignedProfile = profileIdString;
-                originalProfileId = deviceProfileId;
-                console.log('[EditDeviceModal] Profile found in options, setting to:', profileIdString);
-                console.log('[EditDeviceModal] Loading profile settings for:', deviceProfileId, 'with device data:', fullDeviceData);
-                // Pass fullDeviceData so loadProfileSettings can use device's effective config values
-                await loadProfileSettings(String(deviceProfileId), fullDeviceData, false);
-                console.log('[EditDeviceModal] Profile settings loaded');
-            } else {
-                console.warn('[EditDeviceModal] Profile not found in options:', profileIdString, 'Available:', profileOptions.map(p => p.id));
-                // Still set it, dropdown might handle it
-                editAssignedProfile = profileIdString;
-                originalProfileId = deviceProfileId;
-                await loadProfileSettings(String(deviceProfileId), fullDeviceData, false);
-            }
+            editAssignedProfile = profileIdString;
+            await loadProfileSettings(profileIdString, fullDeviceData, false);
         } else {
-            console.log('[EditDeviceModal] No profile assigned, using defaults');
-            editAssignedProfile = "";
-            const displayResolutionSetting = availableSettings.find(s => s.key === 'display_resolution');
-            const screenOrientationSetting = availableSettings.find(s => s.key === 'screen_orientation');
-            editKioskLockMode = false;
-            editExitLockdownPassword = "";
-            editShowPassword = false;
-            editKioskApplication = "";
-            editDisplayResolution = displayResolutionSetting?.defaultValue || "1920x1080";
-            editScreenOrientation = screenOrientationSetting?.defaultValue || "landscape";
-            editBrightnessLevel = 100;
-            editAudioEnabled = true;
-            editAudioVolume = 100;
-            editTimezone = "UTC";
-            editHomeLauncher = "";
-            editPowerManagementSchedule = false;
-            editRebootSchedule = false;
-            editDownloadSchedule = false;
+            const selfDp = profilesForAssignedDropdown.find(
+                (p) => p.level === 'DEVICE' && p.deviceId === fullDeviceData.id
+            );
+            if (selfDp?.id) {
+                const profileIdString = String(selfDp.id);
+                editAssignedProfile = profileIdString;
+                let retryCount = 0;
+                while (profileOptions.length === 0 && retryCount < 10) {
+                    await tick();
+                    retryCount++;
+                }
+                await loadProfileSettings(profileIdString, fullDeviceData, false);
+            } else {
+                console.log('[EditDeviceModal] No profile assigned, using defaults');
+                editAssignedProfile = "";
+                const displayResolutionSetting = availableSettings.find(s => s.key === 'display_resolution');
+                const screenOrientationSetting = availableSettings.find(s => s.key === 'screen_orientation');
+                editKioskLockMode = false;
+                editExitLockdownPassword = "";
+                editShowPassword = false;
+                editKioskApplication = "";
+                editDisplayResolution = displayResolutionSetting?.defaultValue || "1920x1080";
+                editScreenOrientation = screenOrientationSetting?.defaultValue || "landscape";
+                editBrightnessLevel = 100;
+                editAudioEnabled = true;
+                editAudioVolume = 100;
+                editTimezone = "UTC";
+                editHomeLauncher = "";
+                editPowerManagementSchedule = false;
+                editRebootSchedule = false;
+                editDownloadSchedule = false;
+            }
         }
         
         console.log('[EditDeviceModal] Final state:', {
@@ -762,43 +782,95 @@
         });
         
         await tick();
+        if (!assignedProfileBaselineCaptured) {
+            assignedProfileIdAtLoad = editAssignedProfile;
+            assignedProfileBaselineCaptured = true;
+        }
     }
 
-    async function saveEditDevice() {
+    function validateEditDeviceSchedules(): void {
+        if (editPowerManagementSchedule) {
+            if (!editPowerOnDatetime || !editPowerOffDatetime) {
+                throw new Error('Power Management Schedule is enabled. Please set both Power-On and Power-Off date/time.');
+            }
+        }
+        if (editRebootSchedule) {
+            if (!editRebootFrequency) {
+                throw new Error('Reboot Schedule is enabled. Please select a Reboot Frequency.');
+            }
+            if ((editRebootFrequency === 'weekly' || editRebootFrequency === 'monthly') && !editRebootDay) {
+                throw new Error(editRebootFrequency === 'monthly' ? 'Reboot Schedule is set to Monthly. Please select a day of the month.' : 'Reboot Schedule is set to Weekly. Please select a Reboot Day.');
+            }
+            if (!editRebootTime) {
+                throw new Error('Reboot Schedule is enabled. Please set a Reboot Time.');
+            }
+        }
+        if (editDownloadSchedule) {
+            if (!editDownloadFrequency) {
+                throw new Error('Download Schedule is enabled. Please select a Download Frequency.');
+            }
+            if ((editDownloadFrequency === 'weekly' || editDownloadFrequency === 'monthly') && !editDownloadDay) {
+                throw new Error(editDownloadFrequency === 'monthly' ? 'Download Schedule is set to Monthly. Please select a day of the month.' : 'Download Schedule is set to Weekly. Please select a Download Day.');
+            }
+            if (!editDownloadTime) {
+                throw new Error('Download Schedule is enabled. Please set a Download Time.');
+            }
+        }
+    }
+
+    async function trySaveEditDevice() {
+        if (!device) return;
+        editDeviceError = null;
+        try {
+            validateEditDeviceSchedules();
+        } catch (err) {
+            editDeviceError = err instanceof Error ? err.message : 'Validation failed';
+            return;
+        }
+
+        const ownDeviceLevelSelected =
+            !!editAssignedProfile && isOwnDeviceLevelSelection(editAssignedProfile);
+        const isAssigningGlobal =
+            profileDropdownExplicitlyChanged &&
+            !!editAssignedProfile &&
+            editAssignedProfile !== '' &&
+            !ownDeviceLevelSelected;
+
+        const sel = normProfileId(editAssignedProfile);
+        const baseline = normProfileId(assignedProfileIdAtLoad);
+        const assignedOnServer = normProfileId(assignmentProfileIdAtOpen);
+        const globalAssignChanged =
+            isAssigningGlobal &&
+            (sel !== baseline ||
+                sel !== assignedOnServer ||
+                deviceLevelTouchedThisSession);
+
+        if (globalAssignChanged) {
+            showGlobalAssignConfirm = true;
+            return;
+        }
+        await executeSaveEditDevice();
+    }
+
+    async function confirmGlobalAssignSave() {
+        showGlobalAssignConfirm = false;
+        deviceLevelTouchedThisSession = false;
+        profileDropdownExplicitlyChanged = false;
+        await executeSaveEditDevice();
+    }
+
+    function closeGlobalAssignConfirm() {
+        showGlobalAssignConfirm = false;
+    }
+
+    async function executeSaveEditDevice() {
         if (!device) return;
         
         editDeviceLoading = true;
         editDeviceError = null;
         
         try {
-            // Validate schedule sub-fields when toggles are enabled
-            if (editPowerManagementSchedule) {
-                if (!editPowerOnDatetime || !editPowerOffDatetime) {
-                    throw new Error('Power Management Schedule is enabled. Please set both Power-On and Power-Off date/time.');
-                }
-            }
-            if (editRebootSchedule) {
-                if (!editRebootFrequency) {
-                    throw new Error('Reboot Schedule is enabled. Please select a Reboot Frequency.');
-                }
-                if ((editRebootFrequency === 'weekly' || editRebootFrequency === 'monthly') && !editRebootDay) {
-                    throw new Error(editRebootFrequency === 'monthly' ? 'Reboot Schedule is set to Monthly. Please select a day of the month.' : 'Reboot Schedule is set to Weekly. Please select a Reboot Day.');
-                }
-                if (!editRebootTime) {
-                    throw new Error('Reboot Schedule is enabled. Please set a Reboot Time.');
-                }
-            }
-            if (editDownloadSchedule) {
-                if (!editDownloadFrequency) {
-                    throw new Error('Download Schedule is enabled. Please select a Download Frequency.');
-                }
-                if ((editDownloadFrequency === 'weekly' || editDownloadFrequency === 'monthly') && !editDownloadDay) {
-                    throw new Error(editDownloadFrequency === 'monthly' ? 'Download Schedule is set to Monthly. Please select a day of the month.' : 'Download Schedule is set to Weekly. Please select a Download Day.');
-                }
-                if (!editDownloadTime) {
-                    throw new Error('Download Schedule is enabled. Please set a Download Time.');
-                }
-            }
+            validateEditDeviceSchedules();
 
             const fd = new FormData();
             fd.set('id', device.id);
@@ -807,12 +879,15 @@
             fd.set('description', editDeviceDescription || '');
             fd.set('tags', JSON.stringify(editDeviceTags || []));
             
-            // Determine if user is assigning a global profile or editing device's own config.
-            // - editAssignedProfile is a profile ID = user selected a global profile from dropdown
-            // - editAssignedProfile is '' or '__CUSTOM__' = user is editing device's own config
-            const isAssigningGlobal = editAssignedProfile && editAssignedProfile !== '__CUSTOM__' && editAssignedProfile !== '';
+            const ownDeviceLevelSelected =
+                !!editAssignedProfile && isOwnDeviceLevelSelection(editAssignedProfile);
+            const isAssigningGlobal =
+                profileDropdownExplicitlyChanged &&
+                !!editAssignedProfile &&
+                editAssignedProfile !== '' &&
+                !ownDeviceLevelSelected;
             
-            console.log('[EditDeviceModal] saveEditDevice: config payload', {
+            console.log('[EditDeviceModal] executeSaveEditDevice: config payload', {
                 editAssignedProfile: editAssignedProfile ?? '(empty)',
                 originalProfileId: originalProfileId ?? '(empty)',
                 isAssigningGlobal,
@@ -820,14 +895,15 @@
             });
             
             if (isAssigningGlobal) {
-                // User selected a global profile — send profileId only (server assigns it, no device config saved)
                 fd.set('profileId', String(editAssignedProfile));
             } else {
-                // User is editing device's own config (no profile, or __CUSTOM__ after editing fields)
                 fd.set('isCustom', 'true');
-                // When Custom with a base profile (originalProfileId), send it so server uses DeviceProfileOverride
-                if (originalProfileId && originalProfileId !== '__CUSTOM__') {
-                    fd.set('profileId', String(originalProfileId));
+                const refProfileId =
+                    editAssignedProfile && editAssignedProfile !== ''
+                        ? editAssignedProfile
+                        : originalProfileId;
+                if (refProfileId) {
+                    fd.set('profileId', String(refProfileId));
                 }
                 // Always include all config fields so device can have its own settings
                 fd.set('kioskLockMode', String(editKioskLockMode));
@@ -862,7 +938,7 @@
             }
 
             const formKeys = Array.from(fd.keys());
-            console.log('[EditDeviceModal] saveEditDevice: posting to', saveActionUrl, 'with form keys:', formKeys.join(', '));
+            console.log('[EditDeviceModal] executeSaveEditDevice: posting to', saveActionUrl, 'with form keys:', formKeys.join(', '));
             const res = await fetch(saveActionUrl, { method: 'POST', body: fd });
 
             if (res.status >= 200 && res.status < 300) {
@@ -895,23 +971,22 @@
     function closeEditDeviceModal() {
         open = false;
         editDeviceError = null;
+        showGlobalAssignConfirm = false;
         dispatch('close');
     }
 
-    // Handle profile change
     async function handleProfileChange(e: CustomEvent<string | string[]>) {
-        const newProfileId = String(e.detail);
-        const previousProfileId = editAssignedProfile;
+        const raw = e.detail;
+        const newProfileId = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
         editAssignedProfile = newProfileId;
+        profileDropdownExplicitlyChanged = true;
+
+        if (device && newProfileId && isOwnDeviceLevelSelection(newProfileId)) {
+            deviceLevelTouchedThisSession = true;
+        }
         
-        if (newProfileId === '__CUSTOM__') {
-            if (!originalProfileId && previousProfileId && previousProfileId !== '__CUSTOM__' && previousProfileId !== '') {
-                originalProfileId = previousProfileId;
-            }
-            hasCustomOverrides = true;
-        } else if (newProfileId && newProfileId !== '') {
+        if (newProfileId && newProfileId !== '') {
             originalProfileId = newProfileId;
-            hasCustomOverrides = false;
             
             // Reset all fields to defaults first
             const displayResolutionSetting = availableSettings.find(s => s.key === 'display_resolution');
@@ -942,7 +1017,6 @@
             await loadProfileSettings(newProfileId, undefined, true);
         } else {
             originalProfileId = null;
-            hasCustomOverrides = false;
         }
     }
 </script>
@@ -1028,12 +1102,36 @@
             <!-- Assigned Profile Dropdown (standalone) -->
             <Dropdown
                 label="Assigned Profile"
-                placeholder="Select"
-                options={profileOptionsWithCustom}
+                placeholder={assignProfilesLoading ? 'Loading profiles…' : 'Select'}
+                options={profileOptions}
                 value={editAssignedProfile}
                 clearable={false}
+                disabled={assignProfilesLoading}
                 on:change={handleProfileChange}
             />
+            {#if selectedSharedGlobalInDropdown()}
+                <Alert
+                    severity="warning"
+                    variant="outline"
+                    title="Shared profile selected"
+                    message="Saving will assign this shared profile to the device and overwrite this device’s saved copy with a template from that profile. The shared profile itself is not modified. If you only need changes on this device, pick this device’s own profile in the list before saving."
+                    dismissible={false}
+                />
+            {/if}
+            {#if hasMoreAssignableProfiles && onLoadMoreAssignableProfiles}
+                <div class="flex justify-start">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        color="primary"
+                        size="sm"
+                        disabled={assignProfilesLoadMoreLoading || assignProfilesLoading}
+                        on:click={() => onLoadMoreAssignableProfiles?.()}
+                    >
+                        {assignProfilesLoadMoreLoading ? 'Loading…' : 'Load more profiles'}
+                    </Button>
+                </div>
+            {/if}
 
             <!-- Block 1: Kiosk Settings -->
             <div class="config-block">
@@ -1046,7 +1144,7 @@
                     <Toggle 
                         bind:checked={editKioskLockMode} 
                         size="sm"
-                        on:change={() => switchToCustom()}
+                        on:change={() => switchToDeviceLevelForEdits()}
                     />
                 </div>
 
@@ -1062,7 +1160,7 @@
                                 type={editShowPassword ? 'text' : 'password'}
                                 placeholder="******"
                                 bind:value={editExitLockdownPassword}
-                                on:change={() => switchToCustom()}
+                                on:change={() => switchToDeviceLevelForEdits()}
                             />
                             <button
                                 type="button"
@@ -1094,7 +1192,7 @@
                             disabled={packagesLoading}
                             on:change={(e) => {
                                 editKioskApplication = String(e.detail ?? '');
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1116,7 +1214,7 @@
                             value={editDisplayResolution}
                             on:change={(e) => {
                                 editDisplayResolution = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1135,7 +1233,7 @@
                             value={editScreenOrientation}
                             on:change={(e) => {
                                 editScreenOrientation = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1154,7 +1252,7 @@
                             max="100"
                             bind:value={editBrightnessLevel}
                             class="config-slider"
-                            on:input={() => switchToCustom()}
+                            on:input={() => switchToDeviceLevelForEdits()}
                             style="flex: 1; height: 8px; -webkit-appearance: none; appearance: none; background: linear-gradient(to right, #525252 0%, #525252 {editBrightnessLevel}%, var(--ds-color-neutral-true-200) {editBrightnessLevel}%, var(--ds-color-neutral-true-200) 100%); border-radius: var(--ds-radius-sm); outline: none;"
                         />
                         <div class="config-slider-input-wrapper">
@@ -1164,7 +1262,7 @@
                                 max="100"
                                 bind:value={editBrightnessLevel}
                                 class="config-slider-input"
-                                on:change={() => switchToCustom()}
+                                on:change={() => switchToDeviceLevelForEdits()}
                             />
                             <span class="config-slider-unit">%</span>
                         </div>
@@ -1183,7 +1281,7 @@
                     <Toggle 
                         bind:checked={editAudioEnabled} 
                         size="sm"
-                        on:change={() => switchToCustom()}
+                        on:change={() => switchToDeviceLevelForEdits()}
                     />
                 </div>
 
@@ -1201,7 +1299,7 @@
                             max="100"
                             bind:value={editAudioVolume}
                             class="config-slider"
-                            on:input={() => switchToCustom()}
+                            on:input={() => switchToDeviceLevelForEdits()}
                             style="flex: 1; height: 8px; -webkit-appearance: none; appearance: none; background: linear-gradient(to right, #525252 0%, #525252 {editAudioVolume}%, var(--ds-color-neutral-true-200) {editAudioVolume}%, var(--ds-color-neutral-true-200) 100%); border-radius: var(--ds-radius-sm); outline: none;"
                         />
                         <div class="config-slider-input-wrapper">
@@ -1211,7 +1309,7 @@
                                 max="100"
                                 bind:value={editAudioVolume}
                                 class="config-slider-input"
-                                on:change={() => switchToCustom()}
+                                on:change={() => switchToDeviceLevelForEdits()}
                             />
                             <span class="config-slider-unit">%</span>
                         </div>
@@ -1228,14 +1326,15 @@
                         <p class="config-label">Timezone</p>
                         <p class="config-description">Device timezone settings</p>
                     </div>
-                    <div style="width: 200px;">
+                    <div style="min-width: 320px;">
                         <Dropdown
-                            placeholder="Select"
+                            placeholder="Search timezone..."
                             options={timezoneOptions}
                             value={editTimezone}
+                            searchable={true}
                             on:change={(e) => {
                                 editTimezone = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1253,7 +1352,7 @@
                             options={availableKioskPackages}
                             value={editHomeLauncher}
                             disabled={packagesLoading}
-                            on:change={(e) => { editHomeLauncher = String(e.detail ?? ''); switchToCustom(); }}
+                            on:change={(e) => { editHomeLauncher = String(e.detail ?? ''); switchToDeviceLevelForEdits(); }}
                         />
                     </div>
                 </div>
@@ -1270,7 +1369,7 @@
                     <Toggle 
                         bind:checked={editPowerManagementSchedule} 
                         size="sm"
-                        on:change={() => switchToCustom()}
+                        on:change={() => switchToDeviceLevelForEdits()}
                     />
                 </div>
                 {#if editPowerManagementSchedule}
@@ -1284,7 +1383,7 @@
                             type="datetime-local"
                             class="config-input"
                             bind:value={editPowerOnDatetime}
-                            on:change={() => switchToCustom()}
+                            on:change={() => switchToDeviceLevelForEdits()}
                         />
                     </div>
                 </div>
@@ -1298,7 +1397,7 @@
                             type="datetime-local"
                             class="config-input"
                             bind:value={editPowerOffDatetime}
-                            on:change={() => switchToCustom()}
+                            on:change={() => switchToDeviceLevelForEdits()}
                         />
                     </div>
                 </div>
@@ -1313,7 +1412,7 @@
                     <Toggle 
                         bind:checked={editRebootSchedule} 
                         size="sm"
-                        on:change={() => switchToCustom()}
+                        on:change={() => switchToDeviceLevelForEdits()}
                     />
                 </div>
                 {#if editRebootSchedule}
@@ -1329,7 +1428,7 @@
                             value={editRebootFrequency}
                             on:change={(e) => {
                                 editRebootFrequency = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1347,7 +1446,7 @@
                             value={editRebootDay}
                             on:change={(e) => {
                                 editRebootDay = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1363,7 +1462,7 @@
                             type="time"
                             class="config-input"
                             bind:value={editRebootTime}
-                            on:change={() => switchToCustom()}
+                            on:change={() => switchToDeviceLevelForEdits()}
                         />
                     </div>
                 </div>
@@ -1378,7 +1477,7 @@
                     <Toggle 
                         bind:checked={editDownloadSchedule} 
                         size="sm"
-                        on:change={() => switchToCustom()}
+                        on:change={() => switchToDeviceLevelForEdits()}
                     />
                 </div>
                 {#if editDownloadSchedule}
@@ -1394,7 +1493,7 @@
                             value={editDownloadFrequency}
                             on:change={(e) => {
                                 editDownloadFrequency = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1412,7 +1511,7 @@
                             value={editDownloadDay}
                             on:change={(e) => {
                                 editDownloadDay = String(e.detail);
-                                switchToCustom();
+                                switchToDeviceLevelForEdits();
                             }}
                         />
                     </div>
@@ -1428,7 +1527,7 @@
                             type="time"
                             class="config-input"
                             bind:value={editDownloadTime}
-                            on:change={() => switchToCustom()}
+                            on:change={() => switchToDeviceLevelForEdits()}
                         />
                     </div>
                 </div>
@@ -1460,7 +1559,7 @@
             variant="filled"
             color="primary"
             size="lg"
-            on:click={saveEditDevice}
+            on:click={trySaveEditDevice}
             disabled={editDeviceLoading || !editDeviceName.trim()}
             loading={editDeviceLoading}
         >
@@ -1468,6 +1567,17 @@
         </Button>
     </div>
 </Modal>
+
+<ConfirmModal
+    open={showGlobalAssignConfirm}
+    type="warning"
+    title="Assign shared profile?"
+    description="This assigns the selected shared profile to the device and overwrites this device’s saved configuration with a copy from that shared profile. The shared profile definition in your library does not change. Continue?"
+    confirmText="Continue"
+    cancelText="Cancel"
+    on:close={closeGlobalAssignConfirm}
+    on:confirm={confirmGlobalAssignSave}
+/>
 
 <style>
     /* Edit Device Modal - Configuration blocks */

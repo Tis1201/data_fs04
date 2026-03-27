@@ -83,6 +83,41 @@ export class ProfileConfigBuilder {
                 };
             }
 
+            if (globalProfile.level === 'GLOBAL') {
+                const deviceLevelProfile = await this.prisma.deviceProfile.findFirst({
+                    where: { deviceId, level: 'DEVICE' },
+                    include: {
+                        settings: {
+                            orderBy: { order: 'asc' }
+                        }
+                    }
+                });
+                if (
+                    deviceLevelProfile?.isActive &&
+                    new Date(deviceLevelProfile.updatedAt).getTime() > new Date(globalProfile.updatedAt).getTime()
+                ) {
+                    const config: EffectiveConfig = {};
+                    for (const setting of deviceLevelProfile.settings) {
+                        config[setting.key] = {
+                            value: setting.value,
+                            dataType: setting.dataType,
+                            label: setting.label,
+                            category: setting.category,
+                            isOverridden: false
+                        };
+                    }
+                    return {
+                        config,
+                        metadata: {
+                            profileId: globalProfile.id,
+                            profileName: globalProfile.name,
+                            hasOverrides: false,
+                            overrideCount: 0
+                        }
+                    };
+                }
+            }
+
             // 2. Check for device-specific overrides
             const override = await this.prisma.deviceProfileOverride.findUnique({
                 where: {

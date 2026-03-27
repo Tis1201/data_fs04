@@ -9,29 +9,12 @@ import { isDeviceOnline } from '$lib/server/device/devicePresence';
 import { loadDeviceProfileWithForm } from '$lib/server/device/deviceProfileLoader';
 
 export interface DeviceDetailLoadOptions {
-    /**
-     * Whether to check device ownership for non-admin users
-     * If true, will verify user owns device or has account access
-     */
     checkOwnership?: boolean;
-    /**
-     * User ID for ownership check
-     */
     userId?: string;
-    /**
-     * Account ID for ownership check
-     */
     accountId?: string;
-    /**
-     * Whether to use verbose logging (for admin routes)
-     */
     verboseLogging?: boolean;
 }
 
-/**
- * Shared loader function for device detail pages
- * Used by both admin and user routes
- */
 export async function loadDeviceDetail(
     prisma: PrismaClient,
     deviceId: string,
@@ -45,7 +28,13 @@ export async function loadDeviceDetail(
     deviceProfile: any;
     deviceProfileForm: any;
     availableTags: Array<{ id: string; name: string }>;
-    availableProfiles: Array<{ id: string; name: string; description?: string }>;
+    availableProfiles: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        level?: string | null;
+        deviceId?: string | null;
+    }>;
 }> {
     const { checkOwnership = false, userId, accountId, verboseLogging = false } = options;
 
@@ -59,18 +48,15 @@ export async function loadDeviceDetail(
             logger.info('[DeviceDetail] Step 1: Loading device from database...', { deviceId } as Record<string, any>);
         }
 
-        // Build device query with optional ownership check
         const deviceWhere: any = { id: deviceId };
-        
+
         if (checkOwnership && userId) {
-            // For user routes, check ownership
             deviceWhere.OR = [
                 { createdBy: userId },
                 ...(accountId ? [{ accountId }] : [])
             ];
         }
 
-        // Load existing device
         const device = await prisma.device.findFirst({
             where: deviceWhere,
             select: {
@@ -175,7 +161,6 @@ export async function loadDeviceDetail(
             logger.info('[DeviceDetail] Step 3: Fetching device action logs...');
         }
 
-        // Fetch recent device action logs (last 50)
         const deviceActionLogs = await prisma.deviceActionLog.findMany({
             where: { deviceId },
             orderBy: { initiatedAt: 'desc' },
@@ -196,24 +181,19 @@ export async function loadDeviceDetail(
             }
         });
 
-        // Fetch device information from ClickHouse by device_id only (optional - may not be configured)
         let deviceInformation = null;
         try {
             deviceInformation = await getLatestDeviceInformationByDeviceId(deviceId);
         } catch (clickhouseError) {
-            // ClickHouse may not be configured - this is optional data
             logger.warn('[DeviceDetail] ClickHouse query failed (optional)', { 
                 error: clickhouseError instanceof Error ? clickhouseError.message : String(clickhouseError)
             });
         }
 
-        // Check real-time online status from pushpin-tracker (Redis)
-        // This is more accurate than the database 'connected' field
         let isOnline = device.connected || false;
         try {
             isOnline = await isDeviceOnline(device.id);
         } catch (redisError) {
-            // Redis may not be available - fall back to database value
             logger.warn('[DeviceDetail] Redis online check failed, using DB value', {
                 error: redisError instanceof Error ? redisError.message : String(redisError)
             });
@@ -223,13 +203,11 @@ export async function loadDeviceDetail(
             logger.info('[DeviceDetail] Real-time online status', { deviceId: device.id, isOnline } as Record<string, any>);
         }
 
-        // Load device profile using shared utility
         const { deviceProfile, deviceProfileForm } = await loadDeviceProfileWithForm(
             prisma,
             deviceId
         );
 
-        // Fetch available tags for the Edit Device modal
         let availableTags: Array<{ id: string; name: string }> = [];
         try {
             availableTags = await prisma.deviceTag.findMany({
@@ -243,50 +221,79 @@ export async function loadDeviceDetail(
             });
         } catch (err) {
             logger.warn(`[DeviceDetail] Failed to load available tags: ${err}`);
-            // Continue with empty tags array - page can still load
             availableTags = [];
         }
 
-        // Fetch available device profiles for the Edit Device modal
-        let availableProfiles: Array<{ id: string; name: string; description?: string }> = [];
-        try {
-            // Get user's account memberships for filtering if ownership check is enabled
-            let accountIds: string[] = [];
-            if (checkOwnership && userId) {
-                const userAccountMemberships = await prisma.accountMembership.findMany({
-                    where: { userId },
-                    select: { accountId: true }
-                });
-                accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
-            }
-
-            const profileWhere: any = { isActive: true };
-            if (checkOwnership && accountIds.length > 0) {
-                profileWhere.accountId = { in: accountIds };
-            }
-
-            availableProfiles = await prisma.deviceProfile.findMany({
-                where: profileWhere,
-                select: {
-                    id: true,
-                    name: true,
-                    description: true
-                },
-                orderBy: {
-                    name: 'asc'
+        let availableProfiles: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            level?: string | null;
+            deviceId?: string | null;
+        }> = [];
+        // User routes load assignable profiles via GET .../api/user/iot/devices/[id]/configuration (paginated).
+        if (!checkOwnership) {
+            try {
+                let accountIds: string[] = [];
+                if (userId && !accountId) {
+                    const userAccountMemberships = await prisma.accountMembership.findMany({
+                        where: { userId },
+                        select: { accountId: true }
+                    });
+                    accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
                 }
-            });
-        } catch (err) {
-            logger.warn(`[DeviceDetail] Failed to load available profiles: ${err}`);
-            // Continue with empty profiles array - page can still load
-            availableProfiles = [];
+
+                const accountFilter = accountId
+                    ? { accountId }
+                    : accountIds.length > 0
+                      ? { accountId: { in: accountIds } }
+                      : {};
+
+                const profileWhere: any = {
+                    OR: [
+                        { isActive: true, level: 'GLOBAL', ...accountFilter },
+                        { isActive: true, level: 'DEVICE', deviceId: deviceId }
+                    ]
+                };
+
+                const profileRows = await prisma.deviceProfile.findMany({
+                    where: profileWhere,
+                    select: {
+                        id: true,
+                        name: true,
+                        description: true,
+                        level: true,
+                        deviceId: true
+                    }
+                });
+                const byName = (a: { name: string }, b: { name: string }) =>
+                    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+                const selfDeviceLevel = profileRows.filter(
+                    (p) => p.level === 'DEVICE' && p.deviceId === deviceId
+                );
+                const sharedProfiles = profileRows.filter(
+                    (p) => !(p.level === 'DEVICE' && p.deviceId === deviceId)
+                );
+                selfDeviceLevel.sort(byName);
+                sharedProfiles.sort(byName);
+                availableProfiles = [...selfDeviceLevel, ...sharedProfiles].map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    description: p.description ?? undefined,
+                    level: p.level,
+                    deviceId: p.deviceId
+                }));
+            } catch (err) {
+                logger.warn(`[DeviceDetail] Failed to load available profiles: ${err}`);
+                availableProfiles = [];
+            }
         }
 
         return {
             form,
             device: {
                 ...device,
-                connected: isOnline  // Override database value with real-time status
+                connected: isOnline
             },
             deviceActionLogs,
             deviceInformation,
@@ -308,8 +315,7 @@ export async function loadDeviceDetail(
                 errorMessage,
                 stack: errorStack
             });
-            
-            // Log the full error object for debugging
+
             if (e instanceof Error && e.cause) {
                 logger.error('[DeviceDetail] Error cause', { cause: e.cause } as Record<string, any>);
             }
@@ -317,7 +323,6 @@ export async function loadDeviceDetail(
             logger.error('Error loading device', { error: e });
         }
 
-        // Re-throw SvelteKit errors as-is
         if (e && typeof e === 'object' && 'status' in e) {
             throw e;
         }

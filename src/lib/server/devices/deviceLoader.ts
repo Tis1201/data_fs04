@@ -174,9 +174,9 @@ export async function loadDeviceList(
         // Wrap in try-catch to allow page to load even if profiles query fails
         let availableProfiles = [];
         try {
-            // Get user's account memberships for filtering if ownership check is enabled
+            // Shared profiles must belong to the current account when set; else fall back to all memberships.
             let accountIds: string[] = [];
-            if (options?.checkOwnership && options?.userId) {
+            if (options?.checkOwnership && options?.userId && !options?.accountId) {
                 const userAccountMemberships = await locals.prisma.accountMembership.findMany({
                     where: { userId: options.userId },
                     select: { accountId: true }
@@ -184,17 +184,29 @@ export async function loadDeviceList(
                 accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
             }
 
-            const profileWhere: any = { isActive: true };
-            if (options?.checkOwnership && accountIds.length > 0) {
-                profileWhere.accountId = { in: accountIds };
-            }
+            // Broader fetch for list page: GLOBAL profiles (account-scoped) + any DEVICE-level profiles owned by
+            // the account. EditDeviceModal further filters DEVICE profiles down to the device being edited.
+            const accountFilter = options?.checkOwnership
+                ? (options.accountId
+                    ? { accountId: options.accountId }
+                    : accountIds.length > 0 ? { accountId: { in: accountIds } } : {})
+                : {};
+
+            const profileWhere: any = {
+                OR: [
+                    { isActive: true, level: 'GLOBAL', ...accountFilter },
+                    { isActive: true, level: 'DEVICE', ...accountFilter }
+                ]
+            };
 
             availableProfiles = await locals.prisma.deviceProfile.findMany({
                 where: profileWhere,
                 select: {
                     id: true,
                     name: true,
-                    description: true
+                    description: true,
+                    level: true,
+                    deviceId: true
                 },
                 orderBy: {
                     name: 'asc'

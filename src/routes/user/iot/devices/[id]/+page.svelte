@@ -36,6 +36,7 @@
         getActivityLogBadgeColor,
         getAppTypeBadgeColor,
         getUsageColor,
+        isDeviceOnline,
         mapBundleStatus,
         mapActionStatus,
         formatActionDescription,
@@ -814,6 +815,27 @@
     // =========================
     let showEditDeviceModal = false;
 
+    type AssignableProfileRow = {
+        id: string;
+        name: string;
+        description?: string;
+        level?: string | null;
+        deviceId?: string | null;
+    };
+
+    let assignableProfileList: AssignableProfileRow[] = [];
+    let configurationDeviceProfile: any = null;
+    let profilesMeta: {
+        current_page: number;
+        per_page: number;
+        total: number;
+        last_page: number;
+    } | null = null;
+    let assignProfilesLoading = false;
+    let assignProfilesLoadMoreLoading = false;
+    let configurationTabLoadedDeviceId: string | null = null;
+    let configurationFetchInFlight: Promise<void> | null = null;
+
     // Screenshot modal (same flow as admin: MQTT RPC device.screenshot)
     let screenshotOpen = false;
     let screenshotData: string | null = null;
@@ -834,8 +856,10 @@
     // Available tags from server
     $: availableTags = data.availableTags || [];
 
-    // Available profiles from server
-    $: availableProfiles = ((data as any).availableProfiles || []) as Array<{ id: string; name: string; description?: string }>;
+    $: availableProfilesForModal =
+        assignableProfileList.length > 0
+            ? assignableProfileList
+            : ((((data as any).availableProfiles || []) as AssignableProfileRow[]) ?? []);
 
     // =========================
     // Pull File Modal
@@ -911,6 +935,30 @@
     // Device profile - reactive to ensure Configuration tab updates when profile changes
     // Use both data prop and $page.data to ensure reactivity after invalidate
     $: deviceProfile = $page.data?.deviceProfile || data.deviceProfile;
+    // Configuration tab / API refresh: merged profile from GET .../configuration overrides SSR snapshot
+    $: effectiveProfileForConfig = configurationDeviceProfile ?? deviceProfile;
+
+    let lastDeviceIdForConfig: string | undefined = undefined;
+    $: if (device?.id) {
+        if (lastDeviceIdForConfig !== device.id) {
+            lastDeviceIdForConfig = device.id;
+            configurationTabLoadedDeviceId = null;
+            configurationDeviceProfile = null;
+            assignableProfileList = [];
+            profilesMeta = null;
+        }
+    }
+
+    // When the server-side deviceProfile refreshes (e.g. 30 s invalidation), drop the stale
+    // API snapshot so the configuration tab re-fetches fresh data on next view.
+    let lastDeviceProfileSnapshot: unknown = undefined;
+    $: if (deviceProfile !== lastDeviceProfileSnapshot) {
+        if (lastDeviceProfileSnapshot !== undefined) {
+            configurationDeviceProfile = null;
+            configurationTabLoadedDeviceId = null;
+        }
+        lastDeviceProfileSnapshot = deviceProfile;
+    }
 
     // Device information from ClickHouse (loaded on server)
     // Will be null if ClickHouse is not configured or no data available
@@ -920,6 +968,7 @@
     let healthRefreshInterval: ReturnType<typeof setInterval> | null = null;
     let actionLogSyncManager: ActionLogSyncManager | null = null;
     let mqttUnsubscribes: (() => void)[] = [];
+    let activityLogsRefetchTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     onMount(() => {
         if (browser) initializeDeviceRealtime();
@@ -954,6 +1003,9 @@
                     (logs) => {
                         // Update activity logs from synced action logs (preserve raw fields)
                         console.log('[UserDevicePage] ActionLogSyncManager updating logs:', logs.length);
+                        const hasRebootSuccess = logs.some(
+                            (l) => l.actionType === 'reboot' && l.status === 'success' && l.initiatedAt && Date.now() - new Date(l.initiatedAt).getTime() < 60_000
+                        );
                         activityLogs = logs.map(log => ({
                             id: log.id,
                             eventName: formatActivityLogDate(log.initiatedAt),
@@ -972,6 +1024,15 @@
                         }));
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
+                        // Reboot special case: refetch immediately (device goes offline, ensure UI has canonical state)
+                        if (hasRebootSuccess) {
+                            if (activityLogsRefetchTimeoutId) clearTimeout(activityLogsRefetchTimeoutId);
+                            activityLogsRefetchTimeoutId = setTimeout(() => {
+                                activityLogsRefetchTimeoutId = null;
+                                activityLogsCurrentPage = 1;
+                                loadActivityLogs();
+                            }, 0);
+                        }
                     }
                 );
                 console.log('[UserDevicePage] ActionLogSyncManager initialized for device:', device.id);
@@ -1003,7 +1064,7 @@
                     },
                     (logs) => {
                         // Update activity logs from action logs (preserve raw fields)
-                        activityLogs = logs.map(log => ({
+                        activityLogs = logs.map((log) => ({
                             id: log.id,
                             eventName: formatActivityLogDate(log.initiatedAt),
                             description: formatActionDescription(log.actionType, log.message),
@@ -1021,6 +1082,22 @@
                         }));
                         activityLogsTotalCount = logs.length;
                         activityLogsTotalPages = Math.max(1, Math.ceil(activityLogsTotalCount / activityLogsPageSize));
+                        // Reboot only: refetch from API so UI shows success before device goes offline
+                        const hasRebootSuccess = logs.some(
+                            (l) =>
+                                l.actionType === 'reboot' &&
+                                l.status === 'success' &&
+                                l.initiatedAt &&
+                                Date.now() - new Date(l.initiatedAt).getTime() < 60_000
+                        );
+                        if (hasRebootSuccess) {
+                            if (activityLogsRefetchTimeoutId) clearTimeout(activityLogsRefetchTimeoutId);
+                            activityLogsRefetchTimeoutId = setTimeout(() => {
+                                activityLogsRefetchTimeoutId = null;
+                                activityLogsCurrentPage = 1;
+                                loadActivityLogs();
+                            }, 0);
+                        }
                     },
                     actionStatus,
                     (logId) => clearPendingLogDownload('done'),
@@ -1146,6 +1223,10 @@
     });
 
     onDestroy(() => {
+        if (activityLogsRefetchTimeoutId) {
+            clearTimeout(activityLogsRefetchTimeoutId);
+            activityLogsRefetchTimeoutId = null;
+        }
         if (pendingLogDownloadTimeoutId) {
             clearTimeout(pendingLogDownloadTimeoutId);
             pendingLogDownloadTimeoutId = null;
@@ -1184,13 +1265,13 @@
     // - Global profile settings are used as fallback
     // - Settings are already merged by loadDeviceProfile, so we just need to read them
     // NOTE: Uses reactive deviceProfile variable to ensure updates when data changes
+    // When profile is inactive, loadDeviceProfile returns device's own config (device-level) for display
     function getProfileSetting(key: string, defaultValue: string = '-'): string {
-        // Ensure deviceProfile is loaded (use reactive variable)
-        if (!deviceProfile) {
+        if (!effectiveProfileForConfig) {
             return defaultValue;
         }
 
-        const settings = deviceProfile.settings;
+        const settings = effectiveProfileForConfig.settings;
         if (!settings || !Array.isArray(settings)) {
             return defaultValue;
         }
@@ -1283,14 +1364,103 @@
         goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
     }
 
-    // Connection status: use real-time MQTT store when we have an update, else server data
-    $: isOnline = (() => {
-        const store = $deviceRealtimeStore;
-        if (!store || !device?.id) return device?.connected ?? false;
-        const known = store.getDevice(device.id);
-        if (known === null) return device?.connected ?? false;
-        return store.isDeviceConnected(device.id);
-    })();
+    async function fetchUserDeviceConfiguration(deviceId: string, page: number, reset: boolean) {
+        const loadingMore = !reset;
+        if (loadingMore) assignProfilesLoadMoreLoading = true;
+        else assignProfilesLoading = true;
+        try {
+            const res = await fetch(
+                `/api/user/iot/devices/${encodeURIComponent(deviceId)}/configuration?page=${page}&per_page=50`
+            );
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || !payload.success) {
+                throw new Error(payload.error || `HTTP ${res.status}`);
+            }
+            // Ignore stale responses if user navigated to another device while the request was in flight
+            if (device?.id !== deviceId) {
+                return;
+            }
+            configurationDeviceProfile = payload.deviceProfile ?? null;
+            const ap = payload.assignableProfiles || {};
+            const self = Array.isArray(ap.self) ? ap.self : [];
+            const globals = Array.isArray(ap.globals) ? ap.globals : [];
+            profilesMeta = ap.meta ?? null;
+            if (reset) {
+                assignableProfileList = [...self, ...globals];
+            } else {
+                const seen = new Set(assignableProfileList.map((p) => p.id));
+                const appended: AssignableProfileRow[] = [];
+                for (const g of globals) {
+                    if (g?.id && !seen.has(g.id)) {
+                        seen.add(g.id);
+                        appended.push(g);
+                    }
+                }
+                assignableProfileList = [...assignableProfileList, ...appended];
+            }
+        } catch (e) {
+            console.error('[DeviceDetail] configuration API failed', e);
+            toast.error(e instanceof Error ? e.message : 'Failed to load configuration data');
+        } finally {
+            assignProfilesLoading = false;
+            assignProfilesLoadMoreLoading = false;
+        }
+    }
+
+    async function ensureConfigurationTabLoaded(did: string) {
+        if (!browser || !did) return;
+        if (configurationTabLoadedDeviceId === did) return;
+        if (configurationFetchInFlight) {
+            await configurationFetchInFlight;
+            if (configurationTabLoadedDeviceId === did) return;
+        }
+        const run = async () => {
+            try {
+                await fetchUserDeviceConfiguration(did, 1, true);
+            } finally {
+                if (device?.id === did) {
+                    configurationTabLoadedDeviceId = did;
+                }
+            }
+        };
+        configurationFetchInFlight = run().finally(() => {
+            configurationFetchInFlight = null;
+        });
+        await configurationFetchInFlight;
+    }
+
+    async function ensureAssignableProfilesForModal(did: string) {
+        if (!did) return;
+        if (assignableProfileList.length > 0 && configurationTabLoadedDeviceId === did) return;
+        // Reuse any in-flight fetch (same guard as ensureConfigurationTabLoaded)
+        if (configurationFetchInFlight) {
+            await configurationFetchInFlight;
+            if (configurationTabLoadedDeviceId === did) return;
+        }
+        try {
+            await fetchUserDeviceConfiguration(did, 1, true);
+        } finally {
+            if (device?.id === did) {
+                configurationTabLoadedDeviceId = did;
+            }
+        }
+    }
+
+    async function loadMoreAssignableProfiles() {
+        if (!device?.id || !profilesMeta) return;
+        if (profilesMeta.current_page >= profilesMeta.last_page) return;
+        await fetchUserDeviceConfiguration(device.id, profilesMeta.current_page + 1, false);
+    }
+
+    $: if (browser && device?.id && activeTab === 'configuration') {
+        void ensureConfigurationTabLoaded(device.id);
+    }
+
+    $: hasMoreAssignableProfiles =
+        !!profilesMeta && profilesMeta.current_page < profilesMeta.last_page;
+
+    // Connection status: use real-time MQTT store when we have an update, else server data (shared with device list & profile)
+    $: isOnline = isDeviceOnline(device?.id ?? '', device?.connected, $deviceRealtimeStore);
     $: isActive = (device?.status || '').toUpperCase() === 'ACTIVE';
 
     // Action handlers
@@ -1582,11 +1752,16 @@
 
     async function handleEditDevice() {
         if (!device) return;
+        await ensureAssignableProfilesForModal(device.id);
         showEditDeviceModal = true;
     }
 
     async function handleEditDeviceSave() {
         showEditDeviceModal = false;
+        configurationTabLoadedDeviceId = null;
+        configurationDeviceProfile = null;
+        assignableProfileList = [];
+        profilesMeta = null;
         await invalidateAll();
         toast.success('Device saved successfully!');
     }
@@ -1724,8 +1899,8 @@
 
             <!-- Quick Actions -->
             <div class="quick-actions">
-                <Button variant="outline" color="gray" size="md" icon={RefreshCw} iconPosition="left" on:click={handleRefresh}>
-                    Refresh
+                <Button variant="outline" color="gray" size="md" icon={Plus} iconPosition="left" on:click={openInstallAppModal}>
+                    Install App
                 </Button>
                 <Button variant="outline" color="gray" size="md" icon={Camera} iconPosition="left" on:click={handleSnapshot}>
                     Snapshot
@@ -1819,7 +1994,7 @@
                 <div class="details-column">
                     <!-- Device Information Card -->
                     <Card variant="default" padding="none" class="info-card">
-                        <div slot="header" class="info-card-header">
+                        <div slot="header" class="info-card-header info-card-header-with-action">
                             <div class="icon-wrap">
                                 <Info size={20} color="#A3A3A3" />
                             </div>
@@ -1827,6 +2002,18 @@
                                 <h4>Device Information</h4>
                                 <p>General details and identification information.</p>
                             </div>
+                            <Button
+                                variant="ghost"
+                                color="gray"
+                                size="sm"
+                                icon={RefreshCw}
+                                iconPosition="left"
+                                on:click={handleRefresh}
+                                class="header-refresh-btn"
+                                title="Refresh device data"
+                            >
+                                Refresh
+                            </Button>
                         </div>
                         <div class="info-card-body">
                             <div class="info-row-detail">
@@ -2027,9 +2214,9 @@
 
         {:else if activeTab === 'configuration'}
             <!-- Key on profile so section re-renders when load returns after save -->
-            {#key (deviceProfile?.overrideCount ?? 0) + (deviceProfile?.settings?.length ?? 0)}
+            {#key (effectiveProfileForConfig?.overrideCount ?? 0) + (effectiveProfileForConfig?.settings?.length ?? 0)}
             <!-- TC-RDM-PR-0137: Inactive profile — no config applied, device retains previous configuration -->
-            {#if deviceProfile?.isActive === false && deviceProfile?.id}
+            {#if effectiveProfileForConfig?.isActive === false && effectiveProfileForConfig?.id}
                 <div class="config-inactive-notice">
                     <Alert
                         severity="info"
@@ -2629,7 +2816,11 @@
     bind:open={showEditDeviceModal}
     device={device}
     availableTags={availableTags}
-    availableProfiles={availableProfiles}
+    availableProfiles={availableProfilesForModal}
+    assignProfilesLoading={assignProfilesLoading}
+    hasMoreAssignableProfiles={hasMoreAssignableProfiles}
+    assignProfilesLoadMoreLoading={assignProfilesLoadMoreLoading}
+    onLoadMoreAssignableProfiles={loadMoreAssignableProfiles}
     saveActionUrl="/user/iot/devices?/updateDevice"
     onSaveSuccess={handleEditDeviceSave}
     onSaveError={handleEditDeviceError}
@@ -3388,6 +3579,11 @@
         line-height: var(--ds-leading-sm);
         color: var(--ds-text-secondary);
         margin: 0;
+    }
+
+    .info-card-header-with-action .header-refresh-btn {
+        margin-left: auto;
+        flex-shrink: 0;
     }
 
     .info-card-body {

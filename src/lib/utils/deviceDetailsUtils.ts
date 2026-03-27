@@ -270,6 +270,27 @@ export function formatActionDescription(actionType: string, message?: string): s
     return descriptions[actionType] || `Action: ${actionType}`;
 }
 
+/**
+ * Get effective device online status (connection state).
+ * Shared by device list, device detail, and device profile pages.
+ * Uses real-time MQTT store when device has a connection update; otherwise falls back to server data.
+ *
+ * @param deviceId - Device ID
+ * @param serverConnected - Connection state from server/API (device.connected)
+ * @param store - deviceRealtimeStore ($deviceRealtimeStore) or null
+ * @returns true if device is online, false if offline
+ */
+export function isDeviceOnline(
+    deviceId: string,
+    serverConnected: boolean | null | undefined,
+    store: { getDevice: (id: string) => unknown; isDeviceConnected: (id: string) => boolean } | null | undefined
+): boolean {
+    if (!store || !deviceId) return serverConnected ?? false;
+    const known = store.getDevice(deviceId);
+    if (known === null || known === undefined) return serverConnected ?? false;
+    return store.isDeviceConnected(deviceId);
+}
+
 /** Human-readable action type for activity log details (e.g. "Terminal", "Remote Desktop (RDP)") */
 export function formatActionTypeLabel(actionType: string): string {
     const labels: Record<string, string> = {

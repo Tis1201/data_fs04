@@ -34,8 +34,24 @@ export const GET: RequestHandler = restrict(
         throw error(404, 'Device not found');
       }
 
-      if (event.auth?.user?.systemRole !== SystemRole.ADMIN && 
-          device.createdBy !== event.auth?.user?.id) {
+      const userId = event.auth?.user?.id;
+      const systemRole = event.auth?.user?.systemRole;
+      const isSystemAdmin = systemRole === SystemRole.ADMIN || systemRole === SystemRole.SUPER_ADMIN;
+      const isCreator = device.createdBy === userId;
+
+      let isAccountMember = false;
+      if (!isSystemAdmin && !isCreator && device.accountId && userId) {
+        const membership = await prisma.accountMembership.findFirst({
+          where: {
+            userId,
+            accountId: device.accountId,
+            role: { not: 'SYSTEM' }
+          }
+        });
+        isAccountMember = !!membership;
+      }
+
+      if (!isSystemAdmin && !isCreator && !isAccountMember) {
         throw error(403, 'Access denied');
       }
 
@@ -97,5 +113,5 @@ export const GET: RequestHandler = restrict(
       throw error(500, 'Failed to fetch action logs');
     }
   },
-  [SystemRole.ADMIN, SystemRole.USER]
+  [SystemRole.SUPER_ADMIN, SystemRole.ADMIN, SystemRole.USER]
 );

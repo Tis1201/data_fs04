@@ -130,23 +130,15 @@ export const GET: RequestHandler = restrict(
         where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
       }
 
-      // Count total (distinct by packageName)
-      // Exclude null package names from unique list
+      // Exclude null package names
       if (!where.NOT) where.NOT = [] as any;
       (where.NOT as any[]).push({ packageName: null });
 
-      const grouped = await locals.prisma.resource.groupBy({
-        by: ['packageName'],
-        where,
-        _count: { _all: true }
-      });
-      const totalItems = grouped.length;
+      const totalItems = await locals.prisma.resource.count({ where });
       logger.info(`[AppsAPI] Total items found: ${totalItems}`);
 
-      // Fetch items (distinct by packageName)
       const items = await locals.prisma.resource.findMany({
         where,
-        distinct: ['packageName'],
         orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }], // stable tie-breaker
         skip,
         take,

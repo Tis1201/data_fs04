@@ -15,6 +15,7 @@
     import FormField from '$lib/components/ui_components_sveltekit/form/FormField.svelte';
     import EnhancedSelect from '$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte';
     import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
+    import { formatBytes } from '$lib/utils/format';
 
     // Props
     export let resource: any;
@@ -62,14 +63,6 @@
         return formatVariants[format] || 'outline';
     }
 
-    function formatBytes(bytes: number) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
     function formatDate(date: Date) {
         return new Intl.DateTimeFormat('en-US', {
             year: 'numeric',
@@ -104,7 +97,7 @@
             </div>
             <div class="space-y-2">
                 <p class="text-sm font-medium text-muted-foreground">Size</p>
-                <p class="text-sm">{formatBytes(resource.size)}</p>
+                <p class="text-sm">{formatBytes(resource.size, false, 2)}</p>
             </div>
             <div class="space-y-2">
                 <p class="text-sm font-medium text-muted-foreground">Version</p>
@@ -253,7 +246,7 @@
                     <FormField id="size" label="Size (bytes)" error={$errors.size}>
                         <div class="flex flex-col">
                             <div class="break-all rounded-md bg-muted px-3 py-2 text-xs font-mono">
-                                {formatBytes($formStore.size)}
+                                {formatBytes($formStore.size, false, 2)}
                             </div>
                             <input type="hidden" name="size" value={$formStore.size} />
                         </div>

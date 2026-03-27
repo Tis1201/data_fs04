@@ -38,7 +38,7 @@ function parseCsvList(param: string | null): string[] | undefined {
  * Admin: See all app resources
  * User: See only resources from their accounts
  * 
- * Returns distinct packages by packageName
+ * Returns every matching resource row (each package + version), paginated.
  */
 export const GET = unifiedEndpoint(
   async ({ context, event }) => {
@@ -187,20 +187,12 @@ export const GET = unifiedEndpoint(
       role: session.user.systemRole
     });
 
-    // Count total (distinct by packageName)
-    const grouped = await prisma.resource.groupBy({
-      by: ['packageName'],
-      where,
-      _count: { _all: true }
-    });
-    const totalItems = grouped.length;
+    const totalItems = await prisma.resource.count({ where });
 
     logger.info(`[AppsAPI] Total items found: ${totalItems}`);
 
-    // Fetch items (distinct by packageName)
     const items = await prisma.resource.findMany({
       where,
-      distinct: ['packageName'],
       orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }], // stable tie-breaker
       skip,
       take,

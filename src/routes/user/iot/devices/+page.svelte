@@ -12,7 +12,7 @@
     import { toast } from "$lib/stores/alertToast";
     import { browser } from "$app/environment";
     import { getAppFormatsForDeviceType } from "$lib/utils/bundleUtils";
-    import { parseAsUtc } from "$lib/utils/deviceDetailsUtils";
+    import { parseAsUtc, isDeviceOnline } from "$lib/utils/deviceDetailsUtils";
 
     // Type for available tags
     interface AvailableTag {
@@ -175,13 +175,17 @@
                 powerManagementSchedule: device.powerManagementSchedule ?? false,
                 rebootSchedule: device.rebootSchedule ?? false,
                 downloadSchedule: device.downloadSchedule ?? false,
-                // Prefer Postgres lastUsedAt (HTTP + MQTT heartbeats) over ClickHouse for Last ping
-                // parseAsUtc: ClickHouse returns "2026-03-17 16:18:59.506" (UTC, no Z) which JS otherwise parses as local
+                // Last ping: use most recent of Prisma vs ClickHouse (align with detail page)
+                // List was showing connectedAt (7h) when Prisma empty but deviceInfo existed; detail used deviceInfo (21m)
                 lastSeenAt: (() => {
                     const prisma = device.lastUsedAt || device.lastSeenAt;
                     const ch = deviceInfo?.last_connected_at || deviceInfo?.last_status_at;
-                    const raw = prisma || ch;
-                    return raw ? parseAsUtc(raw) ?? undefined : undefined;
+                    const fallback = device.disconnectedAt || device.connectedAt;
+                    const candidates = [prisma, ch, fallback].filter(Boolean);
+                    if (candidates.length === 0) return undefined;
+                    const parsed = candidates.map((c) => parseAsUtc(c) ?? new Date(c));
+                    const mostRecent = parsed.reduce((a, b) => (a.getTime() > b.getTime() ? a : b));
+                    return mostRecent;
                 })(),
                 tags: (device.tags || []).map((tag: any) => ({
                     id: tag.id || tag.tagId,
@@ -217,13 +221,10 @@
     });
     $: displayData = (() => {
         const store = $deviceRealtimeStore;
-        const rows = store
-            ? devices.map((row) => {
-                const known = store.getDevice(row.id);
-                const connected = known !== null ? store.isDeviceConnected(row.id) : row.connected;
-                return { ...row, connected };
-            })
-            : devices;
+        const rows = devices.map((row) => ({
+            ...row,
+            connected: isDeviceOnline(row.id, row.connected, store)
+        }));
         // When offline, clear CPU/MEM/DSK (same as Device Details TC-DV-0090)
         return rows.map((row) =>
             !row.connected ? { ...row, cpuUsage: null, memUsage: null, diskUsage: null } : row

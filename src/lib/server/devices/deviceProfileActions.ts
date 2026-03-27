@@ -86,31 +86,15 @@ export function buildSettingsArray(data: FormData): ProfileSetting[] {
 
 // ─── Settings Comparison ─────────────────────────────────────────────────────
 
-/**
- * Get current profile settings for a device as a key-value map.
- * Returns empty object if no profile assigned.
- */
 export async function getCurrentProfileSettings(prisma: any, deviceId: string): Promise<Record<string, string>> {
-    const assignment = await prisma.deviceProfileAssignment.findUnique({
-        where: { deviceId },
-        select: {
-            profile: {
-                select: {
-                    settings: {
-                        select: { key: true, value: true }
-                    }
-                }
-            }
-        }
-    });
-
-    if (!assignment?.profile?.settings) {
+    const { loadDeviceProfile } = await import('$lib/server/device/deviceProfileLoader');
+    const loaded = await loadDeviceProfile(prisma, deviceId);
+    if (!loaded?.settings?.length) {
         return {};
     }
-
     const settingsMap: Record<string, string> = {};
-    for (const setting of assignment.profile.settings) {
-        settingsMap[setting.key] = setting.value;
+    for (const setting of loaded.settings as { key: string; value: string }[]) {
+        settingsMap[setting.key] = setting.value ?? '';
     }
     return settingsMap;
 }
@@ -237,11 +221,216 @@ export async function saveCustomProfile(
     return { success: true, profileId: deviceProfile.id };
 }
 
+export async function saveDeviceLevelProfileOnly(
+    prisma: any,
+    deviceId: string,
+    data: FormData,
+    userId: string
+): Promise<SaveCustomProfileResult> {
+    const deviceRecord = await prisma.device.findUnique({
+        where: { id: deviceId },
+        select: { name: true, accountId: true }
+    });
+
+    if (!deviceRecord?.accountId) {
+        return { success: false, profileId: null, error: 'Device has no account. Cannot save device configuration.' };
+    }
+
+    const settingsToSave = buildSettingsArray(data);
+
+    let deviceProfile = await prisma.deviceProfile.findFirst({
+        where: { deviceId, level: 'DEVICE' }
+    });
+
+    if (deviceProfile) {
+        await prisma.deviceProfileSetting.deleteMany({
+            where: { profileId: deviceProfile.id }
+        });
+        await prisma.deviceProfileSetting.createMany({
+            data: settingsToSave.map((s, i) => ({
+                profileId: deviceProfile!.id,
+                key: s.key,
+                value: s.value,
+                dataType: s.dataType || 'string',
+                label: s.label || s.key,
+                order: i
+            }))
+        });
+        await prisma.deviceProfile.update({
+            where: { id: deviceProfile.id },
+            data: { updatedBy: userId, updatedAt: new Date() }
+        });
+        logger.info('[deviceProfileActions] Updated DEVICE-level profile (assignment unchanged)', {
+            deviceId,
+            profileId: deviceProfile.id,
+            settingCount: settingsToSave.length
+        });
+    } else {
+        deviceProfile = await prisma.deviceProfile.create({
+            data: {
+                name: `${deviceRecord.name || 'Device'} Config`,
+                description: 'Auto-created device-specific configuration',
+                level: 'DEVICE',
+                deviceId,
+                accountId: deviceRecord.accountId,
+                createdBy: userId,
+                settings: {
+                    create: settingsToSave.map((s, i) => ({
+                        key: s.key,
+                        value: s.value,
+                        dataType: s.dataType || 'string',
+                        label: s.label || s.key,
+                        order: i
+                    }))
+                }
+            }
+        });
+        logger.info('[deviceProfileActions] Created DEVICE-level profile (assignment unchanged)', {
+            deviceId,
+            profileId: deviceProfile.id,
+            settingCount: settingsToSave.length
+        });
+    }
+
+    await prisma.deviceProfileOverride.deleteMany({
+        where: { deviceId }
+    });
+
+    // If there is no assignment at all, create one pointing to this device-level profile
+    // so that reapplyIfChanged can send the config to the device via MQTT.
+    const existingAssignment = await prisma.deviceProfileAssignment.findUnique({
+        where: { deviceId }
+    });
+    if (!existingAssignment) {
+        await prisma.deviceProfileAssignment.create({
+            data: { deviceId, profileId: deviceProfile.id, assignedBy: userId }
+        });
+        logger.info('[deviceProfileActions] Created assignment to DEVICE-level profile (no prior assignment)', {
+            deviceId,
+            profileId: deviceProfile.id
+        });
+    }
+
+    return { success: true, profileId: deviceProfile.id };
+}
+
 // ─── Assign Global Profile ───────────────────────────────────────────────────
 
 /**
- * Assign a GLOBAL profile to a device.
- * The DEVICE-level profile (if any) is preserved for later use.
+ * Copy all settings from a GLOBAL profile into this device's auto-created DEVICE-level profile.
+ * Creates the DEVICE profile if missing. Overwrites previous device-level setting rows.
+ */
+export async function syncDeviceLevelProfileFromGlobalTemplate(
+    prisma: any,
+    deviceId: string,
+    globalProfileId: string,
+    userId: string
+): Promise<{ success: boolean; error?: string }> {
+    const globalProfile = await prisma.deviceProfile.findFirst({
+        where: { id: globalProfileId, level: 'GLOBAL' },
+        include: {
+            settings: {
+                orderBy: { order: 'asc' }
+            }
+        }
+    });
+
+    if (!globalProfile) {
+        return { success: false, error: 'Global profile not found.' };
+    }
+
+    const deviceRecord = await prisma.device.findUnique({
+        where: { id: deviceId },
+        select: { name: true, accountId: true }
+    });
+
+    if (!deviceRecord?.accountId) {
+        return { success: false, error: 'Device has no account.' };
+    }
+
+    const sourceSettings = (globalProfile.settings || []) as Array<{
+        key: string;
+        value: string;
+        dataType: string;
+        label: string;
+        category?: string | null;
+        order: number;
+    }>;
+
+    let deviceProfile = await prisma.deviceProfile.findFirst({
+        where: { deviceId, level: 'DEVICE' }
+    });
+
+    const rows = sourceSettings.map((s, i) => ({
+        key: s.key,
+        value: s.value ?? '',
+        dataType: s.dataType || 'string',
+        label: s.label || s.key,
+        category: s.category ?? null,
+        order: typeof s.order === 'number' ? s.order : i
+    }));
+
+    if (deviceProfile) {
+        await prisma.deviceProfileSetting.deleteMany({
+            where: { profileId: deviceProfile.id }
+        });
+        if (rows.length > 0) {
+            await prisma.deviceProfileSetting.createMany({
+                data: rows.map((r) => ({
+                    profileId: deviceProfile!.id,
+                    key: r.key,
+                    value: r.value,
+                    dataType: r.dataType,
+                    label: r.label,
+                    category: r.category,
+                    order: r.order
+                }))
+            });
+        }
+        await prisma.deviceProfile.update({
+            where: { id: deviceProfile.id },
+            data: { updatedBy: userId, updatedAt: new Date() }
+        });
+    } else {
+        deviceProfile = await prisma.deviceProfile.create({
+            data: {
+                name: `${deviceRecord.name || 'Device'} Config`,
+                description: 'Auto-created device-specific configuration',
+                level: 'DEVICE',
+                deviceId,
+                accountId: deviceRecord.accountId,
+                createdBy: userId,
+                ...(rows.length > 0
+                    ? {
+                          settings: {
+                              create: rows.map((r) => ({
+                                  key: r.key,
+                                  value: r.value,
+                                  dataType: r.dataType,
+                                  label: r.label,
+                                  category: r.category,
+                                  order: r.order
+                              }))
+                          }
+                      }
+                    : {})
+            }
+        });
+    }
+
+    logger.info('[deviceProfileActions] Synced DEVICE-level profile from GLOBAL template', {
+        deviceId,
+        globalProfileId,
+        deviceProfileId: deviceProfile.id,
+        settingCount: rows.length
+    });
+
+    return { success: true };
+}
+
+/**
+ * Assign a profile to a device (typically GLOBAL).
+ * When the assigned profile is GLOBAL, DEVICE-level settings are replaced with a copy of that template.
  */
 export async function assignGlobalProfile(
     prisma: any,
@@ -249,6 +438,11 @@ export async function assignGlobalProfile(
     profileId: string,
     userId: string
 ): Promise<AssignGlobalProfileResult> {
+    const meta = await prisma.deviceProfile.findUnique({
+        where: { id: profileId },
+        select: { level: true }
+    });
+
     await prisma.deviceProfileAssignment.upsert({
         where: { deviceId },
         update: {
@@ -263,17 +457,41 @@ export async function assignGlobalProfile(
         }
     });
 
-    // Remove any old overrides (clean slate for global profile)
     await prisma.deviceProfileOverride.deleteMany({
         where: { deviceId }
     });
 
-    logger.info(`[deviceProfileActions] Assigned GLOBAL profile ${profileId} to device ${deviceId} (DEVICE-level profile preserved if exists)`);
+    if (meta?.level === 'GLOBAL') {
+        const syncResult = await syncDeviceLevelProfileFromGlobalTemplate(prisma, deviceId, profileId, userId);
+        if (!syncResult.success) {
+            logger.warn(
+                `[deviceProfileActions] assignGlobalProfile: sync to DEVICE-level failed for device ${deviceId}: ${syncResult.error}`
+            );
+        }
+    }
+
+    logger.info(`[deviceProfileActions] Assigned profile ${profileId} to device ${deviceId} (level=${meta?.level ?? 'unknown'})`);
 
     return { success: true, profileId };
 }
 
 // ─── Reapply Profile to Device ───────────────────────────────────────────────
+
+/**
+ * Bump DeviceProfile.updatedAt (via @updatedAt) after a successful manual reapply so
+ * effective-config rules that compare GLOBAL vs DEVICE updatedAt prefer the template.
+ */
+export async function touchDeviceProfileAfterReapply(
+    prisma: any,
+    profileId: string,
+    userId: string
+): Promise<void> {
+    await prisma.deviceProfile.update({
+        where: { id: profileId },
+        data: { updatedBy: userId }
+    });
+    logger.info('[deviceProfileActions] Profile timestamp bumped after reapply', { profileId, userId });
+}
 
 /**
  * If profile settings changed, send the updated config to the device.
@@ -299,7 +517,6 @@ export async function reapplyIfChanged(
         settingsAfter: Object.keys(settingsAfter).length
     });
 
-    // Get the current profile with full settings to send to device
     const currentAssignment = await prisma.deviceProfileAssignment.findUnique({
         where: { deviceId },
         select: {
@@ -309,15 +526,7 @@ export async function reapplyIfChanged(
                     id: true,
                     name: true,
                     isActive: true,
-                    settings: {
-                        select: {
-                            id: true,
-                            key: true,
-                            value: true,
-                            dataType: true,
-                            category: true
-                        }
-                    }
+                    level: true
                 }
             }
         }
@@ -334,18 +543,27 @@ export async function reapplyIfChanged(
     }
 
     try {
-        // Update assignment status to APPLYING
+        const { loadDeviceProfile } = await import('$lib/server/device/deviceProfileLoader');
+        const effective = await loadDeviceProfile(prisma, deviceId);
+        if (!effective?.settings?.length) {
+            logger.info('[deviceProfileActions] No effective settings to reapply', { deviceId });
+            return;
+        }
+
         await prisma.deviceProfileAssignment.update({
             where: { deviceId },
             data: { status: 'APPLYING', lastSyncAt: new Date() }
         });
 
-        // Use ProfileMessagingService to send config directly to device
         const { ProfileMessagingService } = await import('$lib/server/device/profile/ProfileMessagingService');
         const { mapToConfigPayload } = await import('$lib/utils/mappers/deviceProfileMapper');
 
         const messagingService = new ProfileMessagingService(prisma);
-        const configPayload = mapToConfigPayload(currentAssignment.profile as any);
+        const configPayload = mapToConfigPayload({
+            id: currentAssignment.profileId,
+            name: effective.name || currentAssignment.profile.name,
+            settings: effective.settings as any
+        });
 
         const result = await messagingService.sendConfigToDevice(
             deviceId,

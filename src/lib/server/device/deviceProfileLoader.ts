@@ -61,6 +61,7 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
         });
 
         if (!assignment?.profile) {
+            console.log('[DeviceProfileLoader] No global assignment for device — checking DEVICE-level profile', { deviceId });
             // Fall back to DEVICE-level profile (legacy) when no assignment
             // @ts-ignore - deviceId will be available after schema migration
             const deviceLevelProfile = await prisma.deviceProfile.findFirst({
@@ -102,7 +103,10 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
                 }
                 console.log('[DeviceProfileLoader] Found DEVICE-level profile (legacy, no assignment)', {
                     profileId: deviceLevelProfile.id,
-                    deviceId
+                    profileName: deviceLevelProfile.name,
+                    deviceId,
+                    settingsCount: (deviceLevelProfile.settings as any[])?.length ?? 0,
+                    reason: 'No global assignment — using device-level config. UI will show these values.'
                 });
                 return deviceLevelProfile;
             }
@@ -124,25 +128,73 @@ export async function loadDeviceProfile(prisma: any, deviceId: string) {
         }
 
         const globalProfile = assignment.profile;
+        console.log('[DeviceProfileLoader] Device has global assignment', {
+            deviceId,
+            profileId: globalProfile.id,
+            profileName: globalProfile.name,
+            isActive: globalProfile.isActive,
+            settingsCount: (globalProfile.settings as any[])?.length ?? 0
+        });
 
-        // TC-RDM-PR-0137: Inactive profile configuration must not be applied to device.
-        // When profile is inactive, return empty shell so UI shows no effective config (defaults).
+        // TC-RDM-PR-0137: Inactive profile — no config applied to device. Device retains its config.
+        // Display device's own config (device-level) so user sees what the device actually has.
         if (!globalProfile.isActive) {
-            console.log('[DeviceProfileLoader] Profile is inactive — returning empty config for device', {
-                profileId: globalProfile.id,
-                deviceId
+            // @ts-ignore - deviceId will be available after schema migration
+            const deviceLevelProfile = await prisma.deviceProfile.findFirst({
+                // @ts-ignore
+                where: { deviceId, level: 'DEVICE' },
+                include: {
+                    settings: { orderBy: { order: 'asc' } },
+                    account: { select: { id: true, name: true } }
+                }
             });
+
+            const displaySettings =
+                deviceLevelProfile?.isActive && Array.isArray(deviceLevelProfile.settings)
+                    ? (deviceLevelProfile.settings as any[]).map((s: any) => ({ ...s, isOverridden: false }))
+                    : [];
+
+            console.log('[DeviceProfileLoader] Profile is inactive — displaying device own config', {
+                profileId: globalProfile.id,
+                profileName: globalProfile.name,
+                deviceId,
+                hasDeviceLevel: !!deviceLevelProfile,
+                displaySettingsCount: displaySettings.length,
+                reason: 'GLOBAL inactive — showing device retained config.'
+            });
+
             return {
                 id: globalProfile.id,
                 name: globalProfile.name,
                 description: globalProfile.description || '',
                 level: 'GLOBAL',
                 isActive: false,
-                settings: [],
+                settings: displaySettings,
                 hasOverrides: false,
                 overrideCount: 0,
                 account: globalProfile.account
             };
+        }
+
+        if (globalProfile.level === 'GLOBAL') {
+            const deviceLevelProfile = await prisma.deviceProfile.findFirst({
+                where: { deviceId, level: 'DEVICE' },
+                include: {
+                    settings: { orderBy: { order: 'asc' } },
+                    account: { select: { id: true, name: true } }
+                }
+            });
+            if (
+                deviceLevelProfile?.isActive &&
+                new Date(deviceLevelProfile.updatedAt).getTime() > new Date(globalProfile.updatedAt).getTime()
+            ) {
+                return {
+                    ...deviceLevelProfile,
+                    settings: (deviceLevelProfile.settings as any[]).map((s) => ({ ...s, isOverridden: false })),
+                    hasOverrides: false,
+                    overrideCount: 0
+                };
+            }
         }
 
         // Check for device-specific overrides

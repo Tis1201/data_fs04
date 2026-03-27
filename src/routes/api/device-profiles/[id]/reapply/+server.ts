@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { queueNotification } from '$lib/server/mqtt/core/queue';
 import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
 import { mapToConfigPayload } from '$lib/utils/mappers/deviceProfileMapper';
+import { touchDeviceProfileAfterReapply } from '$lib/server/devices/deviceProfileActions';
 
 // Validation schema for reapply request
 const ReapplyRequestSchema = z.object({
@@ -280,6 +281,21 @@ export const POST: RequestHandler = restrict(
 
             const successCount = results.filter(r => r.success).length;
             const failureCount = results.filter(r => !r.success).length;
+
+            if (successCount > 0) {
+                try {
+                    await touchDeviceProfileAfterReapply(
+                        prisma,
+                        profileId,
+                        auth?.user?.id ?? 'system'
+                    );
+                } catch (e) {
+                    logger.warn('[Reapply Profile] Failed to bump profile updatedAt after reapply', {
+                        profileId,
+                        error: e
+                    });
+                }
+            }
 
             logger.info(`[Reapply Profile] Reapply completed`, {
                 profileId,

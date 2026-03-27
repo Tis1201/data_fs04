@@ -4,6 +4,7 @@ import { restrictModule } from '$lib/server/security/guards';
 import type { ModuleAuthenticatedEvent } from '$lib/server/security/guards';
 import { logger } from '$lib/server/logger';
 import { ProfileConfigBuilder } from '$lib/server/device/profile';
+import { loadDeviceProfile } from '$lib/server/device/deviceProfileLoader';
 
 /**
  * GET /user/iot/devices/[id]
@@ -83,13 +84,31 @@ export const GET: RequestHandler = restrictModule(
                     profile: {
                         select: {
                             id: true,
-                            name: true
+                            name: true,
+                            level: true,
+                            updatedAt: true
                         }
                     }
                 }
             });
             
-            const profileId = assignment?.profileId || null;
+            let profileId: string | null = assignment?.profileId ?? null;
+
+            const deviceLevelRow = await locals.prisma.deviceProfile.findFirst({
+                where: { deviceId: device.id, level: 'DEVICE' },
+                select: { id: true, updatedAt: true, isActive: true }
+            });
+            const deviceLevelProfileId = deviceLevelRow?.id ?? null;
+
+            let editModalProfileId: string | null = profileId;
+            const assignedProf = assignment?.profile;
+            if (
+                assignedProf?.level === 'GLOBAL' &&
+                deviceLevelRow?.isActive &&
+                new Date(deviceLevelRow.updatedAt).getTime() > new Date(assignedProf.updatedAt).getTime()
+            ) {
+                editModalProfileId = deviceLevelRow.id;
+            }
             logger.info(`[API] Device ${device.id} - DeviceProfileAssignment:`, {
                 found: !!assignment,
                 profileId: assignment?.profileId,
@@ -98,13 +117,11 @@ export const GET: RequestHandler = restrictModule(
             console.log('[API] DeviceProfileAssignment:', assignment);
             console.log('[API] Extracted profileId:', profileId);
 
-            // Build effective config from profile and overrides
             const configBuilder = new ProfileConfigBuilder(locals.prisma);
             let effectiveConfig: Record<string, any> = {};
             let hasOverrides = false;
             try {
                 const { config, metadata } = await configBuilder.buildEffectiveConfig(device.id);
-                // Convert config to simple key-value pairs
                 effectiveConfig = Object.entries(config).reduce((acc, [key, setting]) => {
                     acc[key] = setting.value;
                     return acc;
@@ -126,10 +143,31 @@ export const GET: RequestHandler = restrictModule(
                 });
             } catch (configError) {
                 logger.warn(`Failed to build effective config for device ${device.id}: ${configError}`);
-                // Continue with empty config - device might not have profile assignment
             }
 
-            // Convert Prisma device to plain object with effective config
+            if (Object.keys(effectiveConfig).length === 0) {
+                try {
+                    const loaded = await loadDeviceProfile(locals.prisma, device.id);
+                    const settings = loaded?.settings;
+                    if (Array.isArray(settings) && settings.length > 0) {
+                        for (const s of settings as { key: string; value: unknown }[]) {
+                            if (s?.key) effectiveConfig[s.key] = s.value;
+                        }
+                        hasOverrides = Boolean((loaded as { hasOverrides?: boolean }).hasOverrides);
+                    }
+                    const loadedId = (loaded as { id?: string } | null)?.id;
+                    if (!profileId && loadedId) {
+                        profileId = loadedId;
+                    }
+                } catch (fallbackErr) {
+                    logger.warn(`[API] loadDeviceProfile fallback failed for ${device.id}: ${fallbackErr}`);
+                }
+            }
+
+            if (!editModalProfileId && profileId) {
+                editModalProfileId = profileId;
+            }
+
             const deviceData = {
                 id: device.id,
                 name: device.name,
@@ -138,8 +176,9 @@ export const GET: RequestHandler = restrictModule(
                 deviceType: device.deviceType,
                 osVersion: device.osVersion,
                 profileId: profileId,
-                hasCustomOverrides: hasOverrides, // Flag to indicate if device has custom overrides
-                // Map config keys from snake_case to camelCase
+                editModalProfileId,
+                deviceLevelProfileId,
+                hasCustomOverrides: false,
                 kioskLockMode: effectiveConfig.kiosk_lock_mode ?? effectiveConfig.kioskLockMode ?? false,
                 exitLockdownPassword: effectiveConfig.exit_lockdown_password ?? effectiveConfig.exitLockdownPassword ?? null,
                 kioskApplication: effectiveConfig.kiosk_application ?? effectiveConfig.kioskApplication ?? null,

@@ -5,7 +5,6 @@
   import { toast } from '$lib/stores/alertToast';
   import { Modal, Button, InputField } from '$lib/design-system/components';
 
-  /** Portal: render dropdown in body so it is not clipped by modal (modal has transform+overflow which clips fixed descendants) */
   function appendToBody(node: HTMLElement) {
     if (typeof document !== 'undefined') document.body.appendChild(node);
     return {
@@ -34,6 +33,9 @@
   export let devicesEndpoint: string | null = null;
   export let excludeDeviceIds: string[] = [];
 
+  const PAGE_SIZE = 50;
+  const SCROLL_LOAD_THRESHOLD_PX = 100;
+
   let tableData = {
     records: [] as Device[],
     loading: false
@@ -43,8 +45,14 @@
   let controller: AbortController | null = null;
   let searchDebounceId: ReturnType<typeof setTimeout> | null = null;
   let searchDropdownOpen = false;
+  let dropdownPointerActive = false;
   let searchWrapRef: HTMLElement | null = null;
   let dropdownRect: { left: number; top: number; width: number } | null = null;
+
+  let loadingMore = false;
+  let hasMorePages = false;
+  let nextPage = 1;
+  let fetchEpoch = 0;
 
   export let open = false;
   let selectedDevices: Device[] = [];
@@ -54,8 +62,9 @@
     close: void;
   }>();
 
-  function getMacDisplay(device: Device): string {
-    return device.macAddress || device.wifiMac || device.lanMac || '—';
+  function getMacAndIdLine(device: Device): string {
+    const mac = device.macAddress || device.wifiMac || device.lanMac || '—';
+    return `${mac} · ${device.id}`;
   }
 
   function addToSelected(device: Device) {
@@ -67,44 +76,144 @@
     selectedDevices = selectedDevices.filter((d) => d.id !== device.id);
   }
 
+  function mergeDevicesById(existing: Device[], incoming: Device[]): Device[] {
+    const seen = new Set(existing.map((d) => d.id));
+    const out = [...existing];
+    for (const d of incoming) {
+      if (d.id && !seen.has(d.id)) {
+        seen.add(d.id);
+        out.push(d);
+      }
+    }
+    return out;
+  }
+
+  type ListMeta = { current_page: number; last_page: number; per_page: number; total: number };
+
+  async function fetchDevicePage(
+    pageNum: number,
+    signal: AbortSignal
+  ): Promise<{ devices: Device[]; meta: ListMeta | null }> {
+    const params = new URLSearchParams();
+    params.append('page', String(pageNum));
+    params.append('per_page', String(PAGE_SIZE));
+    params.append('sort', 'name');
+    params.append('order', 'asc');
+    if (filterSearch.trim()) params.append('search', filterSearch.trim());
+    if (excludeDeviceIds?.length) params.append('excludeDeviceIds', excludeDeviceIds.join(','));
+
+    const apiUrl = devicesEndpoint
+      ? `${devicesEndpoint}?${params}`
+      : `${apiPrefix}/iot/bundles/${bundleId}/components/device_select?${params}`;
+
+    const response = await fetch(apiUrl, { signal });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+    const raw = await response.json();
+    let devices: Device[] = [];
+    let meta: ListMeta | null = null;
+
+    if (devicesEndpoint) {
+      devices = raw?.data?.devices || raw?.devices || [];
+      const m = raw?.data?.meta ?? raw?.meta;
+      if (m && typeof m.current_page === 'number' && typeof m.last_page === 'number') {
+        meta = {
+          current_page: m.current_page,
+          last_page: m.last_page,
+          per_page: Number(m.per_page) || PAGE_SIZE,
+          total: Number(m.total) || 0
+        };
+      }
+    } else {
+      devices = raw?.devices || [];
+      const m = raw?.meta;
+      if (m && typeof m.current_page === 'number' && typeof m.last_page === 'number') {
+        meta = {
+          current_page: m.current_page,
+          last_page: m.last_page,
+          per_page: Number(m.per_page) || PAGE_SIZE,
+          total: Number(m.total) || 0
+        };
+      }
+    }
+
+    return { devices, meta };
+  }
+
+  function syncPagingAfterPage(meta: ListMeta | null, pageFetched: number, batchLength: number) {
+    if (meta) {
+      hasMorePages = meta.current_page < meta.last_page;
+      nextPage = meta.current_page + 1;
+    } else {
+      hasMorePages = batchLength >= PAGE_SIZE;
+      nextPage = pageFetched + 1;
+    }
+  }
+
   async function loadDevices() {
+    fetchEpoch += 1;
+    const myEpoch = fetchEpoch;
+
     try {
       tableData = { ...tableData, loading: true };
-
-      const params = new URLSearchParams();
-      params.append('page', '1');
-      params.append('per_page', '10');
-      params.append('sort', 'name');
-      params.append('order', 'asc');
-      if (filterSearch.trim()) params.append('search', filterSearch.trim());
-      if (excludeDeviceIds?.length) params.append('excludeDeviceIds', excludeDeviceIds.join(','));
-
-      const apiUrl = devicesEndpoint
-        ? `${devicesEndpoint}?${params}`
-        : `${apiPrefix}/iot/bundles/${bundleId}/components/device_select?${params}`;
+      hasMorePages = false;
+      nextPage = 1;
+      loadingMore = false;
 
       if (controller) controller.abort();
       controller = new AbortController();
-      const response = await fetch(apiUrl, { signal: controller.signal });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const { devices, meta } = await fetchDevicePage(1, controller.signal);
+      if (myEpoch !== fetchEpoch) return;
 
-      const raw = await response.json();
-      let devices: Device[] = [];
-
-      if (devicesEndpoint) {
-        devices = raw?.data?.devices || raw?.devices || [];
-      } else {
-        devices = raw?.devices || [];
-      }
-
+      syncPagingAfterPage(meta, 1, devices.length);
       tableData = { ...tableData, loading: false, records: devices };
     } catch (error) {
-      if ((error as any)?.name === 'AbortError') return;
+      if ((error as any)?.name === 'AbortError') {
+        if (myEpoch === fetchEpoch) {
+          tableData = { ...tableData, loading: false };
+        }
+        return;
+      }
       console.error('[DeviceSelector] Failed to load devices:', error);
       toast.error('Failed to load devices. Please try again.');
-      tableData = { ...tableData, loading: false };
+      if (myEpoch === fetchEpoch) {
+        tableData = { ...tableData, loading: false, records: [] };
+        hasMorePages = false;
+      }
     }
+  }
+
+  async function loadMoreDevices() {
+    if (!hasMorePages || loadingMore || tableData.loading || !controller) return;
+    const epochAtStart = fetchEpoch;
+    loadingMore = true;
+    try {
+      const pageToFetch = nextPage;
+      const { devices, meta } = await fetchDevicePage(pageToFetch, controller.signal);
+      if (epochAtStart !== fetchEpoch) return;
+      tableData = {
+        ...tableData,
+        records: mergeDevicesById(tableData.records, devices)
+      };
+      if (meta) {
+        syncPagingAfterPage(meta, meta.current_page, devices.length);
+      } else {
+        syncPagingAfterPage(null, pageToFetch, devices.length);
+      }
+    } catch (error) {
+      if ((error as any)?.name === 'AbortError') return;
+      console.error('[DeviceSelector] Failed to load more devices:', error);
+      toast.error('Failed to load more devices.');
+    } finally {
+      if (epochAtStart === fetchEpoch) loadingMore = false;
+    }
+  }
+
+  function handleDropdownScroll(e: Event) {
+    const el = e.currentTarget as HTMLElement;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > SCROLL_LOAD_THRESHOLD_PX) return;
+    void loadMoreDevices();
   }
 
   function onSearchInput() {
@@ -121,15 +230,14 @@
   }
 
   function onSearchBlur() {
-    // Delay so mousedown on dropdown items can register before hiding
-    setTimeout(() => { searchDropdownOpen = false; }, 200);
+    setTimeout(() => {
+      if (!dropdownPointerActive) searchDropdownOpen = false;
+    }, 200);
   }
 
-  // Click outside to close dropdown
   function handleClickOutside(event: MouseEvent) {
     if (!searchDropdownOpen) return;
     const target = event.target as HTMLElement;
-    // Check if click is outside both the search input and the dropdown
     const clickedInput = searchWrapRef?.contains(target);
     const clickedDropdown = target.closest('.add-device-search-dropdown-portal');
     if (!clickedInput && !clickedDropdown) {
@@ -137,7 +245,6 @@
     }
   }
 
-  // Add/remove click-outside listener when dropdown opens/closes
   $: if (browser) {
     if (searchDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
@@ -146,8 +253,9 @@
     }
   }
 
-  // Cleanup on component destroy
   onDestroy(() => {
+    if (controller) controller.abort();
+    controller = null;
     if (browser) {
       document.removeEventListener('mousedown', handleClickOutside);
     }
@@ -155,7 +263,6 @@
 
   function handleConfirm() {
     if (selectedDevices.length === 0) return;
-    console.log('[DeviceSelector] handleConfirm dispatching', { count: selectedDevices.length, devices: selectedDevices.map((d) => d.id) });
     dispatch(
       'select',
       selectedDevices.map((d) => ({ id: d.id, name: d.name }))
@@ -171,8 +278,15 @@
   }
 
   function handleClose() {
+    if (controller) controller.abort();
+    controller = null;
     filterSearch = '';
     tableData = { records: [], loading: false };
+    hasMorePages = false;
+    nextPage = 1;
+    loadingMore = false;
+    dropdownPointerActive = false;
+    fetchEpoch += 1;
     searchDropdownOpen = false;
     if (searchDebounceId) {
       clearTimeout(searchDebounceId);
@@ -183,7 +297,6 @@
     dispatch('close');
   }
 
-  // Auto-load devices when modal opens
   $: if (open && browser) {
     searchDropdownOpen = true;
     loadDevices();
@@ -217,7 +330,6 @@
   on:cancel={handleClose}
 >
   <div class="add-device-modal-body">
-    <!-- Search: dropdown rendered via portal so it sits on top of modal (modal transform+overflow clips in-modal fixed) -->
     <div class="add-device-search-wrap add-device-input-container" bind:this={searchWrapRef}>
       <div class="add-device-search">
         <InputField
@@ -239,13 +351,16 @@
         </InputField>
       </div>
     </div>
-    <!-- Portal: dropdown in body so it is above modal and not clipped -->
     {#if showDropdown && dropdownRect}
       <div
         use:appendToBody
         class="add-device-search-dropdown add-device-search-dropdown-portal"
         role="listbox"
         style="position: fixed; top: {dropdownRect.top}px; left: {dropdownRect.left}px; width: {dropdownRect.width}px; z-index: 9999;"
+        on:scroll={handleDropdownScroll}
+        on:mousedown={() => (dropdownPointerActive = true)}
+        on:mouseup={() => (dropdownPointerActive = false)}
+        on:mouseleave={() => (dropdownPointerActive = false)}
       >
         {#if tableData.loading}
           <div class="add-device-dropdown-item add-device-dropdown-empty">Loading...</div>
@@ -263,14 +378,16 @@
               on:mousedown|preventDefault={() => canAdd(device) && addToSelected(device)}
             >
               <span class="add-device-dropdown-name">{device.name}</span>
-              <span class="add-device-dropdown-mac">{getMacDisplay(device)}</span>
+              <span class="add-device-dropdown-mac">{getMacAndIdLine(device)}</span>
             </button>
           {/each}
+          {#if loadingMore}
+            <div class="add-device-dropdown-item add-device-dropdown-loading-more">Loading more…</div>
+          {/if}
         {/if}
       </div>
     {/if}
 
-    <!-- Selected (N items): name + MAC + X (design) -->
     <div class="add-device-selected">
       <h4 class="add-device-selected-title"
         >Selected ({selectedDevices.length} {selectedDevices.length === 1 ? 'item' : 'items'})</h4
@@ -283,7 +400,7 @@
             <div class="add-device-selected-item">
               <div class="add-device-selected-item-text">
                 <span class="add-device-selected-name">{device.name}</span>
-                <span class="add-device-selected-mac">{getMacDisplay(device)}</span>
+                <span class="add-device-selected-mac">{getMacAndIdLine(device)}</span>
               </div>
               <Button
                 variant="text"
@@ -317,7 +434,6 @@
     width: 100%;
     min-width: 0;
   }
-  /* Same pattern as assign-deployment (devices page): container overflow visible so dropdown is not clipped */
   .add-device-input-container {
     position: relative;
     overflow: visible;
@@ -334,7 +450,6 @@
     border-radius: var(--ds-radius-lg);
     box-shadow: var(--ds-shadow-lg);
   }
-  /* Portal: position/z-index set inline so dropdown is above modal and not clipped by modal transform+overflow */
   .add-device-search-dropdown-portal {
     margin-top: 0;
   }
@@ -385,6 +500,16 @@
     line-height: var(--ds-leading-xs);
     letter-spacing: 0.01em;
     color: var(--ds-text-secondary);
+    overflow-wrap: anywhere;
+  }
+  .add-device-dropdown-loading-more {
+    padding: var(--ds-space-2) var(--ds-space-4);
+    text-align: center;
+    font-size: var(--ds-text-xs);
+    color: var(--ds-text-tertiary);
+    font-style: italic;
+    cursor: default;
+    border-bottom: none;
   }
   .add-device-dropdown-empty {
     padding: var(--ds-space-4);
@@ -452,5 +577,6 @@
     line-height: var(--ds-leading-xs);
     letter-spacing: 0.01em;
     color: var(--ds-text-secondary);
+    overflow-wrap: anywhere;
   }
 </style>

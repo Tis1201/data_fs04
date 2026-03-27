@@ -116,7 +116,7 @@ export const GET: RequestHandler = restrict(
         (where.NOT as any[]).push({ packageName: { in: excludePackages } });
       }
 
-      // Exclude null package names from unique list
+      // Exclude null package names
       if (!where.NOT) where.NOT = [] as any;
       (where.NOT as any[]).push({ packageName: null });
 
@@ -124,20 +124,10 @@ export const GET: RequestHandler = restrict(
       const skip = (page - 1) * pageSize;
       const take = pageSize;
 
-      // Count total (distinct by packageName)
-      // ZenStack will automatically filter based on access policies
-      const grouped = await locals.prisma.resource.groupBy({
-        by: ['packageName'],
-        where,
-        _count: { _all: true }
-      });
-      const totalItems = grouped.length;
+      const totalItems = await locals.prisma.resource.count({ where });
 
-      // Fetch items (distinct by packageName)
-      // ZenStack will automatically filter based on access policies
       const items = await locals.prisma.resource.findMany({
         where,
-        distinct: ['packageName'],
         orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }], // stable tie-breaker
         skip,
         take,

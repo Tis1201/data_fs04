@@ -1,24 +1,22 @@
 /**
  * Format bytes as human-readable text.
- * 
+ *
  * @param bytes Number of bytes.
- * @param si True to use metric (SI) units, aka powers of 1000. False to use 
- *           binary (IEC), aka powers of 1024.
+ * @param si True for decimal (1000); false for binary (1024). Default is binary to match OS/file tooling.
  * @param dp Number of decimal places to display.
- * @returns Formatted string.
+ * @returns Formatted string (KB/MB labels use the chosen base; default is 1024-based).
  */
-export function formatBytes(bytes: number, si = true, dp = 1) {
-    if (bytes === 0) return '0 B';
+export function formatBytes(bytes: number | null | undefined, si = false, dp = 1) {
+    const n = bytes ?? 0;
+    if (n === 0) return '0 B';
 
     const k = si ? 1000 : 1024;
     const dm = dp < 0 ? 0 : dp;
-    const sizes = si 
-        ? ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-        : ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
 
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const i = Math.floor(Math.log(n) / Math.log(k));
 
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    return parseFloat((n / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 }
 
 /**

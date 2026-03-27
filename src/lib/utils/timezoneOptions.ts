@@ -148,3 +148,13 @@ export const timezoneOptionsForSelect = timezoneOptions.map((o) => ({
     value: o.id,
     label: o.label
 }));
+
+/**
+ * Get display label for an IANA timezone id.
+ * Uses the shared list when available; otherwise returns the raw id (e.g. "America/New_York").
+ */
+export function formatTimezoneLabel(ianaId: string | null | undefined): string {
+    if (!ianaId) return '—';
+    const opt = timezoneOptions.find((o) => o.id === ianaId);
+    return opt?.label ?? ianaId;
+}
