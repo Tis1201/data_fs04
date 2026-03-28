@@ -6,6 +6,7 @@ import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { deleteFileFromCloudStorage, getStorageConfig } from '$lib/server/storage';
+import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
@@ -53,28 +54,29 @@ export const load = restrict(
             const skip = (page - 1) * perPage;
             const take = perPage;
 
-            // Build the where clause - always filter by current account
-            const where: Record<string, unknown> = {
-                accountId: currentAccountId
-            };
+            const andClauses: Record<string, unknown>[] = [
+                { OR: resourceVisibilityOrForAccount(currentAccountId) }
+            ];
 
-            // Add search filter if provided (Name, Type, PackageName, path, id - case-insensitive)
             if (search) {
                 const searchLower = search.toLowerCase();
                 const insensitive = { contains: searchLower, mode: 'insensitive' as const };
-                where.OR = [
-                    { name: insensitive },
-                    { id: { contains: searchLower } },
-                    { type: insensitive },
-                    { path: insensitive },
-                    { packageName: insensitive }
-                ];
+                andClauses.push({
+                    OR: [
+                        { name: insensitive },
+                        { id: { contains: searchLower } },
+                        { type: insensitive },
+                        { path: insensitive },
+                        { packageName: insensitive }
+                    ]
+                });
             }
 
-            // Add type filter if provided
             if (types.length > 0) {
-                where.type = { in: types };
+                andClauses.push({ type: { in: types } });
             }
+
+            const where: Record<string, unknown> = { AND: andClauses };
 
             const effectiveSortField = sortField || 'createdAt';
             const effectiveSortOrder = sortOrder || 'desc';
@@ -106,11 +108,19 @@ export const load = restrict(
                         updatedAt: true,
                         createdBy: true,
                         updatedBy: true,
-                        accountId: true
-                    }
+                        accountId: true,
+                        shareScope: true,
+                        sharedWithAccounts: { select: { accountId: true } }
+                    } as any
                 }),
                 locals.prisma.resource.count({ where })
             ]);
+
+            const resourcesForClient = resources.map((r: any) => {
+                const level = r.accountId === currentAccountId ? 'owner' : 'shared_read';
+                const { sharedWithAccounts: _sw, ...rest } = r;
+                return { ...rest, access: level };
+            });
 
             // Calculate pagination metadata
             const totalPages = Math.ceil(totalResources / perPage);
@@ -122,9 +132,8 @@ export const load = restrict(
             });
             const accounts = currentAccount ? [currentAccount] : [];
 
-            // Resource types scoped to current account
             const resourceTypesRows = await locals.prisma.resource.findMany({
-                where: { accountId: currentAccountId },
+                where: { AND: [{ OR: resourceVisibilityOrForAccount(currentAccountId) }] },
                 select: { type: true },
                 distinct: ['type'],
                 orderBy: { type: 'asc' }
@@ -135,7 +144,7 @@ export const load = restrict(
 
             // Return the data (meta.pagination + meta.sort for design-system DataTable)
             return {
-                resources,
+                resources: resourcesForClient,
                 accounts,
                 resourceTypes,
                 storageConfig,

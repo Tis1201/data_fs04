@@ -3,6 +3,7 @@ import { json } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
 
 // Allowed firmware formats (server-enforced)
 const ALLOWED_FORMATS = new Set(['bin', 'hex', 'firmware', 'fw', 'cpk', 'apk', 'zip']);
@@ -59,33 +60,37 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid date filter' }, { status: 400 });
       }
 
-      const where: any = { accountId: currentAccountId };
+      const and: any[] = [{ OR: resourceVisibilityOrForAccount(currentAccountId) }];
 
       if (formatFilter && formatFilter.length) {
-        where.format = { in: formatFilter };
+        and.push({ format: { in: formatFilter } });
       } else {
-        // Default to allowed formats, but this can be overridden with ?format=
-        where.format = { in: Array.from(ALLOWED_FORMATS) };
+        and.push({ format: { in: Array.from(ALLOWED_FORMATS) } });
       }
 
       if (versionFilter) {
-        where.version = versionFilter;
+        and.push({ version: versionFilter });
       }
 
       if (createdAfterDate || createdBeforeDate) {
-        where.createdAt = {};
-        if (createdAfterDate) where.createdAt.gt = createdAfterDate;
-        if (createdBeforeDate) where.createdAt.lt = createdBeforeDate;
+        const createdAt: Record<string, Date> = {};
+        if (createdAfterDate) createdAt.gt = createdAfterDate;
+        if (createdBeforeDate) createdAt.lt = createdBeforeDate;
+        and.push({ createdAt });
       }
 
       if (search && search.trim().length) {
         const q = search.trim();
-        where.OR = [
-          { name: { contains: q, mode: 'insensitive' } },
-          { description: { contains: q, mode: 'insensitive' } },
-          { packageName: { contains: q, mode: 'insensitive' } }
-        ];
+        and.push({
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { packageName: { contains: q, mode: 'insensitive' } }
+          ]
+        });
       }
+
+      const where: any = { AND: and };
 
       // Pagination calculus
       const skip = (page - 1) * pageSize;

@@ -21,6 +21,7 @@
     export let basePath: string; // "/admin" for admin routes
     export let showAccountField: boolean = true;
     export let deleteAction: string = '?/delete';
+    export let showShareControls: boolean = false;
 
     // Make resource reactive to server invalidations
     $: resource = resource;
@@ -102,6 +103,7 @@
         {deleteState}
         onDeleteConfirm={handleDeleteConfirm}
         {deleteAction}
+        {showShareControls}
     />
 </AdminPageLayout>
 

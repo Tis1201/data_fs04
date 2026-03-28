@@ -15,6 +15,10 @@ import { calculateBundleTimeout, getTimeoutMinutes } from '$lib/server/config/ti
 import { isDeviceOnline } from '$lib/server/device/devicePresence';
 import { convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
 import { publishToAccountMembers } from '../mqtt/notifications/bundleNotifications';
+import {
+	assertBundleWaveInstallAllowed,
+	assertResourcesInstallableForAccount
+} from '$lib/server/resources/resourceInstallAccess';
 import crypto from 'crypto';
 
 /**
@@ -48,6 +52,16 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
         success: false,
         error: `Cannot publish: ${appsWithDeletedResource.length} app(s) reference deleted resources. Remove or replace them before publishing.`
       }
+    };
+  }
+
+  try {
+    await assertResourcesInstallableForAccount(prisma, bundle.accountId, bundle.apps || []);
+  } catch (e: any) {
+    const st = typeof e?.status === 'number' ? e.status : 403;
+    return {
+      status: st,
+      body: { success: false, error: e?.message || 'Bundle apps are not allowed for this account' }
     };
   }
 
@@ -159,6 +173,13 @@ export async function publishBundleCore(prisma: any, bundleId: string, userId = 
             prisma.bundle.findUnique({ where: { id: bundleId }, include: { apps: { include: { resource: true }, orderBy: { order: 'asc' } } } }),
             prisma.bundleDeviceProgress.findMany({ where: { bundleId, waveId: firstWaveId }, include: { bundleDevice: true } })
           ]);
+
+          await assertBundleWaveInstallAllowed(
+            prisma,
+            bundle.accountId,
+            bundleWithApps?.apps || [],
+            progresses
+          );
 
           // Set startedAt for all devices in the first wave when sending commands
           const startTime = new Date();
@@ -464,6 +485,13 @@ export async function sendBundleInstallToWave(
 	if (appsWithDeletedResource.length > 0) {
 		throw new Error(`Cannot send install: ${appsWithDeletedResource.length} app(s) reference deleted resources. Remove or replace them before retrying.`);
 	}
+
+	await assertBundleWaveInstallAllowed(
+		prisma,
+		bundleMeta.accountId,
+		bundleWithApps.apps || [],
+		progresses
+	);
 
 	const apps = await Promise.all(
 		(bundleWithApps.apps || []).map(async (a: any, idx: number) => {

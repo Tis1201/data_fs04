@@ -1,6 +1,7 @@
 import { ClaimStatus } from '@prisma/client';
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
+import { formatMacAddress } from '$lib/utils/deviceUtils';
 import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { markPreclaimSetCompletedIfAllClaimed } from '$lib/server/device/devicePreclaim';
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
@@ -198,9 +199,8 @@ async function _handleClaimConfirmInner(
 
     const apiKey = generateId(128);
 
-    // Device name format: "device - MAC-address" (e.g., "device - 82:B4:D5:BF:10:EB")
-    // Always use MAC address for device name; fallback to generic name if MAC is missing
-    const deviceName = macAddress ? `device - ${macAddress}` : 'device - unknown';
+    // Device name: MAC-style label only (matches IoT device list, e.g. A2:3C:A6:3E:7F:FD)
+    const deviceName = macAddress ? formatMacAddress(macAddress) : 'Unknown device';
 
     let preclaimSetIdToComplete: string | null = null;
 

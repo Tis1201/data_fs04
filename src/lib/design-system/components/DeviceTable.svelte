@@ -155,6 +155,24 @@
         return 'Healthy';
     }
 
+    /** OS column: agents/DB often send lowercase; filters use Android/Linux/Windows/macOS. */
+    function formatDeviceOsDisplay(value: string | undefined | null): string {
+        if (value == null || String(value).trim() === '') return 'N/A';
+        const raw = String(value).trim();
+        const key = raw.toLowerCase();
+        const labels: Record<string, string> = {
+            android: 'Android',
+            linux: 'Linux',
+            windows: 'Windows',
+            macos: 'macOS',
+            apple: 'Apple',
+            unknown: 'Unknown',
+            ios: 'iOS'
+        };
+        if (labels[key]) return labels[key];
+        return raw.charAt(0).toUpperCase() + raw.slice(1);
+    }
+
     // Client-side filter only for Usage health (ClickHouse data, not filterable server-side).
     // OS (deviceType) and connection status (connected) are filtered server-side via URL params.
     $: filteredData = data.filter(row => {
@@ -295,9 +313,10 @@
     }
 
     // Pagination handlers
-    function goToPage(page: number) {
-        if (page >= 1 && page <= pagination.totalPages) {
-            dispatch("pageChange", page);
+    function goToPage(targetPage: number) {
+        const total = Math.max(0, Math.floor(Number(pagination.totalPages)) || 0);
+        if (targetPage >= 1 && targetPage <= total) {
+            dispatch("pageChange", targetPage);
         }
     }
 
@@ -374,27 +393,32 @@
         // Note: openFilterColumn is closed via backdrop overlay, not svelte:window
     }
 
-    // Generate page numbers for pagination
+    // Generate page numbers for pagination (URL/JSON may give string page — never use `page + 1` on strings)
     function getPageNumbers(): (number | string)[] {
-        const { page, totalPages } = pagination;
-        const pages: (number | string)[] = [];
-        
+        const totalPages = Math.max(0, Math.floor(Number(pagination.totalPages)) || 0);
+        if (totalPages <= 0) return [];
+
+        const page = Math.max(1, Math.min(Number(pagination.page) || 1, totalPages));
         if (totalPages <= 7) {
-            for (let i = 1; i <= totalPages; i++) pages.push(i);
-        } else {
-            pages.push(1);
-            if (page > 3) pages.push("...");
-            
-            const start = Math.max(2, page - 1);
-            const end = Math.min(totalPages - 1, page + 1);
-            
-            for (let i = start; i <= end; i++) pages.push(i);
-            
-            if (page < totalPages - 2) pages.push("...");
-            pages.push(totalPages);
+            return Array.from({ length: totalPages }, (_, i) => i + 1);
         }
-        
-        return pages;
+
+        const neighbors = new Set<number>();
+        neighbors.add(1);
+        neighbors.add(totalPages);
+        for (let p = page - 1; p <= page + 1; p++) {
+            if (p >= 1 && p <= totalPages) neighbors.add(p);
+        }
+
+        const sorted = [...neighbors].sort((a, b) => a - b);
+        const out: (number | string)[] = [];
+        let prev = 0;
+        for (const p of sorted) {
+            if (p - prev > 1) out.push('...');
+            out.push(p);
+            prev = p;
+        }
+        return out;
     }
 </script>
 
@@ -561,7 +585,7 @@
                             <!-- Operating System (deviceType): padding 16px -->
                             {#if !hiddenSet.has('deviceType')}
                                 <td class="h-[72px]" style="padding: 16px; border-bottom: 1px solid #EAECF0;">
-                                    <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{row.deviceType || "N/A"}</span>
+                                    <span style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-900);">{formatDeviceOsDisplay(row.deviceType)}</span>
                                 </td>
                             {/if}
 
@@ -633,7 +657,7 @@
         <div class="flex items-center justify-end bg-white" style="padding: 8px 24px; height: 56px; border-top: 1px solid #EAECF0; gap: 8px;">
             <!-- Details: font 14px/20px, color #525252 -->
             <div style="font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-regular); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); color: var(--ds-color-gray-600); white-space: nowrap;">
-                {(pagination.page - 1) * pagination.perPage + 1} - {Math.min(pagination.page * pagination.perPage, pagination.total)} of {pagination.total}
+                {(Number(pagination.page) - 1) * Number(pagination.perPage) + 1} - {Math.min(Number(pagination.page) * Number(pagination.perPage), Number(pagination.total))} of {pagination.total}
             </div>
 
             <!-- Pagination numbers: gap 2px -->
@@ -643,7 +667,7 @@
                     type="button"
                     class="flex items-center justify-center rounded disabled:opacity-50 disabled:cursor-not-allowed"
                     style="width: 36px; height: 36px; padding: 8px; border-radius: 8px;"
-                    disabled={pagination.page === 1}
+                    disabled={Number(pagination.page) <= 1}
                     on:click={() => goToPage(1)}
                 >
                     <ChevronsLeft size={20} style="color: #292929;" />
@@ -654,21 +678,21 @@
                     type="button"
                     class="flex items-center justify-center rounded disabled:opacity-50 disabled:cursor-not-allowed"
                     style="width: 36px; height: 36px; padding: 8px; border-radius: 8px;"
-                    disabled={pagination.page === 1}
-                    on:click={() => goToPage(pagination.page - 1)}
+                    disabled={Number(pagination.page) <= 1}
+                    on:click={() => goToPage(Number(pagination.page) - 1)}
                 >
                     <ChevronLeft size={20} style="color: #292929;" />
                 </button>
 
                 <!-- Page numbers: 40x40px, padding 12px, border-radius 8px -->
-                {#each getPageNumbers() as pageNum}
+                {#each getPageNumbers() as pageNum, pageIdx (pageNum === '...' ? `e-${pageIdx}` : String(pageNum))}
                     {#if pageNum === "..."}
                         <span style="padding: 0 8px; color: #A3A3A3;">...</span>
                     {:else}
                         <button
                             type="button"
                             class="flex items-center justify-center rounded transition-colors"
-                            style="width: 40px; height: 40px; padding: 12px; border-radius: var(--ds-radius-lg); font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); {pagination.page === pageNum ? 'background: var(--ds-color-gray-50); color: var(--ds-color-gray-800);' : 'color: var(--ds-color-gray-600);'}"
+                            style="width: 40px; height: 40px; padding: 12px; border-radius: var(--ds-radius-lg); font-family: var(--ds-font-family-primary); font-weight: var(--ds-font-medium); font-size: var(--ds-text-sm); line-height: var(--ds-leading-sm); {Number(pagination.page) === Number(pageNum) ? 'background: var(--ds-color-gray-50); color: var(--ds-color-gray-800);' : 'color: var(--ds-color-gray-600);'}"
                             on:click={() => goToPage(Number(pageNum))}
                         >
                             {pageNum}
@@ -681,8 +705,8 @@
                     type="button"
                     class="flex items-center justify-center rounded disabled:opacity-50 disabled:cursor-not-allowed"
                     style="width: 36px; height: 36px; padding: 8px; border-radius: 8px;"
-                    disabled={pagination.page === pagination.totalPages}
-                    on:click={() => goToPage(pagination.page + 1)}
+                    disabled={Number(pagination.page) >= Number(pagination.totalPages)}
+                    on:click={() => goToPage(Number(pagination.page) + 1)}
                 >
                     <ChevronRight size={20} style="color: #292929;" />
                 </button>
@@ -692,8 +716,8 @@
                     type="button"
                     class="flex items-center justify-center rounded disabled:opacity-50 disabled:cursor-not-allowed"
                     style="width: 36px; height: 36px; padding: 8px; border-radius: 8px;"
-                    disabled={pagination.page === pagination.totalPages}
-                    on:click={() => goToPage(pagination.totalPages)}
+                    disabled={Number(pagination.page) >= Number(pagination.totalPages)}
+                    on:click={() => goToPage(Number(pagination.totalPages))}
                 >
                     <ChevronsRight size={20} style="color: #292929;" />
                 </button>

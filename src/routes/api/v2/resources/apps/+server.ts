@@ -1,4 +1,8 @@
-import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	resourceVisibilityOrForAccountIds,
+	unifiedEndpoint
+} from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
@@ -155,18 +159,24 @@ export const GET = unifiedEndpoint(
     if (!where.NOT) where.NOT = [] as any;
     (where.NOT as any[]).push({ packageName: null });
 
-    // Role-based account filtering: user sees current account only (switch-account aware)
+    /** When user has no `currentAccount`, used for path / access labeling */
+    let membershipAccountIds: string[] | null = null;
+
+    // Role-based visibility: own account resources + admin-shared catalog
     if (session.user.systemRole !== 'ADMIN') {
       const currentAccountId = context.account?.id;
       if (currentAccountId) {
-        where.accountId = currentAccountId;
+        where.AND = [...(where.AND ?? []), { OR: resourceVisibilityOrForAccount(currentAccountId) }];
       } else {
         const memberships = await prisma.accountMembership.findMany({
           where: { userId: session.user.id },
           select: { accountId: true }
         });
-        const accountIds = memberships.map((m: { accountId: string }) => m.accountId);
-        where.accountId = accountIds.length > 0 ? { in: accountIds } : '__NO_ACCOUNT__';
+        membershipAccountIds = memberships.map((m: { accountId: string }) => m.accountId);
+        where.AND = [
+          ...(where.AND ?? []),
+          { OR: resourceVisibilityOrForAccountIds(membershipAccountIds) }
+        ];
       }
     }
 
@@ -191,7 +201,7 @@ export const GET = unifiedEndpoint(
 
     logger.info(`[AppsAPI] Total items found: ${totalItems}`);
 
-    const items = await prisma.resource.findMany({
+    const rows = await prisma.resource.findMany({
       where,
       orderBy: [{ [sortField]: sortOrder }, { id: 'asc' }], // stable tie-breaker
       skip,
@@ -206,11 +216,34 @@ export const GET = unifiedEndpoint(
         size: true,
         releaseType: true,
         path: true,
-        createdAt: true
+        createdAt: true,
+        accountId: true,
+        shareScope: true
       }
     });
 
-    logger.info(`[AppsAPI] Items returned: ${items.length}`);
+    logger.info(`[AppsAPI] Items returned: ${rows.length}`);
+
+    const currentAid = context.account?.id;
+    const items = rows.map((row: (typeof rows)[number]) => {
+      const isAdmin = session.user.systemRole === 'ADMIN';
+      let access: 'admin' | 'owner' | 'shared_read';
+      if (isAdmin) {
+        access = 'admin';
+      } else if (currentAid && row.accountId === currentAid) {
+        access = 'owner';
+      } else if (membershipAccountIds?.includes(row.accountId)) {
+        access = 'owner';
+      } else {
+        access = 'shared_read';
+      }
+      const { shareScope: _s, path, accountId: _a, ...rest } = row;
+      const item = { ...rest, access };
+      if (access === 'shared_read') {
+        return item;
+      }
+      return { ...rest, path, access };
+    });
 
     const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
     const hasNext = page < totalPages;

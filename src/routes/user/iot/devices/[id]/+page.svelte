@@ -2970,7 +2970,13 @@
                             </div>
                         </div>
                         <div class="push-file-created">
-                            Created On: {formatInstallDate(resource.createdAt)}
+                            <div class="push-file-id-line">
+                                <span class="push-file-created-label">ID</span>
+                                <span class="push-file-id-text" title={resource.id}>{resource.id}</span>
+                            </div>
+                            <div>
+                                Created On: {formatInstallDate(resource.createdAt)}
+                            </div>
                         </div>
                     </button>
                 {/each}
@@ -5054,14 +5060,40 @@
         color: var(--ds-color-gray-900);
     }
 
-    /* Created date */
+    /* Created date + resource id */
     .push-file-created {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
         padding-left: 28px;
         font-family: var(--ds-font-family-primary);
         font-weight: var(--ds-font-regular);
         font-size: var(--ds-text-xs);
         line-height: var(--ds-leading-xs);
         color: var(--ds-color-gray-500);
+    }
+
+    .push-file-id-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px;
+        min-width: 0;
+    }
+
+    .push-file-created-label {
+        flex-shrink: 0;
+        color: var(--ds-color-gray-600);
+        font-weight: var(--ds-font-medium);
+    }
+
+    .push-file-id-text {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 11px;
+        line-height: 1.35;
+        color: var(--ds-color-gray-700);
+        word-break: break-all;
+        min-width: 0;
     }
 
     /* Pagination */

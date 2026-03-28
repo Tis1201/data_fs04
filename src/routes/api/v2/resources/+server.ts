@@ -11,7 +11,7 @@
  */
 
 import type { RequestHandler } from '@sveltejs/kit';
-import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import { resourceVisibilityOrForAccount, unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 
 /**
  * GET /api/v2/resources
@@ -23,7 +23,7 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
  * - pageSize: items per page
  * 
  * - Admin: sees all resources
- * - User: sees only resources in their account
+ * - User: sees resources owned by their account plus admin-shared catalog
  */
 export const GET: RequestHandler = unifiedEndpoint(
 	async ({ context, event }) => {
@@ -36,21 +36,27 @@ export const GET: RequestHandler = unifiedEndpoint(
 		);
 		const isAdmin = context.session.user.systemRole === 'ADMIN';
 
-		// Build where clause - admins see all, users see only current account's resources
-		const whereClause: any = typeFilter ? { type: typeFilter } : {};
+		const typePart = typeFilter ? { type: typeFilter } : {};
+		let whereClause: Record<string, unknown>;
 
-		if (!isAdmin) {
-			// Scope to current account (switch-account aware); fallback to createdBy if no account context
-			if (context.account?.id) {
-				whereClause.accountId = context.account.id;
-			} else {
-				whereClause.createdBy = context.session.user.id;
-			}
+		if (isAdmin) {
+			whereClause = typePart;
+		} else if (context.account?.id) {
+			const aid = context.account.id;
+			whereClause = {
+				...typePart,
+				OR: resourceVisibilityOrForAccount(aid)
+			};
+		} else {
+			whereClause = {
+				...typePart,
+				createdBy: context.session.user.id
+			};
 		}
 
 		const skip = (page - 1) * pageSize;
 
-		const [items, total] = await Promise.all([
+		const [rows, total] = await Promise.all([
 			context.prisma.resource.findMany({
 				where: whereClause,
 				skip,
@@ -65,7 +71,9 @@ export const GET: RequestHandler = unifiedEndpoint(
 					releaseType: true,
 					size: true,
 					createdAt: true,
-					updatedAt: true
+					updatedAt: true,
+					accountId: true,
+					shareScope: true
 				},
 				orderBy: {
 					createdAt: 'desc'
@@ -75,6 +83,22 @@ export const GET: RequestHandler = unifiedEndpoint(
 				where: whereClause
 			})
 		]);
+
+		const items = rows.map((row: (typeof rows)[number]) => {
+			let access: 'admin' | 'owner' | 'shared_read';
+			if (isAdmin) {
+				access = 'admin';
+			} else if (!context.account?.id) {
+				// List is scoped to createdBy only — viewer owns these rows
+				access = 'owner';
+			} else if (row.accountId === context.account.id) {
+				access = 'owner';
+			} else {
+				access = 'shared_read';
+			}
+			const { shareScope: _s, ...rest } = row;
+			return { ...rest, access };
+		});
 
 		return {
 			success: true,

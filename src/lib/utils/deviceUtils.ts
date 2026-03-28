@@ -143,12 +143,25 @@ export function formatDeviceDateRelative(date: string | Date | null | undefined)
  */
 export function formatMacAddress(mac: string | null | undefined): string {
     if (!mac) return 'N/A';
-    
+
     // Remove any existing separators and convert to uppercase
-    const cleaned = mac.replace(/[:-]/g, '').toUpperCase();
-    
+    const cleaned = mac.replace(/[\s:.\-]/g, '').toUpperCase();
+
     // Add colons every 2 characters
     return cleaned.match(/.{1,2}/g)?.join(':') || mac;
+}
+
+/**
+ * Normalize a MAC string to the variants we may store in DB (colon form vs 12 hex without separators).
+ * Use for Prisma OR lookups so `A23CA63E7FFD` matches `A2:3C:A6:3E:7F:FD`.
+ */
+export function macQueryVariants(raw: string | null | undefined): string[] | null {
+    if (!raw?.trim()) return null;
+    const stripped = raw.trim().replace(/[\s:.\-]/g, '');
+    if (!/^[0-9A-Fa-f]{12}$/i.test(stripped)) return null;
+    const canonical = formatMacAddress(stripped);
+    const compact = stripped.toUpperCase();
+    return [...new Set([canonical, compact])];
 }
 
 /**

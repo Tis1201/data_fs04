@@ -26,4 +26,5 @@
     basePath="/admin"
     showAccountField={true}
     deleteAction="?/delete"
+    showShareControls={true}
 />

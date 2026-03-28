@@ -207,10 +207,10 @@
             // Map server meta format to component format
             const serverMeta = data.meta as any;
             pagination = {
-                page: serverMeta?.pagination?.page || serverMeta?.page || 1,
-                perPage: serverMeta?.pagination?.per_page || serverMeta?.perPage || 10,
-                total: serverMeta?.pagination?.total_records || serverMeta?.total || 0,
-                totalPages: serverMeta?.pagination?.total_pages || serverMeta?.totalPages || 0
+                page: Number(serverMeta?.pagination?.page ?? serverMeta?.page) || 1,
+                perPage: Number(serverMeta?.pagination?.per_page ?? serverMeta?.perPage) || 10,
+                total: Number(serverMeta?.pagination?.total_records ?? serverMeta?.total) || 0,
+                totalPages: Number(serverMeta?.pagination?.total_pages ?? serverMeta?.totalPages) || 0
             };
         }
     }
@@ -232,10 +232,10 @@
     })();
 
     let pagination: DeviceTablePagination = {
-        page: (data?.meta as any)?.pagination?.page || (data?.meta as any)?.page || 1,
-        perPage: (data?.meta as any)?.pagination?.per_page || (data?.meta as any)?.perPage || 10,
-        total: (data?.meta as any)?.pagination?.total_records || (data?.meta as any)?.total || 0,
-        totalPages: (data?.meta as any)?.pagination?.total_pages || (data?.meta as any)?.totalPages || 0
+        page: Number((data?.meta as any)?.pagination?.page ?? (data?.meta as any)?.page) || 1,
+        perPage: Number((data?.meta as any)?.pagination?.per_page ?? (data?.meta as any)?.perPage) || 10,
+        total: Number((data?.meta as any)?.pagination?.total_records ?? (data?.meta as any)?.total) || 0,
+        totalPages: Number((data?.meta as any)?.pagination?.total_pages ?? (data?.meta as any)?.totalPages) || 0
     };
 
     let sort: DeviceTableSort = {

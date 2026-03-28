@@ -5,6 +5,7 @@ import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { logAudit } from '$lib/server/audit-logger';
 import { AuditActionType } from '$lib/constants/system';
+import { assertResourceRowInstallableByAccount } from '$lib/server/resources/resourceInstallAccess';
 
 // Schema for adding an app to a bundle
 const addBundleAppSchema = z.object({
@@ -65,9 +66,9 @@ export const POST = unifiedEndpoint(
       );
     }
 
-    // Check if resource exists
     const resource = await prisma.resource.findUnique({
-      where: { id: resourceId }
+      where: { id: resourceId },
+      include: { sharedWithAccounts: { select: { accountId: true } } }
     });
 
     if (!resource) {
@@ -76,6 +77,8 @@ export const POST = unifiedEndpoint(
         { status: 404, code: ErrorCodes.NOT_FOUND }
       );
     }
+
+    assertResourceRowInstallableByAccount(bundle.accountId, resource as Record<string, unknown>);
 
     // Check if the app is already in the bundle
     const existingApp = await prisma.bundleApp.findFirst({

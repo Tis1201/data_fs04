@@ -6,6 +6,7 @@ import { publisher } from '$lib/server/messaging/core/publisher';
 import { MessageFactory } from '$lib/server/messaging/interfaces/message';
 import { registerWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 import type { UserInfo } from '$lib/server/types/user';
+import { assertBundleWaveInstallAllowed } from '$lib/server/resources/resourceInstallAccess';
 
 /**
  * POST /api/v2/bundles/[id]/waves/[waveId]/start
@@ -45,7 +46,27 @@ export const POST = unifiedEndpoint(
       );
     }
 
-    // Mark wave as IN_PROGRESS
+    const [bundle, progresses] = await Promise.all([
+      prisma.bundle.findUnique({
+        where: { id: bundleId },
+        include: {
+          apps: { select: { resourceId: true } }
+        }
+      }),
+      prisma.bundleDeviceProgress.findMany({
+        where: { bundleId, waveId },
+        include: { bundleDevice: true },
+        orderBy: { createdAt: 'asc' } // Ensure devices are processed in assignment order
+      })
+    ]);
+
+    await assertBundleWaveInstallAllowed(
+      prisma,
+      bundle?.accountId,
+      bundle?.apps || [],
+      progresses
+    );
+
     const updated = await prisma.bundleWave.update({
       where: { id: waveId },
       data: {
@@ -58,18 +79,6 @@ export const POST = unifiedEndpoint(
 
     // Send install command to each device assigned to this wave
     try {
-      const [bundle, progresses] = await Promise.all([
-        prisma.bundle.findUnique({
-          where: { id: bundleId },
-          select: { id: true, name: true }
-        }),
-        prisma.bundleDeviceProgress.findMany({
-          where: { bundleId, waveId },
-          include: { bundleDevice: true },
-          orderBy: { createdAt: 'asc' } // Ensure devices are processed in assignment order
-        })
-      ]);
-
       // Set startedAt for all devices in the wave when sending commands
       const startTime = new Date();
       await prisma.bundleDeviceProgress.updateMany({

@@ -15,6 +15,7 @@
     import FormField from '$lib/components/ui_components_sveltekit/form/FormField.svelte';
     import EnhancedSelect from '$lib/components/ui_components_sveltekit/form/EnhancedSelect.svelte';
     import RecordDeleteDialog from '$lib/components/ui_components_sveltekit/dialog/RecordDeleteDialog.svelte';
+    import ResourceSharePanel from '$lib/components/resources/ResourceSharePanel.svelte';
     import { formatBytes } from '$lib/utils/format';
 
     // Props
@@ -32,6 +33,7 @@
     export let deleteState: any;
     export let onDeleteConfirm: () => void;
     export let deleteAction: string = '?/delete';
+    export let showShareControls: boolean = false;
 
     function getResourceTypeDisplay(type: string) {
         const typeMap: Record<string, string> = {
@@ -126,6 +128,10 @@
             </div>
         {/if}
     </AdminCard>
+
+    {#if showShareControls && resource?.id}
+        <ResourceSharePanel resourceId={resource.id} {resource} {accountOptions} />
+    {/if}
 
     <!-- Edit Form -->
     <FormContainer method="POST" action="?/update" {enhance} novalidate errorMessage={$errorMessage}>

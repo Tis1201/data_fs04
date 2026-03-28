@@ -35,13 +35,19 @@ const baseResourceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
         createdBy: true,
         updatedBy: true,
         accountId: true,
+        shareScope: true,
+        _count: {
+            select: {
+                sharedWithAccounts: true
+            }
+        },
         account: {
             select: {
                 id: true,
                 name: true
             }
         } as any
-    }
+    } as any
 };
 
 /**

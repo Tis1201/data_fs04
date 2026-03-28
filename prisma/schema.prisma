@@ -12,6 +12,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum ResourceShareScope {
+  NONE
+  ALL_ACCOUNTS
+  SELECTED_ACCOUNTS
+}
+
 enum ClaimStatus {
   PENDING
   FULFILLED
@@ -76,6 +82,7 @@ model Account {
   controllers              Controller[]
   sensors                  Sensor[]
   sensorTemplates          SensorTemplate[]
+  resourceShares           ResourceAccountShare[]
 
   @@index([slug])
 }
@@ -599,30 +606,48 @@ model InvitationToken {
 }
 
 model Resource {
-  id          String      @id() @default(cuid())
-  name        String
-  description String?
-  type        String
-  target      String      @default("user")
-  version     String?     @default("1.0.0")
-  versionCode Int?
-  signature   String?
-  releaseType String?     @default("Production")
-  format      String?
-  packageName String?
-  path        String
-  size        Int
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt()
-  createdBy   String
-  updatedBy   String
-  accountId   String
-  account     Account     @relation(fields: [accountId], references: [id])
-  bundleApps  BundleApp[]
+  id                 String                 @id() @default(cuid())
+  name               String
+  description        String?
+  type               String
+  target             String                 @default("user")
+  /// Admin-controlled sharing; NONE = only owning account (+ admins). API enforcement in later phases.
+  shareScope         ResourceShareScope     @default(NONE)
+  version            String?                @default("1.0.0")
+  versionCode        Int?
+  signature          String?
+  releaseType        String?                @default("Production")
+  format             String?
+  packageName        String?
+  path               String
+  size               Int
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt()
+  createdBy          String
+  updatedBy          String
+  accountId          String
+  account            Account                @relation(fields: [accountId], references: [id])
+  bundleApps         BundleApp[]
+  /// When shareScope = SELECTED_ACCOUNTS, these accounts may read/install per API rules (Phase 2+).
+  sharedWithAccounts ResourceAccountShare[]
 
   @@index([name])
   @@index([type])
   @@index([createdBy])
+  @@index([shareScope])
+}
+
+model ResourceAccountShare {
+  id         String   @id() @default(cuid())
+  createdAt  DateTime @default(now())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, accountId])
+  @@index([accountId])
+  @@index([resourceId])
 }
 
 model JwtSigningKey {
@@ -769,6 +794,9 @@ model Bundle {
   scheduledAtTimezone      String?
   scheduledAtStartIfMissed Boolean                @default(false)
   activePeriodDays         Int                    @default(1)
+  /// First device reported start / last device reported end (see migration add_bundle_actual_start_end_times)
+  actualStartedAt          DateTime?
+  actualEndedAt            DateTime?
   apps                     BundleApp[]
   waves                    BundleWave[]
   devices                  BundleDevice[]

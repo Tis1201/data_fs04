@@ -6,6 +6,7 @@ import { logger } from '$lib/server/logger';
 import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
+import { assertResourceRowInstallableByAccount } from '$lib/server/resources/resourceInstallAccess';
 
 /**
  * App Selection API Endpoint for Bundle Components (User Side)
@@ -120,15 +121,6 @@ export const POST = restrict(
         throw error(400, 'Bundle ID is required');
       }
       
-      // Check if the resource exists
-      const resource = await prisma.resource.findUnique({
-        where: { id: resourceId }
-      });
-      
-      if (!resource) {
-        throw error(404, 'Resource not found');
-      }
-      
       const bundle = await prisma.bundle.findUnique({
         where: { id: bundleId }
       });
@@ -140,6 +132,24 @@ export const POST = restrict(
       const currentAccountId = (locals as any).currentAccount?.account?.id;
       if (currentAccountId && bundle.accountId !== currentAccountId) {
         throw error(403, 'Access denied');
+      }
+
+      const resource = await prisma.resource.findUnique({
+        where: { id: resourceId },
+        include: { sharedWithAccounts: { select: { accountId: true } } }
+      });
+      
+      if (!resource) {
+        throw error(404, 'Resource not found');
+      }
+
+      try {
+        assertResourceRowInstallableByAccount(bundle.accountId, resource as Record<string, unknown>);
+      } catch (e: unknown) {
+        const err = e as { status?: number; message?: string };
+        if (err?.status === 403) throw error(403, err.message || 'Forbidden');
+        if (err?.status === 400) throw error(400, err.message || 'Bad request');
+        throw e;
       }
       
       // Check if the resource is already in the bundle

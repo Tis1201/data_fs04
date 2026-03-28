@@ -1,4 +1,10 @@
 import { error } from '@sveltejs/kit';
+import {
+	canAccessResourceFields,
+	getResourceAccessLevelFields,
+	normalizeResourceAccessInput
+} from '$lib/server/api/unifiedEndpoint';
+import type { SystemRole } from '$lib/server/features/flags';
 import { logger } from '$lib/server/logger';
 import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { createResourceTableOptions } from './resourceTableOptions';
@@ -53,7 +59,8 @@ export async function loadResourceDetail(
             include: {
                 account: {
                     select: { id: true, name: true }
-                }
+                },
+                sharedWithAccounts: { select: { accountId: true } }
             }
         });
 
@@ -61,8 +68,40 @@ export async function loadResourceDetail(
             throw error(404, 'Resource not found');
         }
 
+        if (!locals.user) {
+            throw error(401, 'Unauthorized');
+        }
+
+        const accessInput = normalizeResourceAccessInput(resource as Record<string, unknown>);
+        const accessParams = {
+            systemRole: locals.user.systemRole as SystemRole,
+            userId: locals.user.id,
+            accountId: locals.currentAccount?.account?.id
+        };
+        if (!canAccessResourceFields(accessParams, accessInput)) {
+            throw error(404, 'Resource not found');
+        }
+
+        const accessLevel = getResourceAccessLevelFields(accessParams, accessInput)!;
+
+        const { sharedWithAccounts: _sw, ...resourceWithoutShares } = resource as typeof resource & {
+            sharedWithAccounts?: unknown;
+        };
+        const resourceForClient: Record<string, unknown> = {
+            ...(resourceWithoutShares as Record<string, unknown>),
+            access: accessLevel
+        };
+        if (accessLevel === 'shared_read') {
+            delete resourceForClient.path;
+        }
+        if (accessLevel === 'admin') {
+            resourceForClient.sharedWithAccountIds = (resource.sharedWithAccounts ?? []).map(
+                (s: { accountId: string }) => s.accountId
+            );
+        }
+
         const result: any = {
-            resource,
+            resource: resourceForClient,
             meta: {
                 title: `Resource: ${resource.name || resource.id}`,
                 description: `Details for resource ${resource.name || resource.id}`
@@ -105,7 +144,7 @@ export async function loadResourceDetail(
                     releaseType: resource.releaseType || 'Production',
                     format: resource.format || '',
                     packageName: resource.packageName || '',
-                    path: resource.path,
+                    path: accessLevel === 'shared_read' ? '' : resource.path,
                     size: resource.size,
                     accountId: resource.accountId || '',
                     file: null // Don't populate file field for editing

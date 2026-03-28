@@ -7,7 +7,9 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
+import { isClickHouseInfrastructureError } from '$lib/server/clickhouse/client';
 import { sensorDataService, type SensorDataType } from '$lib/server/clickhouse/sensor-data';
+import { MV_REGISTRY } from '$lib/server/clickhouse/sensor-data/types';
 
 const VALID_DATA_TYPES: SensorDataType[] = ['radar_session', 'radar_path'];
 
@@ -67,9 +69,41 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
         const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : '';
         console.error('[API sensor-data]', message, code ? `(code: ${code})` : '', err instanceof Error ? err.stack : '');
         const isRequiredRange = message.includes('startTime and endTime are required');
+        if (isRequiredRange) {
+            return json({ error: message }, { status: 400 });
+        }
+
+        const infra = isClickHouseInfrastructureError(message);
+        const devGraceful =
+            process.env.NODE_ENV === 'development' && process.env.CLICKHOUSE_STRICT !== '1' && infra;
+
+        if (devGraceful) {
+            const mv = MV_REGISTRY[dataType];
+            const page = queryParams.page ?? 1;
+            const perPage = queryParams.perPage ?? 25;
+            return json({
+                data: [],
+                pagination: { page, per_page: perPage, total_records: 0, total_pages: 0 },
+                sort: { field: mv.defaultSort, order: mv.defaultOrder },
+                meta: {
+                    clickHouseUnavailable: true,
+                    hint:
+                        'ClickHouse is not reachable from the dev server (common: CLICKHOUSE_URL uses https:// without TLS, wrong host/port, or CH not running). Use http://127.0.0.1:8123 for local HTTP interface. Set CLICKHOUSE_STRICT=1 to surface errors as HTTP 503 instead of empty data.'
+                }
+            });
+        }
+
+        const status = infra ? 503 : 500;
+        const userError = infra ? 'Sensor data store temporarily unavailable' : 'Failed to query sensor data';
         return json(
-            { error: isRequiredRange ? message : 'Failed to query sensor data', detail: process.env.NODE_ENV === 'development' && !isRequiredRange ? message : undefined },
-            { status: isRequiredRange ? 400 : 500 }
+            {
+                error: userError,
+                detail:
+                    process.env.NODE_ENV === 'development' || infra
+                        ? message
+                        : undefined
+            },
+            { status }
         );
     }
 }, ['ADMIN', 'USER']);

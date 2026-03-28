@@ -1,6 +1,7 @@
 import { customAlphabet } from 'nanoid';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
+import { macQueryVariants } from '$lib/utils/deviceUtils';
 import { handlePreclaimAutoClaim } from './handle_preclaim';
 
 const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
@@ -41,17 +42,16 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient; 
     }
 
     // Extract MAC address from params (device sends it in get.pin request)
-    const macAddress = params?.macAddress || params?.networkInfo?.mac || null;
+    const macAddressRaw = params?.macAddress || params?.networkInfo?.mac || null;
+    /** Match DB whether stored as `AA:BB:...` or `AABBCC...` (devices often send 12 hex without colons). */
+    const macVariants = macAddressRaw ? macQueryVariants(String(macAddressRaw)) : null;
 
     // Check if device with same MAC address is already claimed (if MAC is provided)
-    if (macAddress) {
+    if (macVariants?.length) {
         const existingDevice = await prisma.device.findFirst({
             where: {
                 claimedAt: { not: null },
-                OR: [
-                    { macAddress: macAddress },
-                    { wifiMac: macAddress }
-                ]
+                OR: macVariants.flatMap((v) => [{ macAddress: v }, { wifiMac: v }])
             },
             select: {
                 id: true,
@@ -63,7 +63,7 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient; 
 
         if (existingDevice) {
             logger.warn(
-                `[DeviceGetPin] Device with MAC address ${macAddress} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
+                `[DeviceGetPin] Device with MAC address ${macAddressRaw} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
             );
             throw new Error(
                 `Device is already claimed. Please reconnect using device credentials (deviceId: ${existingDevice.id})`
@@ -95,9 +95,10 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient; 
 
     // Backfill hardwareFingerprint on FactoryDevice when missing but MAC is available.
     // This ensures the same physical device reuses the same FactoryDevice record on future mints.
-    const macOrFingerprint = factoryDevice.hardwareFingerprint ?? macAddress ?? null;
-    if (!factoryDevice.hardwareFingerprint && macAddress) {
-        const normalizedMac = macAddress.trim().toUpperCase();
+    const macOrFingerprint = factoryDevice.hardwareFingerprint ?? macAddressRaw ?? null;
+    if (!factoryDevice.hardwareFingerprint && macAddressRaw) {
+        const stripped = String(macAddressRaw).trim().replace(/[\s:.\-]/g, '').toUpperCase();
+        const normalizedMac = /^[0-9A-Fa-f]{12}$/i.test(stripped) ? stripped : String(macAddressRaw).trim().toUpperCase();
         const conflicting = await prisma.factoryDevice.findFirst({
             where: { hardwareFingerprint: normalizedMac, id: { not: factoryDeviceId } }
         });

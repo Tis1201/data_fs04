@@ -9,12 +9,12 @@ import { SystemRole } from '$lib/types/roles';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod } from 'sveltekit-superforms/adapters';
-import { generateId } from 'lucia';
 // TODO: Re-enable after subscription system is implemented
 // import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
 import prisma from '$lib/server/prisma';
+import { resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
 
 /*******************************************************************************************
  * 
@@ -234,82 +234,6 @@ const deviceActions = createDeviceActions({
     enableCreate: false
 });
 
-/**
- * Resolve or create Device from PIN for Sensors
- */
-async function resolveDeviceIdByPin(
-    prismaClient: AuthenticatedEvent['locals']['prisma'],
-    pin: string,
-    currentAccountId: string,
-    userId: string,
-    sensorName: string
-): Promise<{ deviceId: string; error?: string }> {
-    const normalizedPin = pin.trim().toUpperCase().replace(/\s/g, '');
-    if (!normalizedPin) return { deviceId: '', error: 'Device registration code (PIN) is required' };
-
-    const factoryDevice = await prismaClient.factoryDevice.findFirst({
-        where: { registrationPin: normalizedPin },
-        include: { claimedDevice: { include: { controllers: { where: { type: 'radar', isDeleted: false } } } } }
-    });
-
-    if (!factoryDevice) {
-        return { deviceId: '', error: 'Invalid or expired PIN. Please check the 6-digit code on your device and try again.' };
-    }
-
-    if (factoryDevice.claimedDeviceId && factoryDevice.claimedDevice) {
-        const dev = factoryDevice.claimedDevice;
-        if (dev.accountId !== currentAccountId) {
-            return { deviceId: '', error: 'This device is already claimed by another account.' };
-        }
-        if (dev.controllers.length > 0) {
-            return { deviceId: '', error: 'This device already has an active radar sensor. Only one sensor per device is allowed.' };
-        }
-        return { deviceId: dev.id };
-    }
-
-    // TODO: Re-enable device limit check after subscription system is implemented
-    // try {
-    //     await checkDeviceLimit(currentAccountId);
-    // } catch (e) {
-    //     if (e instanceof LimitExceededError) {
-    //         return { deviceId: '', error: `Device limit reached (${e.current}/${e.max}). Upgrade your plan to add more devices.` };
-    //     }
-    //     throw e;
-    // }
-
-    const now = new Date();
-    const apiKey = generateId(32);
-    const deviceName = sensorName?.trim() ? `device - ${sensorName.trim()}` : 'device - radar';
-
-    const created = await prismaClient.$transaction(async (tx: Prisma.TransactionClient) => {
-        const device = await tx.device.create({
-            data: {
-                name: deviceName,
-                status: 'ACTIVE',
-                accountId: currentAccountId,
-                createdBy: userId,
-                claimedAt: now,
-                claimedBy: userId,
-                apiKey,
-                apiKeyCreatedAt: now,
-                apiKeyRotatedAt: now
-            }
-        });
-        await tx.factoryDevice.update({
-            where: { id: factoryDevice.id },
-            data: {
-                claimedAt: now,
-                claimedDeviceId: device.id,
-                accountId: currentAccountId
-            }
-        });
-        return device;
-    });
-
-    logger.info(`Claimed device by PIN for Sensors: deviceId=${created.id}, factoryDeviceId=${factoryDevice.id}`);
-    return { deviceId: created.id };
-}
-
 export const actions: Actions = {
     // ===== Remote Devices Actions =====
     toggleStatus: async ({ request, locals }) => {
@@ -343,33 +267,34 @@ export const actions: Actions = {
 
             const userId = (locals as { user?: { id: string } }).user?.id ?? 'unknown';
 
+            if (!form.valid) {
+                return fail(400, { form });
+            }
+
             if (!form.data.pin?.trim()) {
                 return fail(400, { form, error: 'Device registration code (PIN) is required. Enter the 6-digit code displayed on your device.' });
             }
 
             try {
-                const { deviceId, error: pinError } = await resolveDeviceIdByPin(
-                    locals.prisma,
-                    form.data.pin,
-                    currentAccountId,
-                    userId,
-                    form.data.name
-                );
-                if (pinError) return fail(400, { form, error: pinError });
-                if (!deviceId) return fail(400, { form, error: 'Could not resolve device from PIN. Please try again.' });
+                const pinResult = await resolveDeviceIdByPinForRadar(prisma, form.data.pin!, currentAccountId, userId);
+                if (pinResult.error) return fail(400, { form, error: pinResult.error });
+                const deviceId = pinResult.deviceId;
+                const sensorDisplayName = pinResult.displayName ?? 'Unknown device';
+                const serialNumber = form.data.serialNumber;
+                if (!serialNumber) return fail(400, { form, error: 'Serial number is required' });
 
                 await locals.prisma.sensor.deleteMany({
-                    where: { serialNumber: form.data.serialNumber, controller: { isDeleted: true } }
+                    where: { serialNumber, accountId: currentAccountId, controller: { isDeleted: true } }
                 });
                 const existingSensor = await locals.prisma.sensor.findFirst({
-                    where: { serialNumber: form.data.serialNumber },
+                    where: { serialNumber },
                     include: { controller: true }
                 });
                 if (existingSensor) return fail(400, { form, error: 'A sensor with this serial number already exists' });
 
-                const controllerSerial = `${form.data.serialNumber}-CTRL`;
+                const controllerSerial = `${serialNumber}-CTRL`;
                 const softDeletedControllers = await locals.prisma.controller.findMany({
-                    where: { serialNumber: controllerSerial, isDeleted: true },
+                    where: { serialNumber: controllerSerial, accountId: currentAccountId, isDeleted: true },
                     include: { sensors: true }
                 });
                 for (const ctrl of softDeletedControllers) {
@@ -384,7 +309,7 @@ export const actions: Actions = {
                 const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
                     const controller = await tx.controller.create({
                         data: {
-                            name: `${form.data.name} Controller`,
+                            name: `${sensorDisplayName} Controller`,
                             serialNumber: controllerSerial,
                             status: form.data.status,
                             accountId: currentAccountId,
@@ -395,8 +320,8 @@ export const actions: Actions = {
                     });
                     const sensor = await tx.sensor.create({
                         data: {
-                            name: form.data.name,
-                            serialNumber: form.data.serialNumber,
+                            name: sensorDisplayName,
+                            serialNumber,
                             type: 'radar',
                             description: form.data.description,
                             location: form.data.location,

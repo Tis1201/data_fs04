@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '$lib/server/logger';
+import { macQueryVariants } from '$lib/utils/deviceUtils';
 import { DeviceNotificationType, sendNotificationWithTicket } from '../../../core/publish';
 
 interface HandlePreclaimArgs {
@@ -42,19 +43,21 @@ export async function handlePreclaimAutoClaim({
     }
 
     const normalized = normalizeMacOrFingerprint(hardwareFingerprint);
+    const deviceMacVariants = macQueryVariants(hardwareFingerprint);
     const now = new Date();
 
     // Sniff test: see if a claimed Device already exists for this MAC/hardware fingerprint.
+    const macOrFields = deviceMacVariants?.length
+        ? deviceMacVariants.flatMap((v) => [{ macAddress: v }, { wifiMac: v }])
+        : [{ macAddress: hardwareFingerprint }, { wifiMac: hardwareFingerprint }];
+
     const existingDevice = await prisma.device.findFirst({
         where: {
             claimedAt: { not: null },
             OR: [
                 { hardwareId: normalized },
                 { hardwareId: hardwareFingerprint },
-                { macAddress: normalized },
-                { macAddress: hardwareFingerprint },
-                { wifiMac: normalized },
-                { wifiMac: hardwareFingerprint }
+                ...macOrFields
             ]
         },
         select: {
@@ -71,12 +74,12 @@ export async function handlePreclaimAutoClaim({
     }
 
     const stripped = stripMacDelimiters(hardwareFingerprint);
-    const macVariants = [normalized, hardwareFingerprint.trim(), stripped];
+    const preclaimMacIdVariants = [normalized, hardwareFingerprint.trim(), stripped];
 
     const preclaim = await prisma.preclaimDevice.findFirst({
         where: {
             AND: [
-                { OR: macVariants.map(v => ({ macId: v })) },
+                { OR: preclaimMacIdVariants.map((v) => ({ macId: v })) },
                 { status: 'PENDING', claimedAt: null },
                 { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
                 {

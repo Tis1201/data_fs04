@@ -100,6 +100,11 @@ export interface SensorDataResponse<T = Record<string, unknown>> {
     data: T[];
     pagination: PaginationInfo;
     sort: SortInfo;
+    /** Present when the API returned an empty result because ClickHouse was unavailable (e.g. local dev). */
+    meta?: {
+        clickHouseUnavailable?: boolean;
+        hint?: string;
+    };
 }
 
 // ============================================================================

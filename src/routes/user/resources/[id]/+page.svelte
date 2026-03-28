@@ -6,6 +6,7 @@
     import { toast } from '$lib/stores/alertToast';
     import { Button, Card, Tooltip } from '$lib/design-system/components';
     import AddEditResourceModal from '../components/AddEditResourceModal.svelte';
+    import ResourceSharedWithYouBadge from '$lib/components/resources/ResourceSharedWithYouBadge.svelte';
     import type { PageData } from './$types';
     import { formatBytes } from '$lib/utils/format';
 
@@ -14,6 +15,7 @@
 
     $: resource = data.resource;
     $: accounts = data.accounts ?? [];
+    $: canEditResource = resource?.access !== 'shared_read';
 
     let showEditModal = false;
 
@@ -102,18 +104,20 @@
 </script>
 
 <div class="resource-detail flex flex-col items-start w-full" style="padding: var(--ds-space-6); gap: var(--ds-space-6);">
-    <div class="flex flex-row justify-end w-full" style="gap: var(--ds-space-2);">
-        <Button
-            variant="filled"
-            color="primary"
-            size="lg"
-            iconLeft={true}
-            on:click={() => (showEditModal = true)}
-        >
-            <Pencil size={20} slot="icon-left" />
-            Edit Set
-        </Button>
-    </div>
+    {#if canEditResource}
+        <div class="flex flex-row justify-end w-full" style="gap: var(--ds-space-2);">
+            <Button
+                variant="filled"
+                color="primary"
+                size="lg"
+                iconLeft={true}
+                on:click={() => (showEditModal = true)}
+            >
+                <Pencil size={20} slot="icon-left" />
+                Edit Set
+            </Button>
+        </div>
+    {/if}
 
     <!-- Resource Overview card: header (icon + title + subtitle), 2-col grid, Resource Path, footer -->
     <Card
@@ -131,8 +135,19 @@
                 <Info size={20} />
             </div>
             <div class="resource-overview-header-text">
-                <h3 class="resource-overview-title">Resource Overview</h3>
-                <p class="resource-overview-subtitle">Key information about this resource</p>
+                <div class="resource-overview-title-row">
+                    <h3 class="resource-overview-title">Resource Overview</h3>
+                    {#if !canEditResource}
+                        <ResourceSharedWithYouBadge variant="compact" />
+                    {/if}
+                </div>
+                <p class="resource-overview-subtitle">
+                    {#if !canEditResource}
+                        Owned by another account. You can view details and download; editing and deletion are only available to the owner.
+                    {:else}
+                        Key information about this resource
+                    {/if}
+                </p>
             </div>
         </div>
         <div class="resource-overview-body">
@@ -171,10 +186,12 @@
                     <span class="resource-overview-label">Size</span>
                     <span class="resource-overview-value">{formatBytes(resource.size, false, 2)}</span>
                 </div>
-                <div class="resource-overview-field">
-                    <span class="resource-overview-label">Account</span>
-                    <span class="resource-overview-value">{resource.account?.name ?? '—'}</span>
-                </div>
+                {#if canEditResource}
+                    <div class="resource-overview-field">
+                        <span class="resource-overview-label">Account</span>
+                        <span class="resource-overview-value">{resource.account?.name ?? '—'}</span>
+                    </div>
+                {/if}
                 {#if resource.versionCode != null}
                     <div class="resource-overview-field">
                         <span class="resource-overview-label">Version Code</span>
@@ -243,44 +260,48 @@
                     </div>
                 </div>
             </div>
-            <div class="resource-overview-footer">
-                <p class="resource-overview-footer-line">
-                    Created by {createdByLabel} at {formatDateTime(resource.createdAt)}
-                </p>
-                <p class="resource-overview-footer-line">
-                    Last updated by {updatedByLabel} at {formatDateTime(resource.updatedAt)}
-                </p>
-            </div>
+            {#if canEditResource}
+                <div class="resource-overview-footer">
+                    <p class="resource-overview-footer-line">
+                        Created by {createdByLabel} at {formatDateTime(resource.createdAt)}
+                    </p>
+                    <p class="resource-overview-footer-line">
+                        Last updated by {updatedByLabel} at {formatDateTime(resource.updatedAt)}
+                    </p>
+                </div>
+            {/if}
         </div>
     </Card>
 
-    <AddEditResourceModal
-        open={showEditModal}
-        mode="edit"
-        resourceId={resource.id}
-        initialData={{
-            name: resource.name,
-            packageName: resource.packageName ?? undefined,
-            target: resource.target ?? undefined,
-            version: resource.version ?? undefined,
-            accountId: resource.accountId ?? undefined,
-            path: resource.path ?? undefined,
-            type: resource.type,
-            format: resource.format ?? undefined,
-            size: resource.size,
-            releaseType: resource.releaseType ?? undefined,
-            versionCode: resource.versionCode ?? undefined,
-            signature: resource.signature ?? undefined
-        }}
-        accounts={accounts}
-        on:close={() => (showEditModal = false)}
-        on:success={async () => {
-            showEditModal = false;
-            toast.success('Resource updated successfully.');
-            await invalidate('app:resource');
-        }}
-        on:error={(e) => toast.error(e.detail || 'Unable to update resource. Please try again!')}
-    />
+    {#if canEditResource}
+        <AddEditResourceModal
+            open={showEditModal}
+            mode="edit"
+            resourceId={resource.id}
+            initialData={{
+                name: resource.name,
+                packageName: resource.packageName ?? undefined,
+                target: resource.target ?? undefined,
+                version: resource.version ?? undefined,
+                accountId: resource.accountId ?? undefined,
+                path: resource.path ?? undefined,
+                type: resource.type,
+                format: resource.format ?? undefined,
+                size: resource.size,
+                releaseType: resource.releaseType ?? undefined,
+                versionCode: resource.versionCode ?? undefined,
+                signature: resource.signature ?? undefined
+            }}
+            accounts={accounts}
+            on:close={() => (showEditModal = false)}
+            on:success={async () => {
+                showEditModal = false;
+                toast.success('Resource updated successfully.');
+                await invalidate('app:resource');
+            }}
+            on:error={(e) => toast.error(e.detail || 'Unable to update resource. Please try again!')}
+        />
+    {/if}
 </div>
 
 <style>
@@ -316,6 +337,13 @@
         gap: 2px;
         min-width: 0;
         flex: 1;
+    }
+    .resource-overview-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
     }
     /* Figma: Body/18px/18-Medium, #141414 */
     .resource-overview-title {

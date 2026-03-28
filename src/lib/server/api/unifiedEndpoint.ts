@@ -8,10 +8,67 @@
  */
 
 import { json, type RequestEvent } from '@sveltejs/kit';
+import { ResourceShareScope } from '@prisma/client';
 import { successResponse, errorResponse, ErrorCodes, paginatedResponse } from '$lib/types/api';
 import { hasPermission, requirePermission, type PermissionUser } from '$lib/server/security/permissions';
 import { hasFeature, getLoaderOptionsWithFeatures, type FeatureUser, type SystemRole } from '$lib/server/features/flags';
 import { logger } from '$lib/server/logger';
+
+export type ResourceAccessLevel = 'admin' | 'owner' | 'shared_read';
+
+export type ResourceAccessInput = {
+	accountId?: string;
+	createdBy?: string;
+	shareScope?: ResourceShareScope;
+	sharedWithAccountIds?: string[];
+};
+
+export function normalizeResourceAccessInput(resource: Record<string, unknown> | null | undefined): ResourceAccessInput {
+	if (!resource) {
+		return {};
+	}
+	const shared = resource.sharedWithAccounts as { accountId: string }[] | undefined;
+	const fromRelation = Array.isArray(shared) ? shared.map((s) => s.accountId) : undefined;
+	const fromField = resource.sharedWithAccountIds as string[] | undefined;
+	const sharedWithAccountIds =
+		fromRelation?.length
+			? fromRelation
+			: Array.isArray(fromField) && fromField.length
+				? fromField
+				: undefined;
+
+	return {
+		accountId: (resource.accountId as string) ?? undefined,
+		createdBy: resource.createdBy as string | undefined,
+		shareScope: resource.shareScope as ResourceShareScope | undefined,
+		sharedWithAccountIds
+	};
+}
+
+export function resourceVisibilityOrForAccount(accountId: string) {
+	return [
+		{ accountId },
+		{ shareScope: ResourceShareScope.ALL_ACCOUNTS },
+		{
+			shareScope: ResourceShareScope.SELECTED_ACCOUNTS,
+			sharedWithAccounts: { some: { accountId } }
+		}
+	];
+}
+
+export function resourceVisibilityOrForAccountIds(accountIds: string[]) {
+	if (accountIds.length === 0) {
+		return [{ id: { in: [] as string[] } }];
+	}
+	return [
+		{ accountId: { in: accountIds } },
+		{ shareScope: ResourceShareScope.ALL_ACCOUNTS },
+		{
+			shareScope: ResourceShareScope.SELECTED_ACCOUNTS,
+			sharedWithAccounts: { some: { accountId: { in: accountIds } } }
+		}
+	];
+}
 
 /**
  * Unified endpoint context
@@ -273,39 +330,143 @@ export function unifiedEndpoint<T = any>(
 }
 
 /**
- * Checks if user can access resource based on ownership
- * 
- * @param context - Unified context
- * @param resource - Resource with accountId
- * @returns True if user can access
+ * Checks if user can read/use a catalog Resource (ownership or admin share rules).
  */
 export function canAccessResource(
 	context: UnifiedContext,
-	resource: { accountId?: string; createdBy?: string }
+	resource: ResourceAccessInput | Record<string, unknown> | null | undefined
 ): boolean {
+	const input =
+		resource && typeof resource === 'object' && 'shareScope' in resource
+			? normalizeResourceAccessInput(resource as Record<string, unknown>)
+			: (resource as ResourceAccessInput) || {};
+
 	// Admin can access all
 	if (context.session.user.systemRole === 'ADMIN') {
 		return true;
 	}
 
-	// User can access if same account
-	if (context.account && resource.accountId === context.account.id) {
+	const aid = context.account?.id;
+
+	// Owning account
+	if (aid && input.accountId === aid) {
+		return true;
+	}
+
+	// Shared to all accounts (requires active account context)
+	if (aid && input.shareScope === ResourceShareScope.ALL_ACCOUNTS) {
+		return true;
+	}
+
+	// Shared to selected accounts
+	if (
+		aid &&
+		input.shareScope === ResourceShareScope.SELECTED_ACCOUNTS &&
+		input.sharedWithAccountIds?.includes(aid)
+	) {
+		return true;
+	}
+
+	// Legacy: no active account — only the uploader
+	if (!aid && input.createdBy === context.session.user.id) {
 		return true;
 	}
 
 	return false;
 }
 
+export function getResourceAccessLevel(
+	context: UnifiedContext,
+	resource: ResourceAccessInput | Record<string, unknown>
+): ResourceAccessLevel {
+	const input =
+		typeof resource === 'object' && resource !== null && 'shareScope' in resource
+			? normalizeResourceAccessInput(resource as Record<string, unknown>)
+			: (resource as ResourceAccessInput);
+
+	if (context.session.user.systemRole === 'ADMIN') {
+		return 'admin';
+	}
+
+	const aid = context.account?.id;
+	if (aid && input.accountId === aid) {
+		return 'owner';
+	}
+
+	if (!aid && input.createdBy === context.session.user.id) {
+		return 'owner';
+	}
+
+	return 'shared_read';
+}
+
+export function requireResourceMutationAccess(
+	context: UnifiedContext,
+	resource: ResourceAccessInput | Record<string, unknown> | null
+): void {
+	if (!resource) {
+		throw Object.assign(
+			new Error('Resource not found'),
+			{ status: 404, code: ErrorCodes.NOT_FOUND }
+		);
+	}
+
+	const level = getResourceAccessLevel(context, resource);
+	if (level === 'shared_read') {
+		throw Object.assign(
+			new Error('You cannot modify resources shared to your account'),
+			{ status: 403, code: ErrorCodes.FORBIDDEN }
+		);
+	}
+}
+
+export function canAccessResourceFields(
+	params: { systemRole: SystemRole; userId: string; accountId?: string },
+	resource: ResourceAccessInput
+): boolean {
+	const ctx = {
+		session: {
+			user: {
+				id: params.userId,
+				email: '',
+				systemRole: params.systemRole
+			}
+		},
+		account: params.accountId ? { id: params.accountId, name: '' } : undefined
+	} as UnifiedContext;
+	return canAccessResource(ctx, resource);
+}
+
+export function getResourceAccessLevelFields(
+	params: { systemRole: SystemRole; userId: string; accountId?: string },
+	resource: ResourceAccessInput
+): ResourceAccessLevel | null {
+	if (!canAccessResourceFields(params, resource)) {
+		return null;
+	}
+	const ctx = {
+		session: {
+			user: {
+				id: params.userId,
+				email: '',
+				systemRole: params.systemRole
+			}
+		},
+		account: params.accountId ? { id: params.accountId, name: '' } : undefined
+	} as UnifiedContext;
+	return getResourceAccessLevel(ctx, resource);
+}
+
 /**
  * Requires user to have access to resource, throws if not
- * 
+ *
  * @param context - Unified context
- * @param resource - Resource with accountId
+ * @param resource - Resource row or normalized access input
  * @throws Error with 403 status if access denied
  */
 export function requireResourceAccess(
 	context: UnifiedContext,
-	resource: { accountId?: string; createdBy?: string } | null
+	resource: ResourceAccessInput | Record<string, unknown> | null
 ): void {
 	if (!resource) {
 		throw Object.assign(
@@ -428,6 +589,7 @@ export function createCrudHandlers<T>(config: {
 		update: (id: string, data: any, context: UnifiedContext) => Promise<T>;
 		delete: (id: string, context: UnifiedContext) => Promise<void>;
 	};
+	mapGetResponse?: (resource: T, context: UnifiedContext) => unknown;
 }) {
 	return {
 		GET: unifiedEndpoint(
@@ -443,7 +605,11 @@ export function createCrudHandlers<T>(config: {
 
 				requireResourceAccess(context, resource as any);
 
-				return successResponse(resource, { requestId: context.requestId });
+				const payload = config.mapGetResponse
+					? config.mapGetResponse(resource, context)
+					: resource;
+
+				return successResponse(payload, { requestId: context.requestId });
 			},
 			{ permission: config.permissions.read }
 		),
@@ -462,6 +628,7 @@ export function createCrudHandlers<T>(config: {
 			async ({ context, event, params }) => {
 				const existing = await config.handlers.get(params.id, context);
 				requireResourceAccess(context, existing as any);
+				requireResourceMutationAccess(context, existing as any);
 
 				const data = await event.request.json();
 				const resource = await config.handlers.update(params.id, data, context);
@@ -475,6 +642,7 @@ export function createCrudHandlers<T>(config: {
 			async ({ context, params }) => {
 				const existing = await config.handlers.get(params.id, context);
 				requireResourceAccess(context, existing as any);
+				requireResourceMutationAccess(context, existing as any);
 
 				await config.handlers.delete(params.id, context);
 

@@ -7,6 +7,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
 import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
+import { requireResourceBinaryDownloadAccess } from '$lib/server/resources/resourceDownloadAccess';
 
 /**
  * GET handler for resource files.
@@ -40,7 +41,9 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
                     type: true,
                     name: true,
                     accountId: true,
-                    createdBy: true
+                    createdBy: true,
+                    shareScope: true,
+                    sharedWithAccounts: { select: { accountId: true } }
                 }
             });
             
@@ -49,29 +52,8 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
                 throw error(404, 'Resource not found');
             }
             
-            // Check if the user has access to this resource
-            // User can access if they belong to the account that owns the resource
-            logger.info(`Checking access for user ${locals.user.id} to resource with accountId: ${resource.accountId}`);
-            
-            const hasAccess = await locals.prisma.accountMembership.findFirst({
-                where: {
-                    accountId: resource.accountId,
-                    userId: locals.user.id,
-                    role: { not: 'SYSTEM' }
-                }
-            });
-            
-            logger.info(`Account membership check result: ${hasAccess ? 'ACCESS GRANTED' : 'ACCESS DENIED'}`);
-            
-            if (!hasAccess) {
-                // Also check if user is admin (admin can access all resources)
-                const isAdmin = locals.user.systemRole === 'ADMIN';
-                logger.info(`User is admin: ${isAdmin}`);
-                
-                if (!isAdmin) {
-                    throw error(403, 'You do not have permission to access this resource');
-                }
-            }
+            logger.info(`Checking download access for user ${locals.user.id} to resource ${resource.id}`);
+            requireResourceBinaryDownloadAccess(locals, resource as Record<string, unknown>);
             
             // Log the resource details for debugging
             logger.info(`Serving resource: ${JSON.stringify({
@@ -150,15 +132,12 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
             logger.warn(`Could not determine proper path for resource: ${resource.id}, path: ${resource.path || 'undefined'}`);
             throw error(404, `Resource file not found: ${resource.path || 'No path provided'}`);
         } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : String(err);
-            logger.error(`Error serving resource ${id}: ${errorMessage}`);
-            
-            // If it's already an HTTP error, rethrow it
-            if (err instanceof Error && 'status' in err) {
+            // SvelteKit HttpError is not necessarily `instanceof Error` — use shape check (same as user resource load)
+            if (err && typeof err === 'object' && 'status' in err) {
                 throw err;
             }
-            
-            // Otherwise, wrap it in a 500 error
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            logger.error(`Error serving resource ${id}: ${errorMessage}`);
             throw error(500, 'Failed to serve resource');
         }
 };

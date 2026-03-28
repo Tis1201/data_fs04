@@ -14,6 +14,14 @@ export type ClickHouseEvent = {
 
 let clickhouseClient: ReturnType<typeof createClient> | null = null;
 
+/** True when ClickHouse is missing, unreachable, or TLS/URL is misconfigured (not a query/logic error). */
+export function isClickHouseInfrastructureError(message: string): boolean {
+  if (!message) return false;
+  return /ClickHouse configuration missing|TLS|ECONNREFUSED|socket disconnected|ENOTFOUND|ETIMEDOUT|certificate|SSL|ECONNRESET|connect/i.test(
+    message
+  );
+}
+
 export function getClickHouseClient() {
   if (!clickhouseClient) {
     const url = process.env.CLICKHOUSE_URL;

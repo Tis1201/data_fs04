@@ -77,6 +77,9 @@ model Account {
   // Sensor Templates
   sensorTemplates  SensorTemplate[]
   
+  // Resources shared into this account (admin catalog shares)
+  resourceShares ResourceAccountShare[]
+  
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
   
@@ -868,6 +871,13 @@ model InvitationToken {
   @@allow('delete', auth().systemRole == "ADMIN")
 }
 
+// Who may see a resource beyond its owning account (Phase 2+ API uses this)
+enum ResourceShareScope {
+  NONE
+  ALL_ACCOUNTS
+  SELECTED_ACCOUNTS
+}
+
 //Create a standalone Resource table
 model Resource {
   id          String   @id @default(cuid())
@@ -875,6 +885,8 @@ model Resource {
   description String?
   type        String   // "file", "image", "video", "document", "binary"
   target      String   @default("user") // "device", "account", "user"
+  /// Admin-controlled sharing; NONE = only owning account (+ admins). API enforcement in later phases.
+  shareScope  ResourceShareScope @default(NONE)
   version     String? @default("1.0.0") // Release version number for binary
   versionCode Int?     // Version code extracted from APK (read-only)
   signature   String?  // APK signature extracted using apk-signature (read-only)
@@ -893,6 +905,8 @@ model Resource {
   account     Account @relation(fields: [accountId], references: [id])
 
   bundleApps   BundleApp[]
+  /// When shareScope = SELECTED_ACCOUNTS, these accounts may read/install per API rules (Phase 2+).
+  sharedWithAccounts ResourceAccountShare[]
   
   // Permission rules
   // Admin has full access to all resources
@@ -907,10 +921,33 @@ model Resource {
 
   // Allow users to read if they are members of the account
   @@allow('read', auth() != null && account.members?[userId == auth().id])
+
+  // Admin-shared catalog: readable by any signed-in user (list/detail APIs still apply account-scoped where clauses)
+  @@allow('read', auth() != null && shareScope == ALL_ACCOUNTS)
+
+  // Selected accounts: user must be a member of an account that has a ResourceAccountShare row for this resource
+  @@allow('read', auth() != null && shareScope == SELECTED_ACCOUNTS && sharedWithAccounts?[account.members?[userId == auth().id]])
   
   @@index([name])
   @@index([type])
   @@index([createdBy])
+  @@index([shareScope])
+}
+
+model ResourceAccountShare {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, accountId])
+  @@index([accountId])
+  @@index([resourceId])
+
+  // Phase 4: admin-only mutations. Tighten reads in Phase 2 if using ZenStack client for shares.
+  @@allow('all', auth().systemRole == 'ADMIN')
 }
 
 // JWT Token Issuer Subsystem
@@ -1135,6 +1172,9 @@ model Bundle {
   scheduledAtTimezone String?
   scheduledAtStartIfMissed Boolean @default(false) 
   activePeriodDays Int     @default(1)
+  /// First device reported start / last device reported end (see migration add_bundle_actual_start_end_times)
+  actualStartedAt DateTime?
+  actualEndedAt   DateTime?
 
   // Relationships
   apps        BundleApp[]

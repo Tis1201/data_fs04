@@ -9,8 +9,6 @@
     import { claimDevice } from '$lib/client/mqtt/claimFlow';
     import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
     import EditDeviceModal from '$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte';
-    import CharacterCount from '$lib/components/ui_components_sveltekit/form/CharacterCount.svelte';
-    import { NAME_MAX } from '$lib/constants/description';
     import { validateBounds, normalizeBounds, RADAR_CONSTRAINTS, ADD_DEVICE_TRACKING_DEFAULTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
     import type { BadgeColor, SortState } from '$lib/design-system/components';
     import { Search, Filter, Plus, Info, Trash2 } from 'lucide-svelte';
@@ -157,7 +155,13 @@
     let addDeviceLoading = false;
     let addDeviceError = ''; // Server/API errors only – shown with Alert
     let addDevicePinError = ''; // Field validation – shown on PIN InputField
-    let addDeviceNameError = ''; // Field validation – shown on Sensor Name InputField
+    /** Set after claim on step 1 — used for Register (createSensorForDevice) only. */
+    let claimedDeviceId: string | null = null;
+    /** Device display name after claim (MAC-style), for init config labels. */
+    let claimedDeviceName = '';
+    /** When true, Step 2 values come from the assigned device profile (read-only). */
+    let addDeviceStep2Locked = false;
+    let addDeviceProfileLabel = '';
     let addDeviceForm = {
         pin: '',
         status: 'ACTIVE',
@@ -186,7 +190,6 @@
     let addDeviceTrackingAreaErrors: { xMin?: string; yMin?: string; xMax?: string; yMax?: string } = {};
     $: if (data.currentAccountId) addDeviceForm.accountId = data.currentAccountId;
     $: if (addDeviceForm.pin !== undefined) addDevicePinError = '';
-    $: if (addDeviceForm.name !== undefined) addDeviceNameError = '';
     $: if (addDeviceStep2.zones?.length) {
         const toClear = addDeviceStep2.zones.filter((z) => z.name?.trim() && addDeviceZoneErrors[z.id]).map((z) => z.id);
         if (toClear.length) {
@@ -208,8 +211,11 @@
     function openAddDeviceModal() {
         addDeviceError = '';
         addDevicePinError = '';
-        addDeviceNameError = '';
         addDeviceTrackingAreaErrors = {};
+        claimedDeviceId = null;
+        claimedDeviceName = '';
+        addDeviceStep2Locked = false;
+        addDeviceProfileLabel = '';
         addDeviceStep = 1;
         addDeviceForm = {
             pin: '',
@@ -242,8 +248,13 @@
         addDeviceStep = 1;
         addDeviceError = '';
         addDevicePinError = '';
-        addDeviceNameError = '';
+        claimedDeviceId = null;
+        claimedDeviceName = '';
+        addDeviceStep2Locked = false;
+        addDeviceProfileLabel = '';
     }
+
+    $: step2InputsDisabled = addDeviceLoading || addDeviceStep2Locked;
 
     // Per-field validation for Tracking Area (same pattern as EditDeviceModal, RADAR_CONSTRAINTS: X -4..4, Y 0..7)
     function validateAddDeviceTrackingField(value: string, isXAxis: boolean): string | undefined {
@@ -352,10 +363,9 @@
         await invalidate('app:userControllersRadar');
     }
 
-    function addDeviceStep1Next() {
+    async function addDeviceStep1Next() {
         addDeviceError = '';
         addDevicePinError = '';
-        addDeviceNameError = '';
         const pinNorm = addDeviceForm.pin?.trim().replace(/\s/g, '') ?? '';
         if (!pinNorm) {
             addDevicePinError = 'Device registration code (PIN) is required.';
@@ -365,43 +375,84 @@
             addDevicePinError = 'Please enter the full 6-digit code from your device.';
             return;
         }
-        if (!addDeviceForm.name?.trim()) {
-            addDeviceNameError = 'Sensor name is required.';
-            return;
+        addDeviceLoading = true;
+        try {
+            const confirmation = await claimDevice(pinNorm);
+            const deviceId = confirmation.deviceId;
+            if (!deviceId) throw new Error('Claim confirmation did not return device ID');
+            claimedDeviceId = deviceId;
+
+            const fd = new FormData();
+            fd.set('deviceId', deviceId);
+            const res = await fetch('?/radarProfileForClaimedDevice', { method: 'POST', body: fd });
+            const raw = await res.text();
+            const result = typeof raw === 'string' && raw.trim() ? (deserialize(raw) as { type?: string; data?: Record<string, unknown> }) : {};
+            if (result.type === 'failure') {
+                const msg = String((result.data as { message?: string })?.message ?? 'Failed to load device profile.');
+                throw new Error(msg);
+            }
+            if (result.type !== 'success') {
+                throw new Error('Unexpected response from server.');
+            }
+            const payload = result.data as {
+                locked?: boolean;
+                profileName?: string | null;
+                deviceName?: string;
+                step2?: typeof addDeviceStep2;
+            };
+            claimedDeviceName = typeof payload?.deviceName === 'string' ? payload.deviceName : '';
+            addDeviceStep2Locked = payload?.locked === true;
+            addDeviceProfileLabel = typeof payload?.profileName === 'string' ? payload.profileName : '';
+            if (payload?.step2) {
+                const s2 = payload.step2;
+                addDeviceStep2 = {
+                    configTemplate: s2.configTemplate ?? 'CUSTOM',
+                    trackingXMin: String(s2.trackingXMin ?? ADD_DEVICE_TRACKING_DEFAULTS.X_MIN),
+                    trackingXMax: String(s2.trackingXMax ?? ADD_DEVICE_TRACKING_DEFAULTS.X_MAX),
+                    trackingYMin: String(s2.trackingYMin ?? ADD_DEVICE_TRACKING_DEFAULTS.Y_MIN),
+                    trackingYMax: String(s2.trackingYMax ?? ADD_DEVICE_TRACKING_DEFAULTS.Y_MAX),
+                    deviceMode: s2.deviceMode ?? 'LIVE_PREVIEW',
+                    timezone: s2.timezone ?? 'UTC',
+                    pathTracking: s2.pathTracking ?? true,
+                    dwellThreshold: String(s2.dwellThreshold ?? '0'),
+                    zones: Array.isArray(s2.zones) && s2.zones.length
+                        ? s2.zones.map((z) => ({ ...z }))
+                        : [{ id: 'zone-1', name: 'Zone 1', active: false }]
+                };
+            }
+            addDeviceForm.serialNumber = `RADAR-${Date.now().toString(36)}`;
+            if (!addDeviceStep2.zones?.length) {
+                addDeviceStep2.zones = [{ id: 'zone-1', name: 'Zone 1', active: false }];
+            }
+            addDeviceStep = 2;
+        } catch (e) {
+            claimedDeviceId = null;
+            claimedDeviceName = '';
+            addDeviceStep2Locked = false;
+            addDeviceProfileLabel = '';
+            const err = e instanceof Error ? e.message : String(e);
+            addDeviceError = err;
+            toast.error(err);
+        } finally {
+            addDeviceLoading = false;
         }
-        if (addDeviceForm.name.length > NAME_MAX) {
-            addDeviceNameError = `Sensor name must be ${NAME_MAX} characters or less.`;
-            return;
-        }
-        const slug = addDeviceForm.name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') || 'sensor';
-        addDeviceForm.serialNumber = `RADAR-${slug}-${Date.now().toString(36)}`;
-        if (!addDeviceStep2.zones?.length) {
-            addDeviceStep2.zones = [{ id: 'zone-1', name: 'Zone 1', active: false }]; // Default disabled when claiming
-        }
-        addDeviceStep = 2;
     }
 
     function setDwellThresholdFromInput(el: HTMLInputElement | null) {
-        if (!el) return;
+        if (!el || addDeviceStep2Locked) return;
         const v = el.value;
         addDeviceStep2.dwellThreshold = v;
         addDeviceStep2 = addDeviceStep2;
     }
-    function addDeviceStep2Back() {
-        addDeviceError = '';
-        addDevicePinError = '';
-        addDeviceNameError = '';
-        addDeviceZoneErrors = {};
-        addDeviceStep = 1;
-    }
-
     function addDeviceAddZone() {
+        if (addDeviceStep2Locked) return;
         if (addDeviceStep2.zones.length >= MAX_ZONES) return;
         addDeviceStep2.zones = [...addDeviceStep2.zones, { id: `zone-${Date.now()}`, name: '', active: true }];
         addDeviceZoneErrors = {};
     }
 
     function addDeviceRemoveZone(id: string) {
+        if (addDeviceStep2Locked) return;
         if (addDeviceStep2.zones.length <= 1) return;
         addDeviceStep2.zones = addDeviceStep2.zones.filter((z) => z.id !== id);
         const next = { ...addDeviceZoneErrors };
@@ -410,6 +461,7 @@
     }
 
     function addDeviceToggleZoneActive(id: string) {
+        if (addDeviceStep2Locked) return;
         const z = addDeviceStep2.zones.find((x) => x.id === id);
         if (z) z.active = !z.active;
         addDeviceStep2 = addDeviceStep2;
@@ -470,7 +522,8 @@
     }) {
         addDeviceTrackingAreaErrors = {};
         // Validate zone names before submit (Step 2). Default zone (zone-1) is not required per design note.
-        if (addDeviceStep === 2 && addDeviceStep2.zones) {
+        // Profile-locked step 2 skips manual zone checks (values come from assigned profile).
+        if (addDeviceStep === 2 && addDeviceStep2.zones && !addDeviceStep2Locked) {
             const errors: Record<string, string> = {};
             for (const z of addDeviceStep2.zones) {
                 if (z.id === 'zone-1') continue; // Default zone: do not require
@@ -489,30 +542,30 @@
                 return () => {};
             }
         }
-        const pin = addDeviceForm.pin?.trim().replace(/\s/g, '') ?? '';
-        if (!pin || pin.length < 6) {
-            addDevicePinError = 'Please enter the full 6-digit code from your device.';
+        if (addDeviceStep === 2 && addDeviceStep2Locked && !validateAddDeviceTrackingArea()) {
             input.cancel();
             return () => {};
         }
-        // Use device.claim RPC + confirmation so the physical device receives credentials and connects (same as IoT Add Device).
+        if (!claimedDeviceId) {
+            addDeviceError = 'Device is not registered yet. Go back to step 1 and enter your PIN.';
+            input.cancel();
+            toast.error(addDeviceError);
+            return () => {};
+        }
         input.cancel();
         addDeviceLoading = true;
         addDeviceError = '';
         addDevicePinError = '';
         (async () => {
             try {
-                const confirmation = await claimDevice(pin);
-                const deviceId = confirmation.deviceId;
-                if (!deviceId) throw new Error('Claim confirmation did not return device ID');
-                const name = addDeviceForm.name?.trim() ?? '';
+                const deviceId = claimedDeviceId;
+                const name = '';
                 let serialNumber = addDeviceForm.serialNumber?.trim() ?? '';
                 if (!serialNumber) {
-                    const slug = name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '') || 'sensor';
-                    serialNumber = `RADAR-${slug}-${Date.now().toString(36)}`;
+                    serialNumber = `RADAR-${Date.now().toString(36)}`;
                 }
                 const fd = new FormData();
-                fd.set('deviceId', deviceId);
+                fd.set('deviceId', deviceId!);
                 fd.set('name', name);
                 fd.set('serialNumber', serialNumber);
                 fd.set('description', addDeviceForm.description ?? '');
@@ -520,7 +573,7 @@
                 fd.set('firmware', addDeviceForm.firmware ?? '');
                 fd.set('status', addDeviceForm.status || 'ACTIVE');
                 // Init setup config: tracking area, zones, device settings (saved to DB for client API)
-                const initConfig = buildInitConfigFromStep2(addDeviceStep2, addDeviceForm.name ?? '');
+                const initConfig = buildInitConfigFromStep2(addDeviceStep2, claimedDeviceName || '');
                 if (Object.keys(initConfig).length > 0) {
                     fd.set('initConfig', JSON.stringify(initConfig));
                 }
@@ -675,13 +728,13 @@
     $: columns = [
         {
             id: 'name',
-            header: 'Sensor Name',
-            accessor: (row: SensorRow) => row.name ?? '',
+            header: 'Device',
+            accessor: (row: SensorRow) => row.controller?.device?.name ?? row.name ?? '',
             type: 'custom' as const,
             sortable: true,
             width: '220px',
             render: (_value: unknown, row: SensorRow) => {
-                const name = row.name ?? '—';
+                const name = (row.controller?.device?.name ?? row.name) ?? '—';
                 const id = row.id ?? '';
                 const link = `<a href="/user/controllers/radar/${getControllerId(row)}" class="text-[14px] font-medium text-[var(--ds-text-link)] hover:text-[var(--ds-text-link-hover)] hover:underline truncate block">${name.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')}</a>`;
                 const idLine = id ? `<div style="font-family: var(--ds-font-family-primary); font-size: 12px; color: var(--ds-color-gray-500); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;" title="${id.replace(/"/g, '&quot;')}">${id.replace(/</g, '&lt;')}</div>` : '';
@@ -902,7 +955,7 @@
         {/if}
 
         {#if addDeviceStep === 1}
-            <!-- Step 1: Device Registration Code (PIN) *, Sensor Name *, Location -->
+            <!-- Step 1: PIN — claim runs on Next; device name is the MAC-style device list name after claim. -->
             <div class="add-device-fields">
                 <div class="add-device-field add-device-field-full add-device-field-with-pin-help">
                     <InputField
@@ -932,20 +985,6 @@
                 </div>
                 <div class="add-device-field add-device-field-full">
                     <InputField
-                        label="Sensor Name"
-                        type="text"
-                        bind:value={addDeviceForm.name}
-                        placeholder="Enter"
-                        required={true}
-                        maxlength={NAME_MAX}
-                        disabled={addDeviceLoading}
-                        state={addDeviceNameError ? 'error' : 'default'}
-                        helperText={addDeviceNameError}
-                    />
-                    <CharacterCount current={addDeviceForm.name.length} max={NAME_MAX} />
-                </div>
-                <div class="add-device-field add-device-field-full">
-                    <InputField
                         label="Location"
                         type="text"
                         bind:value={addDeviceForm.location}
@@ -957,6 +996,16 @@
         {:else}
             <!-- Step 2: Configuration Template, Tracking Area, Zones, Device Settings -->
             <div class="add-device-fields">
+                {#if addDeviceStep2Locked}
+                    <Alert
+                        severity="info"
+                        variant="outline"
+                        message={addDeviceProfileLabel
+                            ? `Configuration is read-only and comes from the profile assigned to this device (${addDeviceProfileLabel}).`
+                            : 'Configuration is read-only and comes from the profile assigned to this device.'}
+                        dismissible={false}
+                    />
+                {/if}
                 <div class="add-device-field add-device-field-full">
                     <Dropdown
                         label="Configuration Template"
@@ -964,6 +1013,7 @@
                         options={configTemplateOptions}
                         value={addDeviceStep2.configTemplate}
                         width="100%"
+                        disabled={step2InputsDisabled}
                     />
                 </div>
                 <div class="add-device-section">
@@ -975,7 +1025,7 @@
                                 type="text"
                                 bind:value={addDeviceStep2.trackingXMin}
                                 placeholder="-4 to 4"
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 required={true}
                                 state={addDeviceTrackingAreaErrors.xMin ? 'error' : 'default'}
                                 helperText={addDeviceTrackingAreaErrors.xMin || ''}
@@ -988,7 +1038,7 @@
                                 type="text"
                                 bind:value={addDeviceStep2.trackingYMin}
                                 placeholder="0 to 7"
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 required={true}
                                 state={addDeviceTrackingAreaErrors.yMin ? 'error' : 'default'}
                                 helperText={addDeviceTrackingAreaErrors.yMin || ''}
@@ -1001,7 +1051,7 @@
                                 type="text"
                                 bind:value={addDeviceStep2.trackingXMax}
                                 placeholder="-4 to 4"
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 required={true}
                                 state={addDeviceTrackingAreaErrors.xMax ? 'error' : 'default'}
                                 helperText={addDeviceTrackingAreaErrors.xMax || ''}
@@ -1014,7 +1064,7 @@
                                 type="text"
                                 bind:value={addDeviceStep2.trackingYMax}
                                 placeholder="0 to 7"
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 required={true}
                                 state={addDeviceTrackingAreaErrors.yMax ? 'error' : 'default'}
                                 helperText={addDeviceTrackingAreaErrors.yMax || ''}
@@ -1054,7 +1104,7 @@
                                     icon={Plus}
                                     iconPosition="left"
                                     on:click={addDeviceAddZone}
-                                    disabled={addDeviceLoading}
+                                    disabled={step2InputsDisabled}
                                     class="add-device-add-zone-btn"
                                 >
                                     Add Zone
@@ -1069,7 +1119,7 @@
                                     <Toggle
                                         size="sm"
                                         checked={zone.active}
-                                        disabled={addDeviceLoading}
+                                        disabled={step2InputsDisabled}
                                         on:change={() => addDeviceToggleZoneActive(zone.id)}
                                     />
                                 </Tooltip>
@@ -1079,7 +1129,7 @@
                                     type="text"
                                     bind:value={zone.name}
                                     placeholder="Enter"
-                                    disabled={addDeviceLoading}
+                                    disabled={step2InputsDisabled}
                                     state={addDeviceZoneErrors[zone.id] ? 'error' : 'default'}
                                     helperText={addDeviceZoneErrors[zone.id] || ''}
                                 />
@@ -1093,7 +1143,7 @@
                                 iconPosition="only"
                                 iconSize={20}
                                 aria-label="Delete zone"
-                                disabled={addDeviceLoading || addDeviceStep2.zones.length <= 1}
+                                disabled={step2InputsDisabled || addDeviceStep2.zones.length <= 1}
                                 on:click={() => addDeviceRemoveZone(zone.id)}
                                 class="add-device-zone-delete"
                             />
@@ -1111,7 +1161,7 @@
                                 value={addDeviceStep2.deviceMode}
                                 width="100%"
                                 preferPlacement="bottom"
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 on:change={(e) => {
                                     const v = e.detail;
                                     addDeviceStep2.deviceMode = Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
@@ -1127,7 +1177,7 @@
                                 value={addDeviceStep2.timezone}
                                 width="100%"
                                 preferPlacement="bottom"
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 on:change={(e) => {
                                     const v = e.detail;
                                     addDeviceStep2.timezone = Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
@@ -1145,7 +1195,7 @@
                             <Toggle
                                 size="sm"
                                 checked={addDeviceStep2.pathTracking}
-                                disabled={addDeviceLoading}
+                                disabled={step2InputsDisabled}
                                 on:change={() => {
                                     addDeviceStep2.pathTracking = !addDeviceStep2.pathTracking;
                                     addDeviceStep2 = addDeviceStep2;
@@ -1171,7 +1221,7 @@
                                     max="60"
                                     step="1"
                                     value={parseFloat(addDeviceStep2.dwellThreshold) || 0}
-                                    disabled={addDeviceLoading}
+                                    disabled={step2InputsDisabled}
                                     on:input={(e) => setDwellThresholdFromInput(e.currentTarget)}
                                 />
                             </div>
@@ -1199,9 +1249,6 @@
             </div>
         {:else}
             <div class="add-device-actions add-device-actions-step2">
-                <Button type="button" variant="text" color="primary" size="lg" on:click={addDeviceStep2Back} disabled={addDeviceLoading}>
-                    Back
-                </Button>
                 <div class="add-device-actions-right">
                     <Button type="button" variant="outline" color="primary" size="lg" on:click={closeAddDeviceModal} disabled={addDeviceLoading}>
                         Cancel

@@ -6,6 +6,7 @@ import prisma from '$lib/server/prisma';
 import { SystemUser } from '../../interfaces/message';
 import { unregisterWaveTimeout } from '$lib/server/scheduler/bundleTimeoutManager';
 import crypto from 'crypto';
+import { assertBundleWaveInstallAllowed } from '$lib/server/resources/resourceInstallAccess';
 
 export async function handleBundleStatus(message: InMessage): Promise<void> {
   try {
@@ -406,6 +407,13 @@ export async function checkAndAutoStartNextWave(bundleId: string, currentWaveId:
         });
         
         logger.info(`[AutoStart] Processing ${nextWaveProgresses.length} devices for next wave ${nextWave.id}`);
+
+        await assertBundleWaveInstallAllowed(
+          prisma,
+          bundle?.accountId,
+          bundle?.apps || [],
+          nextWaveProgresses
+        );
         
         // Set startedAt for all devices in the wave when sending commands
         const startTime = new Date();

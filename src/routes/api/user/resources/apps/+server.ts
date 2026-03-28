@@ -3,6 +3,7 @@ import { json } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
+import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
 
 // Allowed app formats (server-enforced)
 const ALLOWED_FORMATS = new Set(['apk', 'ipa', 'app', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'cpk']);
@@ -20,7 +21,7 @@ function parseCsvList(param: string | null): string[] | undefined {
 }
 
 export const GET: RequestHandler = restrict(
-  async ({ url, locals, auth }: { url: URL; locals: any; auth: any }) => {
+  async ({ url, locals, cookies }: { url: URL; locals: any; cookies: { get: (k: string) => string | undefined } }) => {
     try {
       const search = url.searchParams.get('search');
       const formatFilter = parseCsvList(url.searchParams.get('format'));
@@ -55,8 +56,10 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid date filter' }, { status: 400 });
       }
 
-      // Scope to current account (switch-account aware)
-      const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+      const currentAccountId =
+        (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id ??
+        cookies.get('current_account_id');
+
       if (!currentAccountId) {
         return json({
           items: [],
@@ -72,44 +75,40 @@ export const GET: RequestHandler = restrict(
         });
       }
 
-      // Build where clause
-      const where: any = {
-        accountId: currentAccountId,
-        format: { in: Array.from(ALLOWED_FORMATS) }
-      };
+      const and: any[] = [{ OR: resourceVisibilityOrForAccount(currentAccountId) }];
 
-      if (formatFilter && formatFilter.length) {
-        where.format = { in: formatFilter };
-      }
+      const formatIn = formatFilter?.length ? formatFilter : Array.from(ALLOWED_FORMATS);
+      and.push({ format: { in: formatIn } });
 
       if (versionFilter) {
-        where.version = versionFilter;
+        and.push({ version: versionFilter });
       }
 
       if (createdAfterDate || createdBeforeDate) {
-        where.createdAt = {};
-        if (createdAfterDate) where.createdAt.gt = createdAfterDate;
-        if (createdBeforeDate) where.createdAt.lt = createdBeforeDate;
+        const createdAt: Record<string, Date> = {};
+        if (createdAfterDate) createdAt.gt = createdAfterDate;
+        if (createdBeforeDate) createdAt.lt = createdBeforeDate;
+        and.push({ createdAt });
       }
 
       if (search && search.trim().length) {
         const q = search.trim();
-        where.OR = [
-          { name: { contains: q, mode: 'insensitive' } },
-          { description: { contains: q, mode: 'insensitive' } },
-          { packageName: { contains: q, mode: 'insensitive' } }
-        ];
+        and.push({
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { packageName: { contains: q, mode: 'insensitive' } }
+          ]
+        });
       }
 
-      // Exclude already-selected packages if provided
       if (excludePackages.length) {
-        if (!where.NOT) where.NOT = [] as any;
-        (where.NOT as any[]).push({ packageName: { in: excludePackages } });
+        and.push({ NOT: { packageName: { in: excludePackages } } });
       }
 
-      // Exclude null package names
-      if (!where.NOT) where.NOT = [] as any;
-      (where.NOT as any[]).push({ packageName: null });
+      and.push({ NOT: { packageName: null } });
+
+      const where: any = { AND: and };
 
       // Pagination calculus
       const skip = (page - 1) * pageSize;

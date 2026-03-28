@@ -7,6 +7,7 @@
     import LoadingSkeleton from "$lib/components/ui_components_sveltekit/table/LoadingSkeleton.svelte";
     import RelativeDate from "$lib/components/ui_components_sveltekit/date/RelativeDate.svelte";
     import NameWithIdLink from "$lib/components/ui_components_sveltekit/table/column/NameWithIdLink.svelte";
+    import ShareScopeBadge from "$lib/components/resources/ShareScopeBadge.svelte";
     import {Download, Pencil, Trash} from "lucide-svelte";
     import type {Resource} from "@prisma/client";
     import {goto} from "$app/navigation";
@@ -174,6 +175,24 @@
             label: "Size",
             sortable: true,
             render: (resource: Resource) => formatBytes(resource.size)
+        },
+        {
+            id: "sharing",
+            label: "Sharing",
+            sortable: false,
+            render: (resource: Resource) => {
+                const row = resource as Resource & {
+                    shareScope?: string;
+                    _count?: { sharedWithAccounts?: number };
+                };
+                return {
+                    component: ShareScopeBadge,
+                    props: {
+                        shareScope: row.shareScope,
+                        selectedCount: row._count?.sharedWithAccounts ?? 0
+                    }
+                };
+            }
         },
         {
             id: "createdAt",

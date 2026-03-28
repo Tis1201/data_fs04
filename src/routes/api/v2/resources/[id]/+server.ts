@@ -1,16 +1,33 @@
 /**
  * Unified Resource Detail API (v2)
- * 
+ *
  * This endpoint replaces:
  * - /api/admin/iot/resources/[id]
  * - /api/user/resources/[id]
  * - /api/resources/[id] (shared endpoint)
- * 
+ *
  * Works for both admin and user roles with appropriate permission checks.
  */
 
-import { createCrudHandlers, requireResourceAccess } from '$lib/server/api/unifiedEndpoint';
+import {
+	createCrudHandlers,
+	getResourceAccessLevel,
+	normalizeResourceAccessInput,
+	type UnifiedContext
+} from '$lib/server/api/unifiedEndpoint';
 import prisma from '$lib/server/prisma';
+
+function mapResourceGetResponse(resource: Record<string, unknown>, context: UnifiedContext) {
+	const input = normalizeResourceAccessInput(resource);
+	const level = getResourceAccessLevel(context, input);
+
+	const { sharedWithAccounts, path, ...rest } = resource;
+	const out: Record<string, unknown> = { ...rest, access: level };
+	if (level === 'shared_read') {
+		delete out.path;
+	}
+	return out;
+}
 
 /**
  * CRUD handlers for resources
@@ -23,27 +40,21 @@ export const { GET, PUT, DELETE } = createCrudHandlers({
 		update: 'resource.edit',
 		delete: 'resource.delete'
 	},
+	mapGetResponse: (resource, context) => mapResourceGetResponse(resource as Record<string, unknown>, context),
 	handlers: {
 		get: async (id, context) => {
 			const resource = await prisma.resource.findUnique({
 				where: { id },
 				include: {
-					account: true
+					account: true,
+					sharedWithAccounts: { select: { accountId: true } }
 				}
 			});
-
-			// Check access (admin can see all, user can only see their account's resources)
-			if (resource) {
-				requireResourceAccess(context, {
-					accountId: resource.accountId || undefined,
-					createdBy: resource.createdBy
-				});
-			}
 
 			return resource;
 		},
 
-		create: async (data, context) => {
+		create: async (_data, _context) => {
 			// This is handled by create-cloud endpoint or file upload
 			throw new Error('Use POST /api/v2/resources/create-cloud to create');
 		},
@@ -65,12 +76,13 @@ export const { GET, PUT, DELETE } = createCrudHandlers({
 				where: { id },
 				data: updates,
 				include: {
-					account: true
+					account: true,
+					sharedWithAccounts: { select: { accountId: true } }
 				}
 			});
 		},
 
-		delete: async (id, context) => {
+		delete: async (id, _context) => {
 			// Check if resource is in use
 			const bundleCount = await prisma.bundleApp.count({
 				where: { resourceId: id }
@@ -89,4 +101,3 @@ export const { GET, PUT, DELETE } = createCrudHandlers({
 		}
 	}
 });
-

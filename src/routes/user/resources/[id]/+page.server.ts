@@ -1,5 +1,11 @@
 import { error, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
+import {
+	canAccessResourceFields,
+	getResourceAccessLevelFields,
+	normalizeResourceAccessInput,
+	resourceVisibilityOrForAccount
+} from '$lib/server/api/unifiedEndpoint';
 import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
@@ -12,17 +18,54 @@ import { deleteFileFromCloudStorage } from '$lib/server/storage';
 import { createErrorResponse } from '$lib/types/api';
 import { handleFormError } from '$lib/server/errors/errorHandlers';
 import { z } from 'zod';
+import prisma from '$lib/server/prisma';
 
 const resourceSchemaWithTarget = resourceSchema.extend({
     target: z.string().optional().nullable().default('')
 });
+
+function resourceAccessParams(
+	locals: {
+		user?: { id: string; systemRole: string } | null;
+		currentAccount?: { account?: { id: string } } | null;
+	},
+	cookies?: { get: (name: string) => string | undefined }
+) {
+	if (!locals.user) {
+		throw error(401, 'Unauthorized');
+	}
+	const accountId =
+		locals.currentAccount?.account?.id ?? cookies?.get('current_account_id') ?? undefined;
+	return {
+		systemRole: locals.user.systemRole as import('$lib/server/features/flags').SystemRole,
+		userId: locals.user.id,
+		accountId
+	};
+}
+
+function isSharedReadResource(
+	locals: {
+		user?: { id: string; systemRole: string } | null;
+		currentAccount?: { account?: { id: string } } | null;
+	},
+	cookies: { get: (name: string) => string | undefined } | undefined,
+	row: Record<string, unknown>
+): boolean {
+	if (!locals.user) return false;
+	const p = {
+		systemRole: locals.user.systemRole as import('$lib/server/features/flags').SystemRole,
+		userId: locals.user.id,
+		accountId: locals.currentAccount?.account?.id ?? cookies?.get('current_account_id') ?? undefined
+	};
+	return getResourceAccessLevelFields(p, normalizeResourceAccessInput(row)) === 'shared_read';
+}
 
 // Define actions for this route
 export const actions: Actions = {
     // Action to update a resource
     update: restrict(
         async (event: AuthenticatedEvent) => {
-            const { request, params, locals } = event;
+            const { request, params, locals, cookies } = event;
 
             if (!locals.user) {
                 throw error(401, 'Unauthorized');
@@ -43,8 +86,9 @@ export const actions: Actions = {
 
             try {
                 // Get the existing resource
-                existingResource = await locals.prisma.resource.findUnique({
-                    where: { id }
+                existingResource = await prisma.resource.findUnique({
+                    where: { id },
+                    include: { sharedWithAccounts: { select: { accountId: true } } } as any
                 });
 
                 if (!existingResource) {
@@ -54,6 +98,17 @@ export const actions: Actions = {
                             'Resource not found',
                             'RESOURCE_NOT_FOUND',
                             { details: 'The resource you are trying to update does not exist.' }
+                        )
+                    );
+                }
+
+                if (isSharedReadResource(locals, cookies, existingResource as Record<string, unknown>)) {
+                    return message(
+                        form,
+                        createErrorResponse(
+                            'Permission denied',
+                            'FORBIDDEN',
+                            { details: 'You cannot edit resources shared to your account.' }
                         )
                     );
                 }
@@ -131,7 +186,7 @@ export const actions: Actions = {
     // Action to delete a resource
     deleteResource: restrict(
         async (event: AuthenticatedEvent) => {
-            const { params, locals } = event;
+            const { params, locals, cookies } = event;
 
             if (!locals.user) {
                 throw error(401, 'Unauthorized');
@@ -140,11 +195,12 @@ export const actions: Actions = {
             if (!id) {
                 throw error(400, 'Missing resource id');
             }
-            
+
             try {
                 // Check if the resource exists and the user has permission to delete it
-                const resource = await locals.prisma.resource.findUnique({
-                    where: { id }
+                const resource = await prisma.resource.findUnique({
+                    where: { id },
+                    include: { sharedWithAccounts: { select: { accountId: true } } } as any
                 });
                 
                 // If resource doesn't exist, return an error
@@ -152,6 +208,13 @@ export const actions: Actions = {
                     return fail(404, {
                         success: false,
                         message: 'Resource not found'
+                    });
+                }
+
+                if (isSharedReadResource(locals, cookies, resource as Record<string, unknown>)) {
+                    return fail(403, {
+                        success: false,
+                        message: 'You cannot delete resources shared to your account'
                     });
                 }
                 
@@ -223,7 +286,7 @@ export const actions: Actions = {
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
-        const { params, locals, depends } = event;
+        const { params, locals, depends, cookies } = event;
 
         depends('app:resource');
 
@@ -234,20 +297,39 @@ export const load = restrict(
         if (!id) {
             throw error(400, 'Missing resource id');
         }
-        
+
+        const currentAccountId =
+            locals.currentAccount?.account?.id ?? cookies.get('current_account_id') ?? undefined;
+
         try {
-            // Fetch the resource by ID
-            const resource = await locals.prisma.resource.findUnique({
-                where: { id },
-                include: {
-                    account: {
-                        select: {
-                            id: true,
-                            name: true
-                        }
+            // Unenhanced Prisma: ZenStack denies non-admins from reading `ResourceAccountShare` rows, so
+            // `findUnique` with `include: sharedWithAccounts` on enhanced `locals.prisma` returns null
+            // for catalog resources. App-level checks below enforce access.
+            //
+            // When the user has a current account, use the same visibility predicate as the list page
+            // (`resourceVisibilityOrForAccount`) so a removed share (no join row) cannot still load by URL.
+            const includeBlock = {
+                account: {
+                    select: {
+                        id: true,
+                        name: true
                     }
-                }
-            });
+                },
+                sharedWithAccounts: { select: { accountId: true } }
+            } as const;
+
+            const resource = currentAccountId
+                ? await prisma.resource.findFirst({
+                        where: {
+                            id,
+                            AND: [{ OR: resourceVisibilityOrForAccount(currentAccountId) }]
+                        },
+                        include: includeBlock as any
+                    })
+                : await prisma.resource.findUnique({
+                        where: { id },
+                        include: includeBlock as any
+                    });
             
             let creator = null;
             let updater = null;
@@ -267,19 +349,26 @@ export const load = restrict(
             if (!resource) {
                 throw error(404, 'Resource not found');
             }
-            
-            // Check if the user has access to this resource
-            // User can access if they belong to the account that owns the resource
-            const hasAccess = await locals.prisma.accountMembership.findFirst({
-                where: {
-                    accountId: resource.accountId,
-                    userId: locals.user.id,
-                    role: { not: 'SYSTEM' }
-                }
-            });
-            
-            if (!hasAccess) {
+
+            const accessParams = resourceAccessParams(locals, cookies);
+            const accessInput = normalizeResourceAccessInput(resource as Record<string, unknown>);
+            if (!canAccessResourceFields(accessParams, accessInput)) {
                 throw error(403, 'You do not have permission to view this resource');
+            }
+
+            const accessLevel = getResourceAccessLevelFields(accessParams, accessInput)!;
+            const sharedRead = accessLevel === 'shared_read';
+
+            const { sharedWithAccounts: _sw, ...resourceWithoutShares } = resource as typeof resource & {
+                sharedWithAccounts?: unknown;
+            };
+
+            const resourceForPage: Record<string, unknown> = {
+                ...resourceWithoutShares,
+                access: accessLevel
+            };
+            if (sharedRead) {
+                delete resourceForPage.path;
             }
 
             const form = await superValidate(zod(resourceSchemaWithTarget));
@@ -296,7 +385,7 @@ export const load = restrict(
                 releaseType: resource.releaseType || 'Production',
                 format: resource.format || '',
                 packageName: resource.packageName || '',
-                path: resource.path,
+                path: sharedRead ? '' : resource.path,
                 size: resource.size,
                 accountId: resource.accountId || '',
                 file: null // Don't populate file field for editing
@@ -312,7 +401,7 @@ export const load = restrict(
                 form,
                 accounts,
                 resource: {
-                    ...resource,
+                    ...resourceForPage,
                     creator,
                     updater
                 },
@@ -323,6 +412,9 @@ export const load = restrict(
                 }
             };
         } catch (err) {
+            if (err && typeof err === 'object' && 'status' in err) {
+                throw err;
+            }
             logger.error(`Error loading resource ${id}:${err}`);
             throw error(500, 'Failed to load resource');
         }

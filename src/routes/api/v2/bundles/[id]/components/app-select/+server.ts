@@ -5,7 +5,11 @@
  * Works for both admin and user roles with appropriate permission checks.
  */
 
-import { unifiedEndpoint, requireResourceAccess } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	requireResourceAccess,
+	unifiedEndpoint
+} from '$lib/server/api/unifiedEndpoint';
 import { successResponse, errorResponse, ErrorCodes } from '$lib/types/api';
 import prisma from '$lib/server/prisma';
 
@@ -68,10 +72,14 @@ export const GET = unifiedEndpoint(
 			id: { notIn: excludeIds }
 		};
 		
-		// Account filtering
+		// Account filtering: own resources + admin-shared catalog
 		const isAdmin = context.session.user.systemRole === 'ADMIN';
 		if (!isAdmin) {
-			where.accountId = context.account?.id;
+			if (context.account?.id) {
+				where.OR = resourceVisibilityOrForAccount(context.account.id);
+			} else {
+				where.createdBy = context.session.user.id;
+			}
 		}
 		
 		// Search filter
