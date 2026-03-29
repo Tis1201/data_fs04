@@ -6,7 +6,17 @@ import type { TableDataOptions } from '$lib/components/ui_components_sveltekit/t
  */
 const baseDeviceTableOptions: Omit<TableDataOptions, 'baseWhere'> = {
     modelName: 'device',
-    searchableFields: ['name', 'id', 'hardwareId', 'macAddress', 'wifiMac', 'lanMac', 'osVersion', 'deviceType'],
+    searchableFields: [
+        'name',
+        'id',
+        'hardwareId',
+        'macAddress',
+        'wifiMac',
+        'lanMac',
+        'ipAddress',
+        'osVersion',
+        'deviceType'
+    ],
     searchableRelations: { tags: 'name' },
     // Device Listing (User/Admin) filters (aligned with Figma + UI)
     // - deviceType: Android/Linux/Windows/macOS (Operating System column)

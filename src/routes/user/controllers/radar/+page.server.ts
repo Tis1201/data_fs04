@@ -42,7 +42,7 @@ export const load = restrict(
             const sortField = url.searchParams.get('sort_field') || 'createdAt';
             const sortOrder = (url.searchParams.get('sort_order') || 'desc') as 'asc' | 'desc';
             const statuses = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
-            const locations = url.searchParams.get('locations')?.split(',').filter(Boolean) || [];
+            const deviceMacs = url.searchParams.get('device_macs')?.split(',').filter(Boolean) || [];
 
             const skip = (page - 1) * perPage;
             const take = perPage;
@@ -58,9 +58,11 @@ export const load = restrict(
                     { serialNumber: { contains: search, mode: 'insensitive' } },
                     { id: { contains: search, mode: 'insensitive' } },
                     { description: { contains: search, mode: 'insensitive' } },
-                    { location: { contains: search, mode: 'insensitive' } },
                     { controller: { device: { name: { contains: search, mode: 'insensitive' } } } },
-                    { controller: { device: { macAddress: { contains: search, mode: 'insensitive' } } } }
+                    { controller: { device: { macAddress: { contains: search, mode: 'insensitive' } } } },
+                    { controller: { device: { lanMac: { contains: search, mode: 'insensitive' } } } },
+                    { controller: { device: { wifiMac: { contains: search, mode: 'insensitive' } } } },
+                    { controller: { device: { ipAddress: { contains: search, mode: 'insensitive' } } } }
                 ];
             }
 
@@ -68,8 +70,20 @@ export const load = restrict(
                 where.status = { in: statuses };
             }
 
-            if (locations.length > 0) {
-                where.location = { in: locations };
+            if (deviceMacs.length > 0) {
+                where.AND = [
+                    {
+                        controller: {
+                            device: {
+                                OR: [
+                                    { macAddress: { in: deviceMacs } },
+                                    { lanMac: { in: deviceMacs } },
+                                    { wifiMac: { in: deviceMacs } }
+                                ]
+                            }
+                        }
+                    }
+                ];
             }
 
             const baseWhere = {
@@ -78,7 +92,25 @@ export const load = restrict(
                 controller: { isDeleted: false }
             };
 
-            const [sensors, totalSensors, locationRows] = await Promise.all([
+            const SENSOR_SCALAR_SORT = new Set([
+                'id',
+                'name',
+                'serialNumber',
+                'status',
+                'description',
+                'location',
+                'firmware',
+                'createdAt',
+                'updatedAt'
+            ]);
+            const sensorOrderBy: Prisma.SensorOrderByWithRelationInput =
+                sortField === 'deviceMac'
+                    ? { controller: { device: { macAddress: sortOrder } } }
+                    : SENSOR_SCALAR_SORT.has(sortField)
+                      ? { [sortField]: sortOrder }
+                      : { createdAt: sortOrder };
+
+            const [sensors, totalSensors, sensorsForMacList] = await Promise.all([
                 locals.prisma.sensor.findMany({
                     where: {
                         ...where,
@@ -86,9 +118,7 @@ export const load = restrict(
                             isDeleted: false // Only show sensors with non-deleted controllers
                         }
                     },
-                    orderBy: {
-                        [sortField]: sortOrder
-                    },
+                    orderBy: sensorOrderBy,
                     skip,
                     take,
                     select: {
@@ -116,7 +146,9 @@ export const load = restrict(
                                     select: {
                                         id: true,
                                         name: true,
-                                        macAddress: true
+                                        macAddress: true,
+                                        lanMac: true,
+                                        wifiMac: true
                                     }
                                 }
                             }
@@ -129,17 +161,29 @@ export const load = restrict(
                 }),
                 locals.prisma.sensor.findMany({
                     where: baseWhere,
-                    select: { location: true },
-                    distinct: ['location']
+                    select: {
+                        controller: {
+                            select: {
+                                device: {
+                                    select: { macAddress: true, lanMac: true, wifiMac: true }
+                                }
+                            }
+                        }
+                    }
                 })
             ]);
 
             const totalPages = Math.ceil(totalSensors / perPage);
 
-            const availableLocations = (locationRows as { location: string | null }[])
-                .map((r) => r.location)
-                .filter((loc): loc is string => loc != null && loc.trim() !== '')
-                .sort((a, b) => a.localeCompare(b));
+            const macSet = new Set<string>();
+            for (const s of sensorsForMacList) {
+                const d = s.controller?.device;
+                if (!d) continue;
+                for (const m of [d.macAddress, d.lanMac, d.wifiMac]) {
+                    if (m?.trim()) macSet.add(m.trim());
+                }
+            }
+            const availableMacs = [...macSet].sort((a, b) => a.localeCompare(b));
 
             // Fetch module permissions for the current user in this account
             const modulePermissions = user?.id 
@@ -222,7 +266,7 @@ export const load = restrict(
                     field: sortField,
                     order: sortOrder
                 },
-                availableLocations,
+                availableMacs,
                 modulePermissions,
                 user: user ? { id: user.id, systemRole: user.systemRole } : null,
                 editSensor

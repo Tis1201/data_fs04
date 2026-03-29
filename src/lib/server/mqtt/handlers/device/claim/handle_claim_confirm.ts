@@ -13,6 +13,18 @@ import { markPreclaimSetCompletedIfAllClaimed } from '$lib/server/device/deviceP
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
 import { decodeNotificationTicket, sendNotificationWithTicket, type NotificationTicketEnvelope } from '../../../core/publish';
 
+/** Prefer local LAN IP; fallback public. Skip empty / placeholder values from devices. */
+function normalizeClaimIpForStorage(localIp?: string | null, publicIp?: string | null): string | null {
+    const invalid = (s: string) => s === '' || /^unknown$/i.test(s);
+    for (const raw of [localIp, publicIp]) {
+        if (typeof raw !== 'string') continue;
+        const t = raw.trim();
+        if (!t || invalid(t)) continue;
+        return t;
+    }
+    return null;
+}
+
 /********************************************************************************************
  * Device-side claim confirm handler: finalizes claim and provisions a real device.
  ********************************************************************************************/
@@ -200,6 +212,7 @@ async function _handleClaimConfirmInner(
     const macAddress = normalizeMacForStorage(primaryMacRaw);
     const wifiMac = normalizeMacForStorage(wifiMacRaw);
     const lanMac = normalizeMacForStorage(lanMacRaw);
+    const ipAddressForDevice = normalizeClaimIpForStorage(networkInfo?.localIp, networkInfo?.publicIp);
 
     type MacMatchDevice = {
         id: string;
@@ -317,10 +330,12 @@ async function _handleClaimConfirmInner(
                     macAddress?: string;
                     wifiMac?: string;
                     lanMac?: string;
+                    ipAddress?: string;
                 } = {};
                 if (macAddress && !deviceRow.macAddress) macPatch.macAddress = macAddress;
                 if (wifiMac && !deviceRow.wifiMac) macPatch.wifiMac = wifiMac;
                 if (lanMac && !deviceRow.lanMac) macPatch.lanMac = lanMac;
+                if (ipAddressForDevice && !deviceRow.ipAddress) macPatch.ipAddress = ipAddressForDevice;
                 if (Object.keys(macPatch).length > 0) {
                     await tx.device.update({ where: { id: adoptDevice!.id }, data: macPatch });
                 }
@@ -401,6 +416,7 @@ async function _handleClaimConfirmInner(
                     macAddress: macAddress,
                     wifiMac: wifiMac,
                     lanMac: lanMac,
+                    ...(ipAddressForDevice ? { ipAddress: ipAddressForDevice } : {}),
                     apiKey,
                     apiKeyCreatedAt: now,
                     claimedAt: now

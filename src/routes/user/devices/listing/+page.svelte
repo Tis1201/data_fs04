@@ -855,7 +855,7 @@
         <div class="search-wrapper">
             {#if activeTab === 'remote-devices'}
                 <InputField
-                    placeholder="Search by Device name, Tag, OS version, MAC Address"
+                    placeholder="Search name, ID, tags, OS, MAC, WiFi MAC, IP…"
                     bind:value={searchValue}
                     on:input={() => reloadData()}
                     prefixIcon={true}

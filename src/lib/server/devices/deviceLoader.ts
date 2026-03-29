@@ -1,15 +1,66 @@
 import { error } from '@sveltejs/kit';
 import { logger } from '$lib/server/logger';
-import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import { fetchTableData, formatPagination } from '$lib/components/ui_components_sveltekit/table/utils/server';
 import { createDeviceTableOptions } from './deviceTableOptions';
-import { isDeviceOnline, areDevicesOnline } from '$lib/server/device/devicePresence';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
 import { getMultipleDeviceInformation, getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
+
+/** Max rows to load when filtering Online/Offline using live Redis (then filter + paginate in memory). */
+const LIVE_CONNECTION_FETCH_CAP = 10_000;
+
+/**
+ * When the URL requests only Online or only Offline, Prisma's `connected` column is often stale vs Redis.
+ * Return which live filter to apply after presence, or null if no exclusive connection filter.
+ */
+function getExclusiveLiveConnectionFilter(url: URL): 'online' | 'offline' | null {
+    const raw = url.searchParams.get('connected');
+    if (!raw?.trim()) return null;
+    const values = raw.includes(',') ? raw.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean) : [raw.trim().toLowerCase()];
+    const hasOnline = values.some((v) => v === 'online');
+    const hasOffline = values.some((v) => v === 'offline');
+    if (hasOnline && !hasOffline) return 'online';
+    if (hasOffline && !hasOnline) return 'offline';
+    return null;
+}
+
+function serializeDeviceDates(device: any) {
+    return {
+        ...device,
+        createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
+        updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
+        connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
+        disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
+    };
+}
+
+type OsCategory = 'android' | 'linux' | 'windows' | 'apple';
+
+/**
+ * Resolve normalised OS category. Prefers `deviceType` (already normalised by the device client)
+ * then falls back to `osVersion` string matching for legacy rows that have no `deviceType`.
+ */
+function resolveOsCategory(deviceType: string | null, osVersion: string | null): OsCategory | null {
+    const dt = deviceType?.toLowerCase().trim() ?? '';
+    if (dt === 'darwin' || dt === 'macos' || dt === 'apple' || dt === 'ios') return 'apple';
+    if (dt === 'android') return 'android';
+    if (dt === 'linux') return 'linux';
+    if (dt === 'windows') return 'windows';
+
+    // Fallback: raw osVersion string (covers older devices that never set deviceType)
+    const ov = osVersion?.toLowerCase().trim() ?? '';
+    if (!ov) return null;
+    if (ov.includes('darwin') || ov.includes('ios') || ov.includes('macos') || ov.includes('mac os') || ov.includes('apple')) return 'apple';
+    if (ov.includes('android')) return 'android';
+    if (ov.includes('linux') || ov.includes('ubuntu') || ov.includes('debian') || ov.includes('centos') ||
+        ov.includes('redhat') || ov.includes('rhel') || ov.includes('fedora') || ov.includes('arch') || ov.includes('suse')) return 'linux';
+    if (ov.includes('windows') || (ov.includes('win') && !ov.includes('darwin')) || ov.includes('nt ')) return 'windows';
+    return null;
+}
 
 /**
  * Calculate device statistics grouped by OS
  */
 function calculateDeviceStats(
-    prisma: any,
     devices: Array<{ id: string; osVersion: string | null; deviceType: string | null }>,
     onlineStatusMap: Map<string, boolean>
 ) {
@@ -20,68 +71,15 @@ function calculateDeviceStats(
     };
 
     for (const device of devices) {
-        const isOnline = onlineStatusMap.get(device.id) || false;
-        
-        // Determine OS from osVersion field
-        const osVersion = (device.osVersion || '').toLowerCase().trim();
-        
-        // Map OS to our categories based on osVersion
-        let category: 'android' | 'linux' | 'windows' | 'apple' | null = null;
-        
-        if (osVersion) {
-            // Apple/macOS/iOS detection (check first to avoid "darwin" matching "win")
-            if (osVersion.includes('darwin') || 
-                osVersion.includes('ios') || 
-                osVersion.includes('macos') || 
-                osVersion.includes('mac os') ||
-                osVersion.includes('apple')) {
-                category = 'apple';
-            }
-            // Android detection
-            else if (osVersion.includes('android')) {
-                category = 'android';
-            }
-            // Linux detection (various distributions)
-            else if (osVersion.includes('linux') || 
-                     osVersion.includes('ubuntu') || 
-                     osVersion.includes('debian') || 
-                     osVersion.includes('centos') || 
-                     osVersion.includes('redhat') ||
-                     osVersion.includes('rhel') ||
-                     osVersion.includes('fedora') ||
-                     osVersion.includes('arch') ||
-                     osVersion.includes('suse')) {
-                category = 'linux';
-            }
-            // Windows detection (more specific to avoid matching "darwin")
-            else if (osVersion.includes('windows') || 
-                     (osVersion.includes('win') && !osVersion.includes('darwin')) ||
-                     osVersion.includes('nt ')) {
-                category = 'windows';
-            }
-        }
+        const isOnline = onlineStatusMap.get(device.id) ?? false;
+        const category = resolveOsCategory(device.deviceType, device.osVersion);
 
-        // Always count in total
         stats.total.total++;
-        
-        if (category) {
-            stats.total[category]++;
+        if (category) stats.total[category]++;
 
-            if (isOnline) {
-                stats.online.total++;
-                stats.online[category]++;
-            } else {
-                stats.offline.total++;
-                stats.offline[category]++;
-            }
-        } else {
-            // Count devices with unknown/missing OS in total only
-            if (isOnline) {
-                stats.online.total++;
-            } else {
-                stats.offline.total++;
-            }
-        }
+        const bucket = isOnline ? stats.online : stats.offline;
+        bucket.total++;
+        if (category) bucket[category]++;
     }
 
     return stats;
@@ -140,161 +138,163 @@ export async function loadDeviceList(
             };
         }
 
+        // Exclusive Online/Offline filter must use live Redis, not Prisma `connected` (often stale vs presence).
+        // Omit `connected` from the SQL query, fetch up to LIVE_CONNECTION_FETCH_CAP, then filter + paginate in memory.
+        const liveConnectionMode = getExclusiveLiveConnectionFilter(url);
+        const tableFetchUrl = new URL(url.href);
+        if (liveConnectionMode) {
+            tableFetchUrl.searchParams.delete('connected');
+            tableFetchUrl.searchParams.set('page', '1');
+            tableFetchUrl.searchParams.set('per_page', String(LIVE_CONNECTION_FETCH_CAP));
+        }
+
         // Fetch table data with the appropriate options
         let result;
         try {
-            result = await fetchTableData(locals, url, tableOptions);
+            result = await fetchTableData(locals, tableFetchUrl, tableOptions);
         } catch (err) {
             logger.error(`Failed to fetch table data: ${err}`);
             throw err;
         }
 
-        // Fetch available tags for the filter - filtered by accountId
-        // Wrap in try-catch to allow page to load even if tags query fails
-        let availableTags = [];
-        try {
-            const tagWhereClause = options?.accountId ? { accountId: options.accountId } : {};
-            availableTags = await locals.prisma.deviceTag.findMany({
-                where: tagWhereClause,
-                select: {
-                    id: true,
-                    name: true
-                },
-                orderBy: {
-                    name: 'asc'
-                }
-            });
-        } catch (err) {
-            logger.warn(`Failed to load available tags: ${err}`);
-            // Continue with empty tags array - page can still load
-            availableTags = [];
+        if (liveConnectionMode && result.records.length >= LIVE_CONNECTION_FETCH_CAP) {
+            logger.warn(
+                `[loadDeviceList] Live connection filter hit fetch cap (${LIVE_CONNECTION_FETCH_CAP}); results may be incomplete`
+            );
         }
 
-        // Fetch available device profiles for the Edit Device modal
-        // Wrap in try-catch to allow page to load even if profiles query fails
-        let availableProfiles = [];
-        try {
-            // Shared profiles must belong to the current account when set; else fall back to all memberships.
-            let accountIds: string[] = [];
-            if (options?.checkOwnership && options?.userId && !options?.accountId) {
-                const userAccountMemberships = await locals.prisma.accountMembership.findMany({
+        // Resolve account IDs needed for profile filter (ownership mode without explicit accountId)
+        let profileAccountIds: string[] = [];
+        if (options?.checkOwnership && options?.userId && !options?.accountId) {
+            try {
+                const memberships = await locals.prisma.accountMembership.findMany({
                     where: { userId: options.userId },
                     select: { accountId: true }
                 });
-                accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+                profileAccountIds = memberships.map((m: { accountId: string }) => m.accountId);
+            } catch (err) {
+                logger.warn(`Failed to load account memberships for profile filter: ${err}`);
             }
-
-            // Broader fetch for list page: GLOBAL profiles (account-scoped) + any DEVICE-level profiles owned by
-            // the account. EditDeviceModal further filters DEVICE profiles down to the device being edited.
-            const accountFilter = options?.checkOwnership
-                ? (options.accountId
-                    ? { accountId: options.accountId }
-                    : accountIds.length > 0 ? { accountId: { in: accountIds } } : {})
-                : {};
-
-            const profileWhere: any = {
-                OR: [
-                    { isActive: true, level: 'GLOBAL', ...accountFilter },
-                    { isActive: true, level: 'DEVICE', ...accountFilter }
-                ]
-            };
-
-            availableProfiles = await locals.prisma.deviceProfile.findMany({
-                where: profileWhere,
-                select: {
-                    id: true,
-                    name: true,
-                    description: true,
-                    level: true,
-                    deviceId: true
-                },
-                orderBy: {
-                    name: 'asc'
-                }
-            });
-        } catch (err) {
-            logger.warn(`Failed to load available profiles: ${err}`);
-            // Continue with empty profiles array - page can still load
-            availableProfiles = [];
         }
 
-        // Update online status from Redis (real-time presence tracking)
-        // Wrap in try-catch to allow page to load even if Redis is unavailable
+        // Build profile filter
+        const profileAccountFilter = options?.checkOwnership
+            ? (options.accountId
+                ? { accountId: options.accountId }
+                : profileAccountIds.length > 0 ? { accountId: { in: profileAccountIds } } : {})
+            : {};
+        const profileWhere: any = {
+            OR: [
+                { isActive: true, level: 'GLOBAL', ...profileAccountFilter },
+                { isActive: true, level: 'DEVICE', ...profileAccountFilter }
+            ]
+        };
+
+        // Fetch tags and profiles in parallel — both are independent of each other and of the main query
+        const tagWhereClause = options?.accountId ? { accountId: options.accountId } : {};
+        const [availableTags, availableProfiles] = await Promise.all([
+            locals.prisma.deviceTag
+                .findMany({ where: tagWhereClause, select: { id: true, name: true }, orderBy: { name: 'asc' } })
+                .catch((err: unknown) => { logger.warn(`Failed to load available tags: ${err}`); return []; }),
+            locals.prisma.deviceProfile
+                .findMany({
+                    where: profileWhere,
+                    select: { id: true, name: true, description: true, level: true, deviceId: true },
+                    orderBy: { name: 'asc' }
+                })
+                .catch((err: unknown) => { logger.warn(`Failed to load available profiles: ${err}`); return []; })
+        ]);
+
+        // Update online status from Redis (real-time presence). Batch EXISTS for performance.
         let devicesWithRealTimeStatus = result.records;
         if (options?.includeRealTimeStatus !== false) {
             try {
-                devicesWithRealTimeStatus = await Promise.all(
-                    result.records.map(async (device: any) => {
-                        try {
-                            const isOnline = await isDeviceOnline(device.id);
-                            // Convert Date objects to ISO strings for serialization
-                            const serializedDevice = {
-                                ...device,
-                                connected: isOnline,  // Override DB value with real-time Redis status
-                                // Convert Date objects to ISO strings for SvelteKit serialization
-                                createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
-                                updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
-                                connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
-                                disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
-                            };
-                            return serializedDevice;
-                        } catch (err) {
-                            // If Redis check fails, use DB value but still serialize dates
-                            logger.warn(`Failed to check online status for device ${device.id}: ${err}`);
-                            return {
-                                ...device,
-                                createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
-                                updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
-                                connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
-                                disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
-                            };
-                        }
+                const ids = result.records.map((d: any) => d.id);
+                const onlineMap = ids.length > 0 ? await areDevicesOnline(ids) : new Map<string, boolean>();
+                devicesWithRealTimeStatus = result.records.map((device: any) =>
+                    serializeDeviceDates({
+                        ...device,
+                        connected: onlineMap.get(device.id) ?? false
                     })
                 );
             } catch (err) {
-                // If Redis is completely unavailable, use DB values but serialize dates
                 logger.warn(`Failed to load real-time status from Redis: ${err}`);
-                devicesWithRealTimeStatus = result.records.map((device: any) => ({
-                    ...device,
-                    createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
-                    updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
-                    connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
-                    disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
-                }));
+                devicesWithRealTimeStatus = result.records.map((device: any) => serializeDeviceDates({ ...device }));
             }
         } else {
-            // Even if not using real-time status, still serialize dates
-            devicesWithRealTimeStatus = result.records.map((device: any) => ({
-                ...device,
-                createdAt: device.createdAt instanceof Date ? device.createdAt.toISOString() : device.createdAt,
-                updatedAt: device.updatedAt instanceof Date ? device.updatedAt.toISOString() : device.updatedAt,
-                connectedAt: device.connectedAt instanceof Date ? device.connectedAt.toISOString() : device.connectedAt,
-                disconnectedAt: device.disconnectedAt instanceof Date ? device.disconnectedAt.toISOString() : device.disconnectedAt
-            }));
+            devicesWithRealTimeStatus = result.records.map((device: any) => serializeDeviceDates({ ...device }));
         }
 
-        // Load device information from ClickHouse (optional): run both lookups in parallel to cut wall-clock time.
-        // This is primarily used for Usage (CPU/MEM/DSK) and heartbeat-derived OS info.
+        // Apply live Online/Offline filter after Redis, then paginate (exclusive filter only — see liveConnectionMode).
+        let afterConnection = devicesWithRealTimeStatus;
+        if (liveConnectionMode === 'online') {
+            afterConnection = devicesWithRealTimeStatus.filter((d: any) => d.connected === true);
+        } else if (liveConnectionMode === 'offline') {
+            afterConnection = devicesWithRealTimeStatus.filter((d: any) => d.connected === false);
+        }
+
+        let filteredDevices: any[];
+        let liveMeta = result.meta;
+        if (liveConnectionMode) {
+            const page = Number(url.searchParams.get('page')) || 1;
+            const perPage = Number(url.searchParams.get('per_page')) || 10;
+            // Use the sort/order from the original URL (the tableFetchUrl kept all params except connected/page/per_page)
+            const sortField = url.searchParams.get('sort') || 'name';
+            const sortOrder = (url.searchParams.get('order') as 'asc' | 'desc') || 'asc';
+            const dir = sortOrder === 'asc' ? 1 : -1;
+
+            // Sort in memory by the requested field.
+            // `connected` sort in exclusive filter mode is a no-op (all records share the same value),
+            // so fall through to sort by `name` as the stable default.
+            const effectiveSortField = sortField === 'connected' ? 'name' : sortField;
+            const sorted = [...afterConnection].sort((a: any, b: any) => {
+                const av = a[effectiveSortField] ?? '';
+                const bv = b[effectiveSortField] ?? '';
+                // Dates: compare as numbers; strings: localeCompare; booleans/numbers: subtraction
+                if (av instanceof Date || bv instanceof Date) {
+                    return dir * (new Date(av).getTime() - new Date(bv).getTime());
+                }
+                if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv);
+                if (typeof av === 'boolean' && typeof bv === 'boolean') return dir * (Number(av) - Number(bv));
+                return dir * String(av).localeCompare(String(bv));
+            });
+
+            const total = sorted.length;
+            const start = (page - 1) * perPage;
+            filteredDevices = sorted.slice(start, start + perPage);
+
+            // Build new meta object — do not mutate the result returned by fetchTableData
+            liveMeta = {
+                ...result.meta,
+                pagination: formatPagination(page, perPage, total)
+            };
+
+            logger.info(
+                `[loadDeviceList] Live connection filter (${liveConnectionMode}): sort=${effectiveSortField} ${sortOrder}, page ${page}, showing ${filteredDevices.length}/${total} after Redis`
+            );
+        } else {
+            filteredDevices = afterConnection;
+        }
+
+        // Load device information from ClickHouse (optional) for the rows returned to the client only.
         let deviceInfoMap = new Map<string, any>();
         let deviceInfoByDeviceIdMap = new Map<string, any>();
         if (options?.includeDeviceInformation !== false) {
-            const macAddresses = devicesWithRealTimeStatus
-                .map((d: any) => d.macAddress || d.lanMac || d.wifiMac)
-                .filter(Boolean);
-            const allDeviceIds = devicesWithRealTimeStatus.map((d: any) => d.id);
+            const macAddresses = filteredDevices.map((d: any) => d.macAddress || d.lanMac || d.wifiMac).filter(Boolean);
+            const allDeviceIds = filteredDevices.map((d: any) => d.id);
 
             const [byMacResult, byDeviceIdResult] = await Promise.all([
                 macAddresses.length > 0
                     ? getMultipleDeviceInformation(macAddresses).catch((err) => {
-                        logger.warn(`Failed to load device information from ClickHouse (by MAC): ${err}`);
-                        return new Map<string, any>();
-                    })
+                          logger.warn(`Failed to load device information from ClickHouse (by MAC): ${err}`);
+                          return new Map<string, any>();
+                      })
                     : Promise.resolve(new Map<string, any>()),
                 allDeviceIds.length > 0
                     ? getBulkDeviceInformationByDeviceIds(allDeviceIds).catch((err) => {
-                        logger.warn(`Failed to load device information by device_id: ${err}`);
-                        return new Map<string, any>();
-                    })
+                          logger.warn(`Failed to load device information by device_id: ${err}`);
+                          return new Map<string, any>();
+                      })
                     : Promise.resolve(new Map<string, any>())
             ]);
 
@@ -344,7 +344,7 @@ export async function loadDeviceList(
                     // Use empty map - all devices will be marked as offline in stats
                 }
 
-                deviceStats = calculateDeviceStats(locals.prisma, allDevices, onlineStatusMap);
+                deviceStats = calculateDeviceStats(allDevices, onlineStatusMap);
             } catch (err) {
                 logger.warn(`Failed to calculate device statistics: ${err}`);
                 // Continue without stats - page can still load
@@ -374,30 +374,6 @@ export async function loadDeviceList(
             logger.warn(`Failed to convert deviceInfo maps to object: ${err}`);
         }
 
-        // Post-filter devices based on connection status after real-time Redis update
-        // This ensures the filter works on actual real-time status, not stale DB values
-        let filteredDevices = devicesWithRealTimeStatus;
-        const connectedFilter = url.searchParams.get('connected');
-        if (connectedFilter) {
-            const connectedValues = connectedFilter.includes(',')
-                ? connectedFilter.split(',').filter(Boolean)
-                : [connectedFilter];
-
-            const hasOnline = connectedValues.some(v => v.toLowerCase() === 'online');
-            const hasOffline = connectedValues.some(v => v.toLowerCase() === 'offline');
-
-            // Only filter if not both (both = show all, no filter needed)
-            if (hasOnline && !hasOffline) {
-                // Show only online devices
-                filteredDevices = devicesWithRealTimeStatus.filter((d: any) => d.connected === true);
-                logger.info(`Filtered devices: showing only online (${filteredDevices.length}/${devicesWithRealTimeStatus.length})`);
-            } else if (hasOffline && !hasOnline) {
-                // Show only offline devices
-                filteredDevices = devicesWithRealTimeStatus.filter((d: any) => d.connected === false);
-                logger.info(`Filtered devices: showing only offline (${filteredDevices.length}/${devicesWithRealTimeStatus.length})`);
-            }
-        }
-
         // Ensure all required fields are present with safe defaults
         const returnData = {
             devices: Array.isArray(filteredDevices) ? filteredDevices : [],
@@ -405,7 +381,7 @@ export async function loadDeviceList(
             deviceInformationByDeviceId: deviceInformationByDeviceIdObject,
             availableTags: Array.isArray(availableTags) ? availableTags : [],
             availableProfiles: Array.isArray(availableProfiles) ? availableProfiles : [],
-            meta: result?.meta || {
+            meta: liveMeta || {
                 pagination: { 
                     page: 1, 
                     per_page: 10, 

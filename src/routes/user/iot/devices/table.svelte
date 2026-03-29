@@ -390,7 +390,7 @@
         <div class="flex flex-col sm:flex-row gap-2">
             <!-- Search filter -->
             <DebouncedTextFilter
-                placeholder="Search devices..."
+                placeholder="Search name, ID, tags, OS, MAC, WiFi MAC, IP…"
                 paramName="search"
             />
             

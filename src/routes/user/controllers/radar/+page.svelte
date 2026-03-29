@@ -17,7 +17,19 @@
 
     export let data: PageData;
 
-    type SensorRow = Sensor & { controller?: { id: string; device?: { id: string; name?: string; connected?: boolean } } | null };
+    type SensorRow = Sensor & {
+        controller?: {
+            id: string;
+            device?: {
+                id: string;
+                name?: string;
+                connected?: boolean;
+                macAddress?: string | null;
+                lanMac?: string | null;
+                wifiMac?: string | null;
+            };
+        } | null;
+    };
 
     // TODO: Re-enable ACL check when radar module ACL is turned back on.
     $: showCreateButton = !!data.user;
@@ -65,7 +77,7 @@
         }
     }
 
-    // Filter modal: Status (Connection Status) + Location – aligned with pin-rules pattern
+    // Filter modal: Status (Connection Status) + MAC address – aligned with pin-rules pattern
     let showFilterModal = false;
     const STATUS_OPTIONS = [
         { id: 'ACTIVE', label: 'Active' },
@@ -73,15 +85,15 @@
         { id: 'MAINTENANCE', label: 'Maintenance' }
     ] as const;
     let filterStatuses: string[] = $page.url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
-    let filterLocations: string[] = $page.url.searchParams.get('locations')?.split(',').filter(Boolean) || [];
+    let filterDeviceMacs: string[] = $page.url.searchParams.get('device_macs')?.split(',').filter(Boolean) || [];
 
     $: statusDropdownOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
         ...STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
     ];
-    $: locationDropdownOptions = [
+    $: deviceMacDropdownOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
-        ...(data.availableLocations || []).map((loc) => ({ id: loc, label: loc, type: 'checkbox' as const }))
+        ...(data.availableMacs || []).map((mac) => ({ id: mac, label: mac, type: 'checkbox' as const }))
     ];
 
     // All and specific options mutually exclusive – same as pin-rules
@@ -103,32 +115,32 @@
         filterStatuses = arr.length > 0 ? arr : ['__all__'];
     }
 
-    function handleLocationFilterChange(e: CustomEvent<string | string[]>) {
+    function handleDeviceMacFilterChange(e: CustomEvent<string | string[]>) {
         const val = e.detail;
         const arr = Array.isArray(val) ? val : (val ? [val] : []);
-        if (arr.includes('__all__') && !filterLocations.includes('__all__')) {
-            filterLocations = ['__all__'];
+        if (arr.includes('__all__') && !filterDeviceMacs.includes('__all__')) {
+            filterDeviceMacs = ['__all__'];
             return;
         }
-        if (!arr.includes('__all__') && filterLocations.includes('__all__')) {
-            filterLocations = arr.length > 0 ? arr : ['__all__'];
+        if (!arr.includes('__all__') && filterDeviceMacs.includes('__all__')) {
+            filterDeviceMacs = arr.length > 0 ? arr : ['__all__'];
             return;
         }
         if (arr.some((v) => v !== '__all__')) {
-            filterLocations = arr.filter((v) => v !== '__all__');
+            filterDeviceMacs = arr.filter((v) => v !== '__all__');
             return;
         }
-        filterLocations = arr.length > 0 ? arr : ['__all__'];
+        filterDeviceMacs = arr.length > 0 ? arr : ['__all__'];
     }
 
     function applyFilter() {
         const url = new URL($page.url);
         const statuses = filterStatuses.filter((s) => s !== '__all__');
-        const locations = filterLocations.filter((l) => l !== '__all__');
+        const macs = filterDeviceMacs.filter((m) => m !== '__all__');
         if (statuses.length) url.searchParams.set('statuses', statuses.join(','));
         else url.searchParams.delete('statuses');
-        if (locations.length) url.searchParams.set('locations', locations.join(','));
-        else url.searchParams.delete('locations');
+        if (macs.length) url.searchParams.set('device_macs', macs.join(','));
+        else url.searchParams.delete('device_macs');
         url.searchParams.set('page', '1');
         goto(url.pathname + url.search, { replaceState: true, keepFocus: true, noScroll: true });
         showFilterModal = false;
@@ -137,15 +149,15 @@
     function clearFilter() {
         // Only reset selection; user must click Apply to apply changes (modal stays open)
         filterStatuses = ['__all__'];
-        filterLocations = ['__all__'];
+        filterDeviceMacs = ['__all__'];
     }
 
     function openFilterModal() {
         // Include __all__ from URL so "All" selection is retained when reopening (same as pin-rules)
         const statusesParam = $page.url.searchParams.get('statuses');
-        const locationsParam = $page.url.searchParams.get('locations');
+        const macsParam = $page.url.searchParams.get('device_macs');
         filterStatuses = statusesParam ? statusesParam.split(',').filter(Boolean) : ['__all__'];
-        filterLocations = locationsParam ? locationsParam.split(',').filter(Boolean) : ['__all__'];
+        filterDeviceMacs = macsParam ? macsParam.split(',').filter(Boolean) : ['__all__'];
         showFilterModal = true;
     }
 
@@ -709,6 +721,14 @@
         return row.controller?.device?.connected === true ? 'success' : 'gray';
     }
 
+    /** Linked device MAC for list: macAddress, else lanMac, else wifiMac. */
+    function deviceDisplayMac(row: SensorRow): string {
+        const d = row.controller?.device;
+        if (!d) return 'N/A';
+        const v = d.macAddress?.trim() || d.lanMac?.trim() || d.wifiMac?.trim();
+        return v || 'N/A';
+    }
+
     // Status display: ACTIVE/INACTIVE lifecycle (not connection)
     function statusLabel(status: string): string {
         if (status === 'ACTIVE') return 'Active';
@@ -742,12 +762,12 @@
             }
         },
         {
-            id: 'location',
-            header: 'Location',
-            accessor: (row: SensorRow) => row.location ?? 'N/A',
+            id: 'deviceMac',
+            header: 'MAC address',
+            accessor: (row: SensorRow) => deviceDisplayMac(row),
             type: 'text' as const,
             sortable: true,
-            width: '150px'
+            width: '170px'
         },
         {
             id: 'connection',
@@ -821,7 +841,7 @@
         <div style="width: 500px; height: 48px;">
             <InputField
                 type="search"
-                placeholder="Search by Device name"
+                placeholder="Search by device name, serial, MAC, IP…"
                 bind:value={searchValue}
                 prefixIcon={true}
             >
@@ -876,7 +896,7 @@
     </div>
 </div>
 
-<!-- Filter Modal: Connection Status + Location dropdowns per design -->
+<!-- Filter Modal: Connection Status + MAC address dropdowns per design -->
 <Modal
     open={showFilterModal}
     title="Filter"
@@ -898,15 +918,15 @@
             />
         </div>
         <div class="flex flex-col gap-2 w-full min-w-0">
-            <span class="text-sm font-medium text-[var(--ds-text-primary)]">Location</span>
+            <span class="text-sm font-medium text-[var(--ds-text-primary)]">MAC address</span>
             <Dropdown
                 label=""
                 placeholder="Select"
-                options={locationDropdownOptions}
-                value={filterLocations}
+                options={deviceMacDropdownOptions}
+                value={filterDeviceMacs}
                 multiple={true}
                 width="100%"
-                on:change={handleLocationFilterChange}
+                on:change={handleDeviceMacFilterChange}
             />
         </div>
     </div>
