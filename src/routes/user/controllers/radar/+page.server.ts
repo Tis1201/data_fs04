@@ -15,8 +15,13 @@ import { validateBounds, normalizeBounds } from '$lib/components/ui_components_s
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for updates.
 import prisma from '$lib/server/prisma';
 import { areDevicesOnline } from '$lib/server/device/devicePresence';
-import { resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
-import { buildRadarAddDeviceStep2FromClaimedDevice } from '$lib/server/device/radarAddDeviceProfileStep2';
+import { deviceHasActiveRadarSensor } from '$lib/server/device/radarRegistrationGuards';
+import { getRadarSensorDisplayNameForDevice, resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
+import {
+    buildRadarAddDeviceStep2FromClaimedDevice,
+    buildRadarInitConfigFromDeviceProfile
+} from '$lib/server/device/radarAddDeviceProfileStep2';
+import { syncRadarSensorNameWithLinkedDevice } from '$lib/server/device/radarDeviceNameSync';
 
 export const load = restrict(
     async ({ url, locals, cookies, depends }: AuthenticatedLoadEvent) => {
@@ -262,9 +267,20 @@ async function createRadarController(
         );
         if (pinResult.error) return fail(400, { form, error: pinResult.error });
         const deviceId = pinResult.deviceId;
-        const sensorDisplayName = pinResult.displayName ?? 'Unknown device';
+        const sensorDisplayName = await getRadarSensorDisplayNameForDevice(
+            prisma,
+            deviceId,
+            pinResult.displayName ?? 'Unknown device'
+        );
         const serialNumber = form.data.serialNumber;
         if (!serialNumber) return fail(400, { form, error: 'Serial number is required' });
+
+        const initConfigFromProfile = await buildRadarInitConfigFromDeviceProfile(
+            prisma,
+            deviceId,
+            currentAccountId,
+            sensorDisplayName
+        );
 
         // Clean up soft-deleted sensors in current account only
         await locals.prisma.sensor.deleteMany({
@@ -293,6 +309,11 @@ async function createRadarController(
         });
         if (existingController) return fail(400, { form, error: 'Controller generation failed (Duplicate Serial). Please contact support.' });
 
+        const sensorConfig =
+            initConfigFromProfile && typeof initConfigFromProfile === 'object' && Object.keys(initConfigFromProfile).length > 0
+                ? initConfigFromProfile
+                : {};
+
         const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
             const controller = await tx.controller.create({
                 data: {
@@ -317,7 +338,7 @@ async function createRadarController(
                     accountId: currentAccountId,
                     controllerId: controller.id,
                     createdBy: userId,
-                    config: {}
+                    config: sensorConfig
                 }
             });
             return { controller, sensor };
@@ -361,7 +382,12 @@ async function createSensorForDevice(
     let initConfig: Prisma.InputJsonValue = {};
     if (initConfigRaw) {
         try {
-            initConfig = JSON.parse(initConfigRaw) as Prisma.InputJsonValue;
+            const parsed = JSON.parse(initConfigRaw) as unknown;
+            if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                initConfig = parsed as Prisma.InputJsonValue;
+            } else {
+                initConfig = {};
+            }
             const cfg = initConfig as { trackingArea?: { startX?: number; startY?: number; endX?: number; endY?: number }; zones?: Array<{ startX?: number; startY?: number; endX?: number; endY?: number }> };
             if (cfg.trackingArea) {
                 const sx = Number(cfg.trackingArea.startX);
@@ -403,16 +429,33 @@ async function createSensorForDevice(
     try {
         const device = await locals.prisma.device.findFirst({
             where: { id: deviceId, accountId: currentAccountId },
-            include: { controllers: { where: { type: 'radar', isDeleted: false } } }
+            include: {
+                controllers: {
+                    where: { type: 'radar', isDeleted: false },
+                    include: { sensors: { where: { type: 'radar' } } }
+                }
+            }
         });
         if (!device) {
             return { type: 'error', message: 'Device not found or access denied' };
         }
 
-        // After MQTT claim, Device.name is typically `device - AA:BB:...`. Allow empty form name to match device + sensor.
-        const sensorDisplayName = (name || device.name || '').trim() || 'Unknown device';
+        // Prefer current Device.name (user may have renamed after claim); form `name` only if device name is empty.
+        const sensorDisplayName =
+            (device.name?.trim() || name?.trim() || '').trim() || 'Unknown device';
 
-        if (device.controllers.length > 0) {
+        if (Object.keys(initConfig as object).length === 0) {
+            initConfig = await buildRadarInitConfigFromDeviceProfile(
+                locals.prisma,
+                deviceId,
+                currentAccountId,
+                sensorDisplayName
+            );
+        }
+
+        const hasActiveRadarSensor = deviceHasActiveRadarSensor(device.controllers);
+
+        if (hasActiveRadarSensor) {
             // Handle race condition: physical device may have called GET /api/device/controller before
             // the wizard ran, causing an auto-created controller with default config (no device settings).
             // If the existing controller was auto-created, update its sensor config with the wizard's
@@ -478,6 +521,39 @@ async function createSensorForDevice(
             include: { controller: true }
         });
         if (existingSensor) return { type: 'error', message: 'A sensor with this serial number already exists' };
+
+        // Radar controller exists but all radar sensors were removed (e.g. user deleted sensor from list): attach a new sensor.
+        if (device.controllers.length > 0) {
+            const orphanController = device.controllers[0];
+            await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+                await tx.controller.update({
+                    where: { id: orphanController.id },
+                    data: {
+                        name: `${sensorDisplayName} Controller`,
+                        status,
+                        createdBy: userId,
+                        updatedAt: new Date()
+                    }
+                });
+                await tx.sensor.create({
+                    data: {
+                        name: sensorDisplayName,
+                        serialNumber,
+                        type: 'radar',
+                        description: description || null,
+                        location: location || null,
+                        firmware: firmware || null,
+                        status,
+                        accountId: currentAccountId,
+                        controllerId: orphanController.id,
+                        createdBy: userId,
+                        config: Object.keys(initConfig as object).length > 0 ? initConfig : {}
+                    }
+                });
+            });
+            logger.info(`Re-attached radar sensor to controller ${orphanController.id} for device ${deviceId}`);
+            return { type: 'success', controllerId: orphanController.id };
+        }
 
         const controllerSerial = `${serialNumber}-CTRL`;
         // Clean up soft-deleted controllers in current account only
@@ -587,17 +663,13 @@ async function updateSensorFromList(
     if (location !== null && location.length > 200) return { type: 'error', message: 'Location must be 200 characters or less' };
 
     try {
-        // Use ZenStack enhanced client for read (access check)
-        const sensor = await locals.prisma.sensor.findFirst({
-            where: { id: sensorId, accountId: currentAccountId, type: 'radar' }
+        const ok = await syncRadarSensorNameWithLinkedDevice(prisma, {
+            sensorId,
+            name,
+            location: location || null,
+            accountId: currentAccountId
         });
-        if (!sensor) return { type: 'error', message: 'Sensor not found or access denied' };
-
-        // Use raw prisma for update (ZenStack policy only allows 'read' for account members)
-        await prisma.sensor.update({
-            where: { id: sensorId },
-            data: { name, location: location || null, updatedAt: new Date() }
-        });
+        if (!ok) return { type: 'error', message: 'Sensor not found or access denied' };
         return { type: 'success' };
     } catch (err) {
         logger.error(`Error updating radar sensor ${sensorId}:`, err);

@@ -1,7 +1,6 @@
 import { customAlphabet } from 'nanoid';
 import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
-import { macQueryVariants } from '$lib/utils/deviceUtils';
 import { handlePreclaimAutoClaim } from './handle_preclaim';
 
 const pinGenerator = customAlphabet('ABCDEF0123456789', 6);
@@ -41,35 +40,15 @@ export async function handleGetPin(args: { topic: string; prisma: PrismaClient; 
         throw new Error('Factory device not found');
     }
 
-    // Extract MAC address from params (device sends it in get.pin request)
-    const macAddressRaw = params?.macAddress || params?.networkInfo?.mac || null;
-    /** Match DB whether stored as `AA:BB:...` or `AABBCC...` (devices often send 12 hex without colons). */
-    const macVariants = macAddressRaw ? macQueryVariants(String(macAddressRaw)) : null;
-
-    // Check if device with same MAC address is already claimed (if MAC is provided)
-    if (macVariants?.length) {
-        const existingDevice = await prisma.device.findFirst({
-            where: {
-                claimedAt: { not: null },
-                OR: macVariants.flatMap((v) => [{ macAddress: v }, { wifiMac: v }])
-            },
-            select: {
-                id: true,
-                name: true,
-                claimedBy: true,
-                accountId: true
-            }
-        });
-
-        if (existingDevice) {
-            logger.warn(
-                `[DeviceGetPin] Device with MAC address ${macAddressRaw} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
-            );
-            throw new Error(
-                `Device is already claimed. Please reconnect using device credentials (deviceId: ${existingDevice.id})`
-            );
-        }
+    if (factoryDevice.expiresAt && factoryDevice.expiresAt <= new Date()) {
+        throw new Error('Factory registration has expired');
     }
+
+    // Extract MAC address from params (device sends it in get.pin request). Used for fingerprint backfill
+    // and preclaim only — we do not reject get.pin when that MAC already exists on a claimed Device.
+    // Sensor registration (?/create) may link this factory row to an existing device by MAC in-account;
+    // MQTT device.claim.confirm still deduplicates MAC when creating a *new* Device.
+    const macAddressRaw = params?.macAddress || params?.networkInfo?.mac || null;
 
     // Check if this factory device is already claimed
     if (factoryDevice.claimedDeviceId) {

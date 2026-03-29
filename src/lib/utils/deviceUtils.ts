@@ -1,11 +1,11 @@
 /**
- * Device-related utility functions
- * Shared across admin and user device pages
+ * Shared device helpers for UI (status, type, dates, connection) and for MAC/EUI-48 handling.
+ *
+ * MAC functions are used from both client and server (registration, claim, Prisma queries).
+ * Prefer {@link macQueryVariants} when matching DB fields that may store colon or compact hex.
  */
 
-/**
- * Device status labels mapping
- */
+/** Maps device status enum values to short labels for tables and badges. */
 export const DEVICE_STATUS_LABELS: Record<string, string> = {
     ACTIVE: 'Active',
     INACTIVE: 'Inactive',
@@ -14,39 +14,33 @@ export const DEVICE_STATUS_LABELS: Record<string, string> = {
     ONLINE: 'Online'
 };
 
-/**
- * Get device status label (human-readable text)
- */
+/** Resolved label for a status string, or `"Unknown"` / the raw string if unmapped. */
 export function getDeviceStatusLabel(status: string | null | undefined): string {
     if (!status) return 'Unknown';
     return DEVICE_STATUS_LABELS[status] || String(status);
 }
 
-/**
- * Get device status badge variant for UI components
- */
+/** Badge variant for design-system status chips. */
 export function getDeviceStatusVariant(
     status: string | null | undefined
 ): 'outline' | 'default' | 'destructive' | 'success' | 'secondary' {
     if (!status) return 'outline';
-    
+
     const variantMap: Record<string, 'outline' | 'default' | 'destructive' | 'success' | 'secondary'> = {
-        ACTIVE: 'success',      // Green
-        INACTIVE: 'secondary',  // Gray
-        PENDING: 'default',     // Primary blue
-        OFFLINE: 'destructive',  // Red
-        ONLINE: 'success'       // Green
+        ACTIVE: 'success',
+        INACTIVE: 'secondary',
+        PENDING: 'default',
+        OFFLINE: 'destructive',
+        ONLINE: 'success'
     };
-    
+
     return variantMap[status] || 'outline';
 }
 
-/**
- * Get CSS classes for device status text (for list views with colored text)
- */
+/** Tailwind utility classes for colored status text in list rows. */
 export function getDeviceStatusTextClass(status: string | null | undefined): string {
     if (!status) return 'text-muted-foreground';
-    
+
     const classMap: Record<string, string> = {
         ACTIVE: 'text-green-600',
         INACTIVE: 'text-muted-foreground',
@@ -54,13 +48,11 @@ export function getDeviceStatusTextClass(status: string | null | undefined): str
         OFFLINE: 'text-red-600',
         ONLINE: 'text-green-600'
     };
-    
+
     return classMap[status] || 'text-muted-foreground';
 }
 
-/**
- * Device type labels mapping
- */
+/** Maps device type enum values to display names. */
 export const DEVICE_TYPE_LABELS: Record<string, string> = {
     PHONE: 'Phone',
     TABLET: 'Tablet',
@@ -71,17 +63,13 @@ export const DEVICE_TYPE_LABELS: Record<string, string> = {
     OTHER: 'Other'
 };
 
-/**
- * Get device type display name
- */
+/** Display name for a device type, or `"Unknown"` / raw value if unmapped. */
 export function getDeviceTypeDisplay(deviceType: string | null | undefined): string {
     if (!deviceType) return 'Unknown';
     return DEVICE_TYPE_LABELS[deviceType] || String(deviceType);
 }
 
-/**
- * Device type options for dropdowns/selects
- */
+/** Options for `<select>` / combobox components (value + label). */
 export const DEVICE_TYPE_OPTIONS = [
     { value: 'PHONE', label: 'Phone' },
     { value: 'TABLET', label: 'Tablet' },
@@ -93,11 +81,12 @@ export const DEVICE_TYPE_OPTIONS = [
 ];
 
 /**
- * Format device date for display (in viewer's local timezone)
+ * Formats a timestamp for the viewer's locale (date + time).
+ * @returns `"Never"` if missing; `"Invalid date"` on parse failure.
  */
 export function formatDeviceDate(date: string | Date | null | undefined): string {
     if (!date) return 'Never';
-    
+
     try {
         return new Date(date).toLocaleString(undefined, {
             year: 'numeric',
@@ -112,11 +101,12 @@ export function formatDeviceDate(date: string | Date | null | undefined): string
 }
 
 /**
- * Format device date as relative time (e.g., "2 hours ago")
+ * Relative time for recent activity (`Just now`, `3 minutes ago`, ...).
+ * Falls back to {@link formatDeviceDate} after seven days.
  */
 export function formatDeviceDateRelative(date: string | Date | null | undefined): string {
     if (!date) return 'Never';
-    
+
     try {
         const dateObj = new Date(date);
         const now = new Date();
@@ -125,35 +115,47 @@ export function formatDeviceDateRelative(date: string | Date | null | undefined)
         const diffMins = Math.floor(diffSecs / 60);
         const diffHours = Math.floor(diffMins / 60);
         const diffDays = Math.floor(diffHours / 24);
-        
+
         if (diffSecs < 60) return 'Just now';
         if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
         if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
         if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-        
-        // For older dates, use full format
+
         return formatDeviceDate(date);
     } catch {
         return 'Invalid date';
     }
 }
 
+// --- MAC / EUI-48 ---
+
 /**
- * Format MAC address for display (uppercase with colons)
+ * Normalizes a MAC string to uppercase groups separated by colons (e.g. `AA:BB:CC:DD:EE:FF`).
+ * @returns `"N/A"` when `mac` is nullish. Non-12-hex input may not be a valid EUI-48.
  */
 export function formatMacAddress(mac: string | null | undefined): string {
     if (!mac) return 'N/A';
 
-    // Remove any existing separators and convert to uppercase
     const cleaned = mac.replace(/[\s:.\-]/g, '').toUpperCase();
-
-    // Add colons every 2 characters
     return cleaned.match(/.{1,2}/g)?.join(':') || mac;
 }
 
 /**
- * Normalize a MAC string to the variants we may store in DB (colon form vs 12 hex without separators).
- * Use for Prisma OR lookups so `A23CA63E7FFD` matches `A2:3C:A6:3E:7F:FD`.
+ * Default display name when identity is a MAC: `device - AA:BB:CC:DD:EE:FF`.
+ * Used for new device/sensor rows from claim and PIN flows.
+ * @returns `"Unknown device"` when the value cannot be formatted as a MAC.
+ */
+export function deviceDisplayNameFromMac(macOrRaw: string | null | undefined): string {
+    if (!macOrRaw?.trim()) return 'Unknown device';
+    const formatted = formatMacAddress(macOrRaw);
+    if (!formatted || formatted === 'N/A') return 'Unknown device';
+    return `device - ${formatted}`;
+}
+
+/**
+ * Returns both DB shapes for one NIC: colon-separated and 12-hex compact, deduplicated.
+ * Use with Prisma `OR` and `mode: 'insensitive'` on string fields.
+ * @returns `null` if the input is not exactly 12 hex digits after stripping separators.
  */
 export function macQueryVariants(raw: string | null | undefined): string[] | null {
     if (!raw?.trim()) return null;
@@ -165,16 +167,34 @@ export function macQueryVariants(raw: string | null | undefined): string[] | nul
 }
 
 /**
- * Get connection status display (online/offline)
+ * Value to store on `Device.macAddress`, `wifiMac`, or `lanMac`.
+ * 12-hex input becomes colon-uppercase; otherwise returns trimmed raw string (legacy).
  */
+export function normalizeMacForStorage(raw: string | null | undefined): string | null {
+    if (!raw?.trim()) return null;
+    const vars = macQueryVariants(raw);
+    if (vars?.length) return vars[0];
+    return raw.trim();
+}
+
+/**
+ * Compact 12-hex uppercase string for `FactoryDevice.hardwareFingerprint` and PIN backfill.
+ * @returns `null` unless the stripped input is exactly 12 hex characters.
+ */
+export function macHardwareFingerprint(raw: string | null | undefined): string | null {
+    if (!raw?.trim()) return null;
+    const stripped = raw.trim().replace(/[\s:.\-]/g, '');
+    if (!/^[0-9A-Fa-f]{12}$/i.test(stripped)) return null;
+    return stripped.toUpperCase();
+}
+
+/** User-visible online/offline string. */
 export function getConnectionStatusDisplay(connected: boolean | null | undefined): string {
     if (connected === null || connected === undefined) return 'Unknown';
     return connected ? 'Online' : 'Offline';
 }
 
-/**
- * Get connection status variant
- */
+/** Badge variant for connection indicator. */
 export function getConnectionStatusVariant(
     connected: boolean | null | undefined
 ): 'success' | 'destructive' | 'secondary' {

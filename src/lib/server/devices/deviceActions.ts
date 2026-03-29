@@ -13,6 +13,7 @@ import {
     assignGlobalProfile,
     reapplyIfChanged
 } from './deviceProfileActions';
+import { propagateDeviceNameToLinkedRadar } from '$lib/server/device/radarDeviceNameSync';
 
 /**
  * Create device actions factory
@@ -584,12 +585,23 @@ export function createDeviceActions(options: {
                 // Handle tags
                 updateData.tags = { set: tagIds.map(tagId => ({ id: tagId })) };
 
+                const previousName = device.name ?? '';
+                const nameChanged = previousName !== name;
+
                 // Update device
                 const updatedDevice = await locals.prisma.device.update({
                     where: { id },
                     data: updateData,
                     include: { tags: true }
                 });
+
+                if (nameChanged) {
+                    try {
+                        await propagateDeviceNameToLinkedRadar(prisma, id, name);
+                    } catch (syncErr) {
+                        logger.error(`Failed to sync device name to radar for ${id}:`, syncErr);
+                    }
+                }
 
                 logger.info(`Device ${id} updated successfully`);
 

@@ -65,6 +65,8 @@
     export let saveActionUrl: string = '/user/iot/devices?/updateDevice';
     export let onSaveSuccess: (() => void) | null = null;
     export let onSaveError: ((error: string) => void) | null = null;
+    /** When true, show a short note that radar sensor names stay in sync with this field. */
+    export let showRadarDeviceNameSyncHint: boolean = true;
 
     // ==========================================================================
     // EVENTS
@@ -1047,6 +1049,13 @@
                     helperText={editDeviceError || undefined}
                 />
                 <CharacterCount current={editDeviceName.length} max={NAME_MAX} />
+                {#if showRadarDeviceNameSyncHint}
+                    <p
+                        style="margin-top: var(--ds-space-2); font-family: var(--ds-font-family-primary); font-size: var(--ds-text-xs); line-height: var(--ds-leading-xs); color: var(--ds-text-secondary);"
+                    >
+                        If this device has a radar sensor, its name under Controllers stays in sync with this field.
+                    </p>
+                {/if}
             </div>
             <div class="flex items-center gap-2" style="padding-top: var(--ds-space-6);">
                 <Toggle

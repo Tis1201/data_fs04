@@ -7,6 +7,7 @@ import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { radarSensorSchema } from '../../../../admin/controllers/radar/new/radar-sensor';
+import { deviceHasActiveRadarSensor } from '$lib/server/device/radarRegistrationGuards';
 import type { Prisma } from '@prisma/client';
 
 export const load = restrict(
@@ -87,7 +88,8 @@ export const actions: Actions = {
                             where: {
                                 type: 'radar',
                                 isDeleted: false
-                            }
+                            },
+                            include: { sensors: { where: { type: 'radar' } } }
                         }
                     }
                 });
@@ -107,11 +109,10 @@ export const actions: Actions = {
                     });
                 }
 
-                // Check if device already has an active radar controller
-                if (device.controllers.length > 0) {
+                if (deviceHasActiveRadarSensor(device.controllers)) {
                     return fail(400, {
                         form,
-                        error: 'This device already has an active radar controller configured. Only one active radar controller is allowed per device.'
+                        error: 'This device already has a radar sensor. Only one sensor per device is allowed.'
                     });
                 }
 
@@ -136,8 +137,41 @@ export const actions: Actions = {
                     });
                 }
 
-                const controllerSerial = `${form.data.serialNumber}-CTRL`;
                 const deviceId = form.data.deviceId as string;
+
+                if (device.controllers.length > 0) {
+                    const orphanController = device.controllers[0];
+                    await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+                        await tx.controller.update({
+                            where: { id: orphanController.id },
+                            data: {
+                                name: `${form.data.name} Controller`,
+                                status: form.data.status,
+                                createdBy: locals.user?.id ?? 'unknown',
+                                updatedAt: new Date()
+                            }
+                        });
+                        await tx.sensor.create({
+                            data: {
+                                name: form.data.name,
+                                serialNumber: form.data.serialNumber,
+                                type: 'radar',
+                                description: form.data.description,
+                                location: form.data.location,
+                                firmware: form.data.firmware,
+                                status: form.data.status,
+                                accountId: currentAccountId,
+                                controllerId: orphanController.id,
+                                createdBy: locals.user?.id ?? 'unknown',
+                                config: {}
+                            }
+                        });
+                    });
+                    logger.info(`Re-attached radar sensor via /new to controller ${orphanController.id} for device ${deviceId}`);
+                    throw redirect(303, `/user/controllers/radar/${orphanController.id}`);
+                }
+
+                const controllerSerial = `${form.data.serialNumber}-CTRL`;
 
                 // Clean up soft-deleted controllers with same serial
                 const softDeletedControllers = await locals.prisma.controller.findMany({

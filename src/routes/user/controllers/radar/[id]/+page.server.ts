@@ -11,6 +11,7 @@ import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from 
 import type { PrismaClient, Prisma } from '@prisma/client';
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for config updates.
 import prisma from '$lib/server/prisma';
+import { syncRadarSensorNameWithLinkedDevice } from '$lib/server/device/radarDeviceNameSync';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 import { isDeviceOnline } from '$lib/server/device/devicePresence'; // single-device, only one sensor on this page
 
@@ -1144,14 +1145,13 @@ export const actions: Actions = {
                 await checkAccountAccess(controllerId, currentAccountId as string, locals.prisma);
                 const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, controllerId);
                 if (sensorError || !sensor) return fail(404, { error: sensorError || 'Sensor not found' });
-                await prisma.sensor.update({
-                    where: { id: sensor.id },
-                    data: {
-                        name: form.data.name,
-                        location: form.data.location ?? null,
-                        updatedAt: new Date()
-                    }
+                const ok = await syncRadarSensorNameWithLinkedDevice(prisma, {
+                    sensorId: sensor.id,
+                    name: form.data.name,
+                    location: form.data.location ?? null,
+                    accountId: currentAccountId as string
                 });
+                if (!ok) return fail(404, { error: 'Sensor not found' });
                 return { success: true };
             } catch (err: unknown) {
                 if (err && typeof err === 'object' && 'status' in err && (err.status === 403 || err.status === 404)) throw err;

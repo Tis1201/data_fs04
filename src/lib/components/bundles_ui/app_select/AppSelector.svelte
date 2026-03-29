@@ -195,9 +195,38 @@
         closeDialog();
     }
 
-    function getPackageDisplay(resource: Resource): string {
-        const r = resource as Resource & { packageName?: string | null };
-        return r.packageName ?? resource.id ?? '—';
+    /** Upload / created time for list rows (matches Install New App density). */
+    function formatResourceCreatedAt(resource: Resource): string {
+        const r = resource as Resource & { createdAt?: Date | string | null };
+        const d = r.createdAt;
+        if (d == null) return '—';
+        const date = typeof d === 'string' ? new Date(d) : d instanceof Date ? d : new Date(String(d));
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+    }
+
+    function getIdAndUploadLine(resource: Resource): string {
+        return `${resource.id} - ${formatResourceCreatedAt(resource)}`;
+    }
+
+    function formatVersionLabel(version: string | null | undefined): string {
+        if (!version?.trim()) return '';
+        const t = version.trim();
+        return /^v\d/i.test(t) ? t : `v${t}`;
+    }
+
+    /** Line 3: package · version (same pattern as device install modal). */
+    function getPackageVersionLine(resource: Resource): string {
+        const r = resource as Resource & { packageName?: string | null; version?: string | null };
+        const pkg = (r.packageName || '').trim() || resource.id || '—';
+        const ver = formatVersionLabel(r.version ?? null);
+        return ver ? `${pkg} · ${ver}` : pkg;
     }
 
     let searchComboRef: HTMLDivElement;
@@ -309,7 +338,8 @@
                                 >
                                     <div class="add-app-result-option-content">
                                         <span class="add-app-result-option-text">{resource.name}</span>
-                                        <span class="add-app-result-option-supporting">{getPackageDisplay(resource)}</span>
+                                        <span class="add-app-result-option-meta">{getIdAndUploadLine(resource)}</span>
+                                        <span class="add-app-result-option-supporting">{getPackageVersionLine(resource)}</span>
                                     </div>
                                 </button>
                             {/each}
@@ -330,7 +360,8 @@
                         <div class="add-app-selected-row">
                             <div class="add-app-selected-content">
                                 <span class="add-app-selected-name">{item.resource.name}</span>
-                                <span class="add-app-selected-package">{getPackageDisplay(item.resource)}</span>
+                                <span class="add-app-selected-meta">{getIdAndUploadLine(item.resource)}</span>
+                                <span class="add-app-selected-package">{getPackageVersionLine(item.resource)}</span>
                             </div>
                             <div class="add-app-selected-actions">
                                 <div class="add-app-auto-open">
@@ -472,10 +503,10 @@
     .add-app-result-option {
         display: flex;
         flex-direction: row;
-        align-items: center;
+        align-items: flex-start;
         padding: var(--ds-space-2) var(--ds-space-4);
         gap: var(--ds-space-3);
-        min-height: 54px;
+        min-height: 72px;
         width: 100%;
         border: none;
         border-radius: var(--ds-radius-md);
@@ -507,10 +538,22 @@
     }
 
     .add-app-result-option-text {
-        font-weight: var(--ds-font-regular);
+        font-weight: var(--ds-font-medium);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-neutral-true-800);
+        width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .add-app-result-option-meta {
+        font-weight: var(--ds-font-regular);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        letter-spacing: 0.01em;
+        color: var(--ds-color-gray-500);
         width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -523,6 +566,10 @@
         line-height: var(--ds-leading-xs);
         letter-spacing: 0.01em;
         color: var(--ds-color-gray-500);
+        width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .add-app-selected-wrap {
@@ -567,10 +614,10 @@
     .add-app-selected-row {
         display: flex;
         flex-direction: row;
-        align-items: center;
+        align-items: flex-start;
         padding: var(--ds-space-2) var(--ds-space-4);
         gap: var(--ds-space-3);
-        min-height: 54px;
+        min-height: 72px;
         background: var(--ds-color-neutral-true-50);
         border-radius: var(--ds-radius-md);
         width: 100%;
@@ -588,9 +635,15 @@
     /* Figma: Text - Body/14px/14-Regular, Neutral True/900 */
     .add-app-selected-name {
         font-size: var(--ds-text-sm);
-        font-weight: var(--ds-font-regular);
+        font-weight: var(--ds-font-medium);
         line-height: 20px;
         color: var(--ds-color-neutral-true-900);
+    }
+
+    .add-app-selected-meta {
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
     }
 
     /* Figma: Shortcut - Body/12px/12-Regular, Gray/500 */
@@ -606,6 +659,7 @@
         align-items: center;
         gap: var(--ds-space-3);
         flex-shrink: 0;
+        align-self: center;
     }
 
     .add-app-auto-open {

@@ -1,7 +1,13 @@
 import { ClaimStatus } from '@prisma/client';
 import { generateId } from 'lucia';
 import { logger } from '$lib/server/logger';
-import { formatMacAddress } from '$lib/utils/deviceUtils';
+import {
+    deviceDisplayNameFromMac,
+    macHardwareFingerprint,
+    macQueryVariants,
+    normalizeMacForStorage
+} from '$lib/utils/deviceUtils';
+import { deviceHasActiveRadarSensor } from '$lib/server/device/radarRegistrationGuards';
 import { checkDeviceLimit, LimitExceededError } from '$lib/server/entitlements';
 import { markPreclaimSetCompletedIfAllClaimed } from '$lib/server/device/devicePreclaim';
 import type { RpcHandlerArgs, RpcResponse } from '../../index';
@@ -164,132 +170,307 @@ async function _handleClaimConfirmInner(
     const networkMac = networkInfo?.mac;
     const rawWifiMac = typeof networkInfo?.wifiMac === 'string' ? networkInfo.wifiMac.trim() : null;
     const rawLanMac = typeof networkInfo?.lanMac === 'string' ? networkInfo.lanMac.trim() : null;
-    const wifiMac = rawWifiMac && rawWifiMac.length > 0 ? rawWifiMac : null;
-    const lanMac = rawLanMac && rawLanMac.length > 0 ? rawLanMac : null;
-    // Primary MAC for identity/name/dedup: prefer lanMac, then wifiMac, then legacy networkInfo.mac
-    const macAddress = lanMac ?? wifiMac ?? (typeof networkMac === 'string' && networkMac ? networkMac : null);
+    const wifiMacRaw = rawWifiMac && rawWifiMac.length > 0 ? rawWifiMac : null;
+    const lanMacRaw = rawLanMac && rawLanMac.length > 0 ? rawLanMac : null;
+    const primaryMacRaw =
+        lanMacRaw ?? wifiMacRaw ?? (typeof networkMac === 'string' && networkMac ? networkMac.trim() : null);
 
-    // Check if device with same MAC address is already claimed (following MQTT flow)
-    const orConditions: Array<{ macAddress?: string; wifiMac?: string; lanMac?: string }> = [
-        ...(macAddress ? [{ macAddress }] : []),
-        ...(wifiMac ? [{ wifiMac }] : []),
-        ...(lanMac ? [{ lanMac }] : [])
-    ];
-    if (orConditions.length > 0) {
+    // Dedup: same physical NIC may be stored as compact hex or colon form — match all variants
+    const macOverlapOr: Array<{
+        macAddress?: { equals: string; mode: 'insensitive' };
+        wifiMac?: { equals: string; mode: 'insensitive' };
+        lanMac?: { equals: string; mode: 'insensitive' };
+    }> = [];
+    const seenCompact = new Set<string>();
+    for (const raw of [primaryMacRaw, wifiMacRaw, lanMacRaw]) {
+        if (!raw?.trim()) continue;
+        const vars = macQueryVariants(raw);
+        if (!vars) continue;
+        const compact = vars[1];
+        if (seenCompact.has(compact)) continue;
+        seenCompact.add(compact);
+        for (const v of vars) {
+            macOverlapOr.push(
+                { macAddress: { equals: v, mode: 'insensitive' } },
+                { wifiMac: { equals: v, mode: 'insensitive' } },
+                { lanMac: { equals: v, mode: 'insensitive' } }
+            );
+        }
+    }
+    const macAddress = normalizeMacForStorage(primaryMacRaw);
+    const wifiMac = normalizeMacForStorage(wifiMacRaw);
+    const lanMac = normalizeMacForStorage(lanMacRaw);
+
+    type MacMatchDevice = {
+        id: string;
+        name: string;
+        claimedBy: string | null;
+        accountId: string | null;
+        apiKey: string | null;
+        controllers: Array<{ type: string; isDeleted: boolean; sensors: { type: string }[] }>;
+    };
+
+    let adoptDevice: MacMatchDevice | null = null;
+
+    if (macOverlapOr.length > 0) {
         const existingDevice = await prisma.device.findFirst({
             where: {
-                OR: orConditions,
-                claimedAt: { not: null } // Only check claimed devices
+                OR: macOverlapOr,
+                claimedAt: { not: null }
             },
             select: {
                 id: true,
                 name: true,
                 claimedBy: true,
-                accountId: true
+                accountId: true,
+                apiKey: true,
+                controllers: {
+                    where: { type: 'radar', isDeleted: false },
+                    select: {
+                        type: true,
+                        isDeleted: true,
+                        sensors: { where: { type: 'radar' }, select: { type: true } }
+                    }
+                }
             }
         });
 
         if (existingDevice) {
-            logger.warn(
-                `[DeviceClaimConfirm] Device with MAC ${macAddress} is already claimed: deviceId=${existingDevice.id}, claimedBy=${existingDevice.claimedBy}, accountId=${existingDevice.accountId ?? 'n/a'}`
+            if (!account?.id) {
+                throw new Error('Account context is required to complete registration.');
+            }
+            if (existingDevice.accountId !== account.id) {
+                throw new Error('This device is already registered to another account.');
+            }
+            if (deviceHasActiveRadarSensor(existingDevice.controllers)) {
+                throw new Error(
+                    'This device already has a radar sensor. Open the Radar screen under Controllers to manage it.'
+                );
+            }
+            adoptDevice = existingDevice;
+            logger.info(
+                `[DeviceClaimConfirm] Same-account MAC match, no radar yet - will adopt device ${existingDevice.id} (keep name/profile; wizard creates sensor only)`
             );
-            throw new Error(`Device with MAC address ${macAddress} is already claimed`);
         }
     }
 
-    const apiKey = generateId(128);
-
-    // Device name: MAC-style label only (matches IoT device list, e.g. A2:3C:A6:3E:7F:FD)
-    const deviceName = macAddress ? formatMacAddress(macAddress) : 'Unknown device';
-
+    let finalDeviceId: string;
+    let finalApiKey: string;
     let preclaimSetIdToComplete: string | null = null;
 
-    const createdDevice = await prisma.$transaction(async (tx) => {
-        const created = await tx.device.create({
-            data: {
-                name: deviceName,
-                createdBy: user.id,
-                accountId: account?.id ?? null,
-                deviceType:
-                    deviceInfo && typeof deviceInfo.deviceType === 'string'
-                        ? deviceInfo.deviceType
-                        : null,
-                model:
-                    deviceInfo && typeof deviceInfo.model === 'string' ? deviceInfo.model : null,
-                osVersion:
-                    deviceInfo && typeof deviceInfo.osVersion === 'string'
-                        ? deviceInfo.osVersion
-                        : null,
-                macAddress: macAddress,
-                wifiMac: wifiMac,
-                lanMac: lanMac,
-                apiKey,
-                apiKeyCreatedAt: now,
-                claimedAt: now
-            }
-        });
+    if (adoptDevice) {
+        const fpCompact = macHardwareFingerprint(primaryMacRaw);
 
-        // Only set hardwareFingerprint if:
-        // 1. It's not already set on this factory device
-        // 2. No other factory device already has this MAC as hardwareFingerprint
-        let hardwareFingerprintToSet = factoryDevice.hardwareFingerprint;
-        if (!hardwareFingerprintToSet && macAddress) {
-            // Check if another factory device already has this MAC as hardwareFingerprint
-            const existingFactoryDevice = await tx.factoryDevice.findFirst({
+        const adoptResult = await prisma.$transaction(async (tx) => {
+            const freshFactory = await tx.factoryDevice.findUnique({ where: { id: factoryDevice.id } });
+            if (!freshFactory) {
+                throw new Error('Factory device not found');
+            }
+            if (
+                freshFactory.claimedDeviceId &&
+                freshFactory.claimedDeviceId !== adoptDevice!.id
+            ) {
+                throw new Error('This registration code is already linked to another device.');
+            }
+
+            // claimedDeviceId is unique — clear other factory rows pointing at this device so this PIN can link
+            await tx.factoryDevice.updateMany({
                 where: {
-                    hardwareFingerprint: macAddress,
+                    claimedDeviceId: adoptDevice!.id,
                     id: { not: factoryDevice.id }
                 },
-                select: { id: true }
+                data: {
+                    claimedDeviceId: null,
+                    claimedAt: null,
+                    accountId: null
+                }
             });
 
-            // Only set it if no other factory device has it
-            if (!existingFactoryDevice) {
-                hardwareFingerprintToSet = macAddress;
+            let hardwareFingerprintToSet = freshFactory.hardwareFingerprint;
+            if (!hardwareFingerprintToSet && fpCompact) {
+                const fpIn = macQueryVariants(primaryMacRaw) ?? [fpCompact];
+                const conflicting = await tx.factoryDevice.findFirst({
+                    where: {
+                        hardwareFingerprint: { in: fpIn },
+                        id: { not: factoryDevice.id }
+                    },
+                    select: { id: true }
+                });
+                if (!conflicting) {
+                    hardwareFingerprintToSet = fpCompact;
+                }
             }
-        }
 
-        await tx.factoryDevice.update({
-            where: { id: factoryDevice.id },
-            data: {
-                claimedAt: now,
-                claimedDeviceId: created.id,
-                accountId: account?.id ?? factoryDevice.accountId ?? null,
-                // Update hardwareFingerprint with MAC address if safe to do so
-                hardwareFingerprint: hardwareFingerprintToSet
-            }
-        });
-
-        // If this claim originated from a preclaim ticket, fulfill the preclaim row as well.
-        if (preclaimDeviceId) {
-            const preclaim = await tx.preclaimDevice.findUnique({
-                where: { id: preclaimDeviceId }
+            await tx.factoryDevice.update({
+                where: { id: factoryDevice.id },
+                data: {
+                    claimedAt: now,
+                    claimedDeviceId: adoptDevice!.id,
+                    accountId: account!.id,
+                    ...(hardwareFingerprintToSet ? { hardwareFingerprint: hardwareFingerprintToSet } : {})
+                }
             });
 
-            if (!preclaim) {
-                logger.warn(
-                    `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} not found while confirming device ${created.id}; skipping preclaim update`
-                );
-            } else if (preclaim.status !== ClaimStatus.PENDING || preclaim.claimedAt) {
-                logger.warn(
-                    `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} no longer pending (status=${preclaim.status}); skipping preclaim update`
-                );
-            } else {
-                await tx.preclaimDevice.update({
-                    where: { id: preclaim.id },
+            const deviceRow = await tx.device.findUnique({ where: { id: adoptDevice!.id } });
+            if (deviceRow) {
+                const macPatch: {
+                    macAddress?: string;
+                    wifiMac?: string;
+                    lanMac?: string;
+                } = {};
+                if (macAddress && !deviceRow.macAddress) macPatch.macAddress = macAddress;
+                if (wifiMac && !deviceRow.wifiMac) macPatch.wifiMac = wifiMac;
+                if (lanMac && !deviceRow.lanMac) macPatch.lanMac = lanMac;
+                if (Object.keys(macPatch).length > 0) {
+                    await tx.device.update({ where: { id: adoptDevice!.id }, data: macPatch });
+                }
+            }
+
+            let api = adoptDevice!.apiKey;
+            if (!api) {
+                api = generateId(128);
+                await tx.device.update({
+                    where: { id: adoptDevice!.id },
                     data: {
-                        status: ClaimStatus.FULFILLED,
-                        claimedAt: now,
-                        claimedBy: user.id,
-                        deviceId: created.id
+                        apiKey: api,
+                        apiKeyCreatedAt: now,
+                        apiKeyRotatedAt: now
                     }
                 });
-                preclaimSetIdToComplete = preclaim.setId;
             }
-        }
 
-        return created;
-    });
+            let txPreclaimSetId: string | null = null;
+            if (preclaimDeviceId) {
+                const preclaim = await tx.preclaimDevice.findUnique({
+                    where: { id: preclaimDeviceId }
+                });
+
+                if (!preclaim) {
+                    logger.warn(
+                        `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} not found while adopting device ${adoptDevice!.id}; skipping preclaim update`
+                    );
+                } else if (preclaim.status !== ClaimStatus.PENDING || preclaim.claimedAt) {
+                    logger.warn(
+                        `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} no longer pending (status=${preclaim.status}); skipping preclaim update`
+                    );
+                } else if (preclaim.deviceId && preclaim.deviceId !== adoptDevice!.id) {
+                    logger.warn(
+                        `[DeviceClaimConfirm] Preclaim deviceId ${preclaim.deviceId} does not match adopted device ${adoptDevice!.id}; skipping preclaim update`
+                    );
+                } else {
+                    await tx.preclaimDevice.update({
+                        where: { id: preclaim.id },
+                        data: {
+                            status: ClaimStatus.FULFILLED,
+                            claimedAt: now,
+                            claimedBy: user.id,
+                            deviceId: adoptDevice!.id
+                        }
+                    });
+                    txPreclaimSetId = preclaim.setId;
+                }
+            }
+
+            return { deviceId: adoptDevice!.id, apiKey: api, preclaimSetId: txPreclaimSetId };
+        });
+
+        finalDeviceId = adoptResult.deviceId;
+        finalApiKey = adoptResult.apiKey;
+        preclaimSetIdToComplete = adoptResult.preclaimSetId;
+    } else {
+        const apiKey = generateId(128);
+
+        const deviceName = macAddress ? deviceDisplayNameFromMac(macAddress) : 'Unknown device';
+
+        const createdDevice = await prisma.$transaction(async (tx) => {
+            const created = await tx.device.create({
+                data: {
+                    name: deviceName,
+                    createdBy: user.id,
+                    accountId: account?.id ?? null,
+                    deviceType:
+                        deviceInfo && typeof deviceInfo.deviceType === 'string'
+                            ? deviceInfo.deviceType
+                            : null,
+                    model:
+                        deviceInfo && typeof deviceInfo.model === 'string' ? deviceInfo.model : null,
+                    osVersion:
+                        deviceInfo && typeof deviceInfo.osVersion === 'string'
+                            ? deviceInfo.osVersion
+                            : null,
+                    macAddress: macAddress,
+                    wifiMac: wifiMac,
+                    lanMac: lanMac,
+                    apiKey,
+                    apiKeyCreatedAt: now,
+                    claimedAt: now
+                }
+            });
+
+            let hardwareFingerprintToSet = factoryDevice.hardwareFingerprint;
+            const fpCompactCreate = macHardwareFingerprint(primaryMacRaw);
+            if (!hardwareFingerprintToSet && fpCompactCreate) {
+                const fpIn = macQueryVariants(primaryMacRaw) ?? [fpCompactCreate];
+                const existingFactoryDevice = await tx.factoryDevice.findFirst({
+                    where: {
+                        hardwareFingerprint: { in: fpIn },
+                        id: { not: factoryDevice.id }
+                    },
+                    select: { id: true }
+                });
+
+                if (!existingFactoryDevice) {
+                    hardwareFingerprintToSet = fpCompactCreate;
+                }
+            }
+
+            await tx.factoryDevice.update({
+                where: { id: factoryDevice.id },
+                data: {
+                    claimedAt: now,
+                    claimedDeviceId: created.id,
+                    accountId: account?.id ?? factoryDevice.accountId ?? null,
+                    hardwareFingerprint: hardwareFingerprintToSet
+                }
+            });
+
+            if (preclaimDeviceId) {
+                const preclaim = await tx.preclaimDevice.findUnique({
+                    where: { id: preclaimDeviceId }
+                });
+
+                if (!preclaim) {
+                    logger.warn(
+                        `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} not found while confirming device ${created.id}; skipping preclaim update`
+                    );
+                } else if (preclaim.status !== ClaimStatus.PENDING || preclaim.claimedAt) {
+                    logger.warn(
+                        `[DeviceClaimConfirm] Preclaim ${preclaimDeviceId} no longer pending (status=${preclaim.status}); skipping preclaim update`
+                    );
+                } else {
+                    await tx.preclaimDevice.update({
+                        where: { id: preclaim.id },
+                        data: {
+                            status: ClaimStatus.FULFILLED,
+                            claimedAt: now,
+                            claimedBy: user.id,
+                            deviceId: created.id
+                        }
+                    });
+                    preclaimSetIdToComplete = preclaim.setId;
+                }
+            }
+
+            return created;
+        });
+
+        finalDeviceId = createdDevice.id;
+        finalApiKey = apiKey;
+
+        logger.info(
+            `[DeviceClaimConfirm] Created device ${finalDeviceId} for user ${user.id} account ${account?.id ?? 'n/a'} from factoryDevice ${factoryDevice.id}`
+        );
+    }
 
     if (preclaimSetIdToComplete) {
         try {
@@ -301,24 +482,12 @@ async function _handleClaimConfirmInner(
         }
     }
 
-    logger.info(
-        `[DeviceClaimConfirm] Created device ${createdDevice.id} for user ${user.id} account ${account?.id ?? 'n/a'} from factoryDevice ${factoryDevice.id}`
-    );
+    if (adoptDevice) {
+        logger.info(
+            `[DeviceClaimConfirm] Adopted existing device ${finalDeviceId} for user ${user.id} account ${account?.id ?? 'n/a'} from factoryDevice ${factoryDevice.id}`
+        );
+    }
 
-    // // TODO: Send a notification to the user
-    // await sendUserNotificationWithTicket({
-    //     sub: ctx.ticket.sub,
-    //     type: NotificationEventType.ClaimConfirmed,
-    //     requestId: ctx.ticket.requestId ?? undefined,
-    //     payload: {
-    //         deviceId: device.id,
-    //         factoryDeviceId: ctx.factoryDevice.id,
-    //         accountId: ctx.account?.id ?? null
-    //     }
-    // });
-    // });
-
-    // Flip the sub and recipient for REPLY and log notification send outcome
     if (!ctx.sub) {
         throw new Error('Missing subject in claim ticket');
     }
@@ -330,7 +499,7 @@ async function _handleClaimConfirmInner(
         type: `reply:${ctx.type}`,
         flowId: ctx.flowId,
         params: {
-            deviceId: createdDevice.id,
+            deviceId: finalDeviceId,
             factoryDeviceId: factoryDevice.id,
             accountId: account?.id ?? null
         },
@@ -338,25 +507,23 @@ async function _handleClaimConfirmInner(
     })
         .then(() => {
             logger.info(
-                `[DeviceClaimConfirm] Sent claim reply notification for device ${createdDevice.id} to ${ctx.sub}`
+                `[DeviceClaimConfirm] Sent claim reply notification for device ${finalDeviceId} to ${ctx.sub}`
             );
         })
         .catch((notifyErr) => {
             logger.error(
-                `[DeviceClaimConfirm] Failed to send claim reply notification for device ${createdDevice.id}: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
+                `[DeviceClaimConfirm] Failed to send claim reply notification for device ${finalDeviceId}: ${notifyErr instanceof Error ? notifyErr.message : String(notifyErr)
                 }`
             );
         });
 
-    // Return device credentials and account context to the device; a separate flow can notify the user.
-    // Note: The result will be wrapped by the RPC handler in index.ts, so return the inner object directly
     const handlerDuration = Date.now() - handlerStartTime;
     logger.info(`[DeviceClaimConfirm] Handler completed in ${handlerDuration}ms, returning result at ${new Date().toISOString()}`);
 
     return {
         status: 'ok',
-        deviceId: createdDevice.id,
-        apiKey,
+        deviceId: finalDeviceId,
+        apiKey: finalApiKey,
         accountId: account?.id ?? null
     };
 }

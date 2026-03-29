@@ -707,6 +707,8 @@
         id: string;
         name: string;
         packageName: string;
+        version?: string | null;
+        createdAt?: string | Date | null;
     }
 
     let showInstallAppModal = false;
@@ -723,10 +725,44 @@
     let availableAppsLoading = false;
 
     // Computed: filtered apps for Install App modal
-    $: installAppFilteredOptions = availableApps.filter((app) =>
-        app.name.toLowerCase().includes(installAppSearch.toLowerCase()) ||
-        app.packageName.toLowerCase().includes(installAppSearch.toLowerCase())
-    );
+    $: installAppFilteredOptions = availableApps.filter((app) => {
+        const q = installAppSearch.toLowerCase();
+        return (
+            app.name.toLowerCase().includes(q) ||
+            app.packageName.toLowerCase().includes(q) ||
+            app.id.toLowerCase().includes(q)
+        );
+    });
+
+    function formatInstallAppCreatedAt(createdAt: AppOption['createdAt']): string {
+        if (createdAt == null) return '—';
+        const date =
+            typeof createdAt === 'string' ? new Date(createdAt) : createdAt instanceof Date ? createdAt : new Date(String(createdAt));
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+    }
+
+    function installAppIdDateLine(app: AppOption): string {
+        return `${app.id} - ${formatInstallAppCreatedAt(app.createdAt)}`;
+    }
+
+    function installAppVersionLabel(version: string | null | undefined): string {
+        if (!version?.trim()) return '';
+        const t = version.trim();
+        return /^v\d/i.test(t) ? t : `v${t}`;
+    }
+
+    function installAppPackageVersionLine(app: AppOption): string {
+        const pkg = (app.packageName || '').trim() || app.id || '—';
+        const ver = installAppVersionLabel(app.version ?? null);
+        return ver ? `${pkg} · ${ver}` : pkg;
+    }
 
     // Load apps from API (filter by format when installing to selected devices: Linux → deb, Windows → exe, Android → apk, others → deb)
     async function loadAvailableApps() {
@@ -744,7 +780,9 @@
             availableApps = (data.items || []).map((item: any) => ({
                 id: item.id,
                 name: item.name || 'Unknown App',
-                packageName: item.packageName || '-'
+                packageName: item.packageName || '-',
+                version: item.version ?? null,
+                createdAt: item.createdAt ?? null
             }));
         } catch (error) {
             console.error('Failed to load apps:', error);
@@ -1753,7 +1791,8 @@
                         />
                         <div class="install-app-option-content">
                             <span class="install-app-option-name">{app.name}</span>
-                            <span class="install-app-option-package">{app.packageName}</span>
+                            <span class="install-app-option-meta">{installAppIdDateLine(app)}</span>
+                            <span class="install-app-option-package">{installAppPackageVersionLine(app)}</span>
                         </div>
                     </button>
                 {/each}
@@ -1778,9 +1817,11 @@
                     <div class="install-app-selected-item">
                         <div class="install-app-selected-content">
                             <span class="install-app-selected-name">{app.name}</span>
-                            <span class="install-app-selected-package">{app.packageName}</span>
+                            <span class="install-app-selected-meta">{installAppIdDateLine(app)}</span>
+                            <span class="install-app-selected-package">{installAppPackageVersionLine(app)}</span>
                         </div>
                         <Button
+                            class="install-app-selected-remove"
                             variant="text"
                             size="sm"
                             icon={X}
@@ -2502,7 +2543,7 @@
         width: 100%;
         display: flex;
         flex-direction: row;
-        align-items: center;
+        align-items: flex-start;
         gap: var(--ds-space-3);
         padding: var(--ds-space-2) var(--ds-space-4);
         border: none;
@@ -2511,8 +2552,7 @@
         cursor: pointer;
         text-align: left;
         transition: background-color 0.15s ease;
-        /* Match Dropdown component option styling */
-        min-height: 54px; /* Match Dropdown .dropdown-option min-height */
+        min-height: 72px;
     }
 
     .install-app-option:hover {
@@ -2522,14 +2562,30 @@
     .install-app-option-content {
         display: flex;
         flex-direction: column;
-        gap: 0;
+        gap: 2px;
+        min-width: 0;
+        flex: 1;
     }
 
     .install-app-option-name {
         font-family: var(--ds-font-family-primary);
+        font-weight: var(--ds-font-medium);
         font-size: var(--ds-text-sm);
         line-height: var(--ds-leading-sm);
         color: var(--ds-color-neutral-true-800);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .install-app-option-meta {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .install-app-option-package {
@@ -2537,6 +2593,9 @@
         font-size: var(--ds-text-xs);
         line-height: var(--ds-leading-xs);
         color: var(--ds-color-gray-500);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .install-app-empty {
@@ -2564,16 +2623,19 @@
 
     .install-app-selected-item {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         padding: var(--ds-space-3) 0;
         border-bottom: 1px solid var(--ds-border-default);
+        gap: var(--ds-space-2);
     }
 
     .install-app-selected-content {
         display: flex;
         flex-direction: column;
-        gap: 0;
+        gap: 2px;
+        min-width: 0;
+        flex: 1;
     }
 
     .install-app-selected-name {
@@ -2582,6 +2644,18 @@
         line-height: var(--ds-leading-sm);
         font-weight: var(--ds-font-medium);
         color: var(--ds-color-neutral-true-800);
+    }
+
+    .install-app-selected-meta {
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-xs);
+        line-height: var(--ds-leading-xs);
+        color: var(--ds-color-gray-500);
+    }
+
+    :global(.install-app-selected-remove) {
+        flex-shrink: 0;
+        align-self: center;
     }
 
     .install-app-selected-package {

@@ -14,7 +14,8 @@ import { zod } from 'sveltekit-superforms/adapters';
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
 import prisma from '$lib/server/prisma';
-import { resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
+import { getRadarSensorDisplayNameForDevice, resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
+import { buildRadarInitConfigFromDeviceProfile } from '$lib/server/device/radarAddDeviceProfileStep2';
 
 /*******************************************************************************************
  * 
@@ -279,9 +280,26 @@ export const actions: Actions = {
                 const pinResult = await resolveDeviceIdByPinForRadar(prisma, form.data.pin!, currentAccountId, userId);
                 if (pinResult.error) return fail(400, { form, error: pinResult.error });
                 const deviceId = pinResult.deviceId;
-                const sensorDisplayName = pinResult.displayName ?? 'Unknown device';
+                const sensorDisplayName = await getRadarSensorDisplayNameForDevice(
+                    prisma,
+                    deviceId,
+                    pinResult.displayName ?? 'Unknown device'
+                );
                 const serialNumber = form.data.serialNumber;
                 if (!serialNumber) return fail(400, { form, error: 'Serial number is required' });
+
+                const initConfigFromProfile = await buildRadarInitConfigFromDeviceProfile(
+                    prisma,
+                    deviceId,
+                    currentAccountId,
+                    sensorDisplayName
+                );
+                const sensorConfig =
+                    initConfigFromProfile &&
+                    typeof initConfigFromProfile === 'object' &&
+                    Object.keys(initConfigFromProfile).length > 0
+                        ? initConfigFromProfile
+                        : {};
 
                 await locals.prisma.sensor.deleteMany({
                     where: { serialNumber, accountId: currentAccountId, controller: { isDeleted: true } }
@@ -330,7 +348,7 @@ export const actions: Actions = {
                             accountId: currentAccountId,
                             controllerId: controller.id,
                             createdBy: userId,
-                            config: {}
+                            config: sensorConfig
                         }
                     });
                     return { controller, sensor };
