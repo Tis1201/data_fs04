@@ -8,6 +8,7 @@ import { existsSync } from 'fs';
 import { getStorageConfig, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage';
 import { extractFilenameWithExtension } from '$lib/server/storage/gcloudUrlUtils';
 import { requireResourceBinaryDownloadAccess } from '$lib/server/resources/resourceDownloadAccess';
+import prisma from '$lib/server/prisma';
 
 /**
  * GET handler for resource files.
@@ -32,8 +33,10 @@ export const GET: RequestHandler = async ({ params, locals, request, url }) => {
         logger.info(`Request headers: ${JSON.stringify(Object.fromEntries(request.headers.entries()))}`);
         
         try {
-            // Find the resource in the database
-            const resource = await locals.prisma.resource.findUnique({
+            // Use base Prisma here, not locals.prisma (ZenStack-enhanced). Enhanced client scopes rows to the
+            // current account and returns null for catalog resources owned by another account — e.g.
+            // PUBLIC_DEVELOPER SDK zips. Authorization is enforced below via requireResourceBinaryDownloadAccess.
+            const resource = await prisma.resource.findUnique({
                 where: { id },
                 select: {
                     id: true,

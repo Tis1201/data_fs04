@@ -3,7 +3,10 @@ import { json } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	whereNotPublicDeveloperCatalog
+} from '$lib/server/api/unifiedEndpoint';
 
 // Allowed firmware formats (server-enforced)
 const ALLOWED_FORMATS = new Set(['bin', 'hex', 'firmware', 'fw', 'cpk', 'apk', 'zip']);
@@ -60,7 +63,10 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid date filter' }, { status: 400 });
       }
 
-      const and: any[] = [{ OR: resourceVisibilityOrForAccount(currentAccountId) }];
+      const and: any[] = [
+        { OR: resourceVisibilityOrForAccount(currentAccountId) },
+        whereNotPublicDeveloperCatalog
+      ];
 
       if (formatFilter && formatFilter.length) {
         and.push({ format: { in: formatFilter } });

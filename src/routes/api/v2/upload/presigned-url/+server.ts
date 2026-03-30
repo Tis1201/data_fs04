@@ -1,7 +1,12 @@
 import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
-import { generatePresignedUrl, generateFilePath, deleteFilesFromCloudStorageByPrefix } from '$lib/server/storage';
+import {
+  generatePresignedUrl,
+  generateFilePath,
+  deleteFilesFromCloudStorageByPrefix,
+  RESOURCES_TEMP_PREFIX
+} from '$lib/server/storage';
 import { logger } from '$lib/server/logger';
 import { FALLBACK_ALLOWED_MIMES, FALLBACK_ALLOWED_EXTENSIONS } from '$lib/constants/pinRule';
 
@@ -92,7 +97,7 @@ export const POST = unifiedEndpoint(
     }
 
     const baseName = generateFilePath(mockFile);
-    const objectPath = prefixStr ? `${prefixStr}/${baseName}` : baseName;
+    const objectPath = prefixStr ? `${prefixStr}/${baseName}` : `${RESOURCES_TEMP_PREFIX}/${baseName}`;
 
     logger.info(`Generating presigned URL for: ${objectPath} (${inferredContentType})`);
 

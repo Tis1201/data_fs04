@@ -166,7 +166,7 @@
         // Set flag for APK/CPK files (will be set to true if parsing succeeds)
         isApkOrCpk = false;
 
-        const isCloudMode = data.storageConfig?.mode === 'R2' || data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+        const isCloudMode = data.storageConfig?.mode === 'R2';
 
         if (isSupportedFile) {
             zipParsing = true;
@@ -222,7 +222,7 @@
                     $form.size = file.size;
                 }
 
-                // Type-specific parsing (metadata only; file already in GCloud when isCloudMode)
+                // Type-specific parsing (metadata only; file already uploaded to R2 when isCloudMode)
                 if (isApk) {
                     let apkResult;
                     if (uploadedCloudPath && objectPathVal && bucketVal) {
@@ -476,9 +476,9 @@
         }
 
         try {
-            // Check if this is a cloud storage mode (LOCAL_CLOUD or GCLOUD)
+            // R2: presigned client upload; LOCAL: multipart form to server
             console.log('[NewResource] Storage config:', data.storageConfig);
-            const isCloudMode = data.storageConfig?.mode === 'R2' || data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+            const isCloudMode = data.storageConfig?.mode === 'R2';
             console.log('[NewResource] Is cloud mode:', isCloudMode);
             
             if (isCloudMode) {

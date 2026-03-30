@@ -374,6 +374,40 @@ export function parseExeFromFilename(filename: string): ExeParseResult {
 }
 
 /**
+ * Derive package name / version from a .zip filename when the archive has no app.json
+ * (e.g. SDK bundles, generic archives). CPK/device packages should still ship app.json.
+ */
+export function parseZipFromFilename(filename: string): ExeParseResult {
+  const base = filename.replace(/\.zip$/i, '').trim();
+  if (!base) {
+    return { success: false, error: 'Invalid ZIP filename' };
+  }
+  const norm = (s: string) => s.replace(/[\s_]+/g, '-').toLowerCase();
+
+  const mVer = base.match(/^(.+)[-_](\d+\.\d+(?:\.\d+)?)$/);
+  if (mVer) {
+    const pkg = norm(mVer[1]);
+    return {
+      success: true,
+      data: {
+        packageName: pkg,
+        version: mVer[2],
+        description: `Archive ${pkg}`
+      }
+    };
+  }
+
+  return {
+    success: true,
+    data: {
+      packageName: norm(base),
+      version: '',
+      description: `Archive ${norm(base)}`
+    }
+  };
+}
+
+/**
  * Parse a ZIP/APK/CPK/DEB file and extract app.json data
  * Note: For APK files, this will use app-info-parser to read Android manifest
  * For ZIP and CPK files, this will read app.json from the archive
@@ -497,6 +531,28 @@ export async function parseZipFile(file: File): Promise<ZipParseResult> {
     });
     
     if (!appJsonFile) {
+      // Plain .zip (not CPK): allow SDK/generic archives without app.json — infer from filename.
+      if (isZipFile && !isCpkFile) {
+        const synthetic = parseZipFromFilename(file.name);
+        if (!synthetic.success || !synthetic.data) {
+          return {
+            success: false,
+            error: synthetic.error || 'Could not derive metadata from ZIP filename'
+          };
+        }
+        const pretty =
+          file.name.replace(/\.zip$/i, '').replace(/[-_]+/g, ' ').trim() || synthetic.data.packageName;
+        const appData: AppJsonData = {
+          name: synthetic.data.packageName,
+          display_name: pretty,
+          domain: '',
+          version: synthetic.data.version,
+          main: '',
+          hidden: ''
+        };
+        console.log('[ZIP Parser] No app.json; using filename-based metadata:', appData);
+        return { success: true, appData };
+      }
       console.log(`[ZIP Parser] No app.json file found in ${fileType}`);
       return {
         success: false,

@@ -13,6 +13,9 @@ function forbidden(msg: string) {
 
 export function accountMayInstallResource(accountId: string, resource: Record<string, unknown>): boolean {
 	const accessInput = normalizeResourceAccessInput(resource);
+	if (accessInput.shareScope === 'PUBLIC_DEVELOPER') {
+		return false;
+	}
 	return canAccessResourceFields(
 		{
 			systemRole: 'USER' as SystemRole,

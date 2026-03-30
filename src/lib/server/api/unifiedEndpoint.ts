@@ -56,6 +56,11 @@ export function resourceVisibilityOrForAccount(accountId: string) {
 	];
 }
 
+/** Excludes PUBLIC_DEVELOPER catalog rows from account library / bundle pickers. */
+export const whereNotPublicDeveloperCatalog = {
+	NOT: { shareScope: ResourceShareScope.PUBLIC_DEVELOPER }
+} as const;
+
 export function resourceVisibilityOrForAccountIds(accountIds: string[]) {
 	if (accountIds.length === 0) {
 		return [{ id: { in: [] as string[] } }];

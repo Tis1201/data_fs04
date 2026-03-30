@@ -11,7 +11,11 @@
  */
 
 import type { RequestHandler } from '@sveltejs/kit';
-import { resourceVisibilityOrForAccount, unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	unifiedEndpoint,
+	whereNotPublicDeveloperCatalog
+} from '$lib/server/api/unifiedEndpoint';
 
 /**
  * GET /api/v2/resources
@@ -45,12 +49,14 @@ export const GET: RequestHandler = unifiedEndpoint(
 			const aid = context.account.id;
 			whereClause = {
 				...typePart,
-				OR: resourceVisibilityOrForAccount(aid)
+				AND: [{ OR: resourceVisibilityOrForAccount(aid) }, whereNotPublicDeveloperCatalog]
 			};
 		} else {
 			whereClause = {
-				...typePart,
-				createdBy: context.session.user.id
+				AND: [
+					{ ...typePart, createdBy: context.session.user.id },
+					whereNotPublicDeveloperCatalog
+				]
 			};
 		}
 

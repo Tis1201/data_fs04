@@ -9,9 +9,9 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export type StorageMode = 'LOCAL' | 'R2';
 
-/** GCS folder for resource uploads during add-flow (before user confirms). Moved to RESOURCES_FOLDER on create. */
+/** Object key prefix for resource uploads during add-flow (before user confirms). Moved to RESOURCES_FOLDER on create. */
 export const RESOURCES_TEMP_PREFIX = 'temp/resources';
-/** GCS folder where all resource files are stored after "Add" is confirmed. */
+/** Object key prefix where resource files live after "Add" is confirmed. */
 export const RESOURCES_FOLDER = 'resources';
 
 export interface StorageConfig {
@@ -172,8 +172,8 @@ export async function generatePresignedUrlR2(
 }
 
 /**
- * Upload file contents to a presigned URL (PUT with uploadType=media).
- * Used so the server actually writes the file to GCS when in LOCAL_CLOUD/GCLOUD mode.
+ * Upload file contents to a presigned URL (PUT).
+ * Used when the server must push bytes to object storage (e.g. R2) via a presigned target.
  */
 async function uploadFileToPresignedUrl(
     file: File,
@@ -194,10 +194,10 @@ async function uploadFileToPresignedUrl(
     });
     if (!res.ok) {
         const text = await res.text();
-        logger.error(`GCS upload failed: ${res.status} ${res.statusText}`, { body: text.slice(0, 500) });
-        throw new Error(`Failed to upload file to GCS: ${res.status} ${res.statusText}`);
+        logger.error(`Presigned PUT failed: ${res.status} ${res.statusText}`, { body: text.slice(0, 500) });
+        throw new Error(`Failed to upload file to storage: ${res.status} ${res.statusText}`);
     }
-    logger.info(`Uploaded file to GCS: ${file.name || 'unknown'} (${body.length} bytes)`);
+    logger.info(`Uploaded file via presigned URL: ${file.name || 'unknown'} (${body.length} bytes)`);
 }
 
 /**

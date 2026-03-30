@@ -43,6 +43,10 @@ export const resourceSchema = z.object({
         .default('')
         .nullable()
         .transform(val => val === 'undefined' || val === undefined ? '' : val),
+    /** Admin create: same options as edit-page sharing (ResourceSharePanel). */
+    shareScope: z
+        .enum(['NONE', 'ALL_ACCOUNTS', 'SELECTED_ACCOUNTS', 'PUBLIC_DEVELOPER'])
+        .default('NONE'),
     // File field properly defined for Superform
     // Using custom validation to handle both browser and server environments
     file: z.custom<File | null>(

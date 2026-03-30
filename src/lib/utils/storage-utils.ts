@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 
-export type StorageMode = 'LOCAL' | 'LOCAL_CLOUD' | 'GCLOUD';
+/** Supported storage backends: local disk or Cloudflare R2 (S3-compatible). */
+export type StorageMode = 'LOCAL' | 'R2';
 
 /**
  * Get the current storage mode from environment variables
@@ -15,7 +16,7 @@ export function getStorageMode(): StorageMode {
  * Check if the current storage mode requires presigned URLs
  */
 export function requiresPresignedUrl(mode: StorageMode): boolean {
-    return mode === 'LOCAL_CLOUD' || mode === 'GCLOUD';
+    return mode === 'R2';
 }
 
 /**

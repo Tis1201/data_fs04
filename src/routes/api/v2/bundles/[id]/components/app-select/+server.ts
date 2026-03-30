@@ -8,7 +8,8 @@
 import {
 	resourceVisibilityOrForAccount,
 	requireResourceAccess,
-	unifiedEndpoint
+	unifiedEndpoint,
+	whereNotPublicDeveloperCatalog
 } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, errorResponse, ErrorCodes } from '$lib/types/api';
 import prisma from '$lib/server/prisma';
@@ -69,26 +70,29 @@ export const GET = unifiedEndpoint(
 		
 		// Build where clause
 		const where: any = {
-			id: { notIn: excludeIds }
+			id: { notIn: excludeIds },
+			AND: [whereNotPublicDeveloperCatalog]
 		};
-		
+
 		// Account filtering: own resources + admin-shared catalog
 		const isAdmin = context.session.user.systemRole === 'ADMIN';
 		if (!isAdmin) {
 			if (context.account?.id) {
-				where.OR = resourceVisibilityOrForAccount(context.account.id);
+				where.AND.push({ OR: resourceVisibilityOrForAccount(context.account.id) });
 			} else {
-				where.createdBy = context.session.user.id;
+				where.AND.push({ createdBy: context.session.user.id });
 			}
 		}
 		
-		// Search filter
+		// Search filter (must stay under AND so it does not replace visibility OR)
 		if (search) {
-			where.OR = [
-				{ name: { contains: search, mode: 'insensitive' } },
-				{ packageName: { contains: search, mode: 'insensitive' } },
-				{ description: { contains: search, mode: 'insensitive' } }
-			];
+			where.AND.push({
+				OR: [
+					{ name: { contains: search, mode: 'insensitive' } },
+					{ packageName: { contains: search, mode: 'insensitive' } },
+					{ description: { contains: search, mode: 'insensitive' } }
+				]
+			});
 		}
 		
 		// Type filter

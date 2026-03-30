@@ -2,6 +2,7 @@ import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
 import { logger } from '$lib/server/logger';
+import type { Prisma } from '@prisma/client';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { inferTypeAndFormatFromFile } from '$lib/utils/FileUtils';
@@ -51,7 +52,9 @@ export const POST = unifiedEndpoint(
       packageName,
       path,
       size,
-      accountId: requestedAccountId
+      accountId: requestedAccountId,
+      shareScope: rawShareScope,
+      accountIds: rawAccountIds
     } = body;
 
     // Validate required fields
@@ -181,6 +184,37 @@ export const POST = unifiedEndpoint(
 
     logger.debug(`Using account: ${targetAccountName} (ID: ${targetAccountId})`);
 
+    const VALID_SCOPES = new Set([
+      'NONE',
+      'ALL_ACCOUNTS',
+      'SELECTED_ACCOUNTS',
+      'PUBLIC_DEVELOPER'
+    ]);
+    let shareScope =
+      typeof rawShareScope === 'string' && VALID_SCOPES.has(rawShareScope) ? rawShareScope : 'NONE';
+    let accountIds =
+      Array.isArray(rawAccountIds)
+        ? [...new Set(rawAccountIds.filter((x: unknown): x is string => typeof x === 'string' && x.length > 0))]
+        : [];
+
+    if (session.user.systemRole !== 'ADMIN') {
+      shareScope = 'NONE';
+      accountIds = [];
+    }
+
+    if (shareScope === 'SELECTED_ACCOUNTS' && accountIds.length === 0) {
+      throw Object.assign(
+        new Error('Select at least one account, or choose Private or All accounts'),
+        { status: 400, code: ErrorCodes.VALIDATION_ERROR }
+      );
+    }
+    if (shareScope === 'PUBLIC_DEVELOPER' && accountIds.length > 0) {
+      throw Object.assign(
+        new Error('Developer catalog scope does not use account picks'),
+        { status: 400, code: ErrorCodes.VALIDATION_ERROR }
+      );
+    }
+
     // Infer type/format from path if missing
     let finalType = type;
     let finalFormat = format;
@@ -207,25 +241,54 @@ export const POST = unifiedEndpoint(
       finalFormat = finalFormat || inferredFormat;
     }
 
-    // Create the resource
-    const resource = await prisma.resource.create({
-      data: {
-        name,
-        description: description || '',
-        type: finalType,
-        target: target || (session.user.systemRole === 'ADMIN' ? undefined : 'user'),
-        version: version || '',
-        versionCode: versionCode ?? null,
-        signature: signature ?? null,
-        releaseType: releaseType || 'Production',
-        format: finalFormat,
-        packageName: packageName || '',
-        path: finalPath,
-        size: size || 0,
-        accountId: targetAccountId,
-        createdBy: session.user.id,
-        updatedBy: session.user.id
+    if (shareScope === 'SELECTED_ACCOUNTS') {
+      const found = await prisma.account.findMany({
+        where: {
+          id: { in: accountIds },
+          OR: [{ isSystem: false }, { id: targetAccountId }]
+        },
+        select: { id: true }
+      });
+      if (found.length !== accountIds.length) {
+        throw Object.assign(
+          new Error('One or more account IDs are invalid'),
+          { status: 400, code: ErrorCodes.VALIDATION_ERROR }
+        );
       }
+    }
+
+    // Create the resource (+ optional shares for SELECTED_ACCOUNTS)
+    const resource = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const r = await tx.resource.create({
+        data: {
+          name,
+          description: description || '',
+          type: finalType,
+          target: target || (session.user.systemRole === 'ADMIN' ? undefined : 'user'),
+          version: version || '',
+          versionCode: versionCode ?? null,
+          signature: signature ?? null,
+          releaseType: releaseType || 'Production',
+          format: finalFormat,
+          packageName: packageName || '',
+          path: finalPath,
+          size: size || 0,
+          shareScope,
+          accountId: targetAccountId,
+          createdBy: session.user.id,
+          updatedBy: session.user.id
+        }
+      });
+      if (shareScope === 'SELECTED_ACCOUNTS' && accountIds.length > 0) {
+        await tx.resourceAccountShare.createMany({
+          data: accountIds.map((accountId: string) => ({
+            resourceId: r.id,
+            accountId
+          })),
+          skipDuplicates: true
+        });
+      }
+      return r;
     });
 
     logger.info(

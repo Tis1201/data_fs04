@@ -85,7 +85,7 @@ export function inferTypeAndFormatFromFile(file: File): { type: string; format: 
 
 /**
  * Persist the uploaded file using the configured storage system.
- * Supports LOCAL, LOCAL_CLOUD, and GCLOUD storage modes.
+ * Supports LOCAL and R2 storage modes.
  */
 export async function saveFile(file: File): Promise<string> {
     try {

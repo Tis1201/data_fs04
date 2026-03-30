@@ -4,7 +4,13 @@ import { successResponse, ErrorCodes } from '$lib/types/api';
 const SCOPE_NONE = 'NONE';
 const SCOPE_ALL = 'ALL_ACCOUNTS';
 const SCOPE_SELECTED = 'SELECTED_ACCOUNTS';
-const VALID_SCOPES = new Set<string>([SCOPE_NONE, SCOPE_ALL, SCOPE_SELECTED]);
+const SCOPE_PUBLIC_DEVELOPER = 'PUBLIC_DEVELOPER';
+const VALID_SCOPES = new Set<string>([
+	SCOPE_NONE,
+	SCOPE_ALL,
+	SCOPE_SELECTED,
+	SCOPE_PUBLIC_DEVELOPER
+]);
 
 export const PATCH = unifiedEndpoint(
 	async ({ context, event, params }) => {
@@ -59,6 +65,13 @@ export const PATCH = unifiedEndpoint(
 			);
 		}
 
+		if (shareScope === SCOPE_PUBLIC_DEVELOPER && accountIds.length > 0) {
+			throw Object.assign(
+				new Error('Developer catalog scope does not use account picks'),
+				{ status: 400, code: ErrorCodes.VALIDATION_ERROR }
+			);
+		}
+
 		const existing = await context.prisma.resource.findUnique({ where: { id } });
 		if (!existing) {
 			throw Object.assign(new Error('Resource not found'), {
@@ -85,6 +98,17 @@ export const PATCH = unifiedEndpoint(
 
 		await context.prisma.$transaction(async (tx: any) => {
 			await tx.resourceAccountShare.deleteMany({ where: { resourceId: id } });
+			if (shareScope === SCOPE_PUBLIC_DEVELOPER) {
+				await tx.resource.update({
+					where: { id },
+					data: {
+						shareScope: SCOPE_PUBLIC_DEVELOPER,
+						updatedAt: new Date(),
+						updatedBy: context.session.user.id
+					}
+				});
+				return;
+			}
 			if (shareScope === SCOPE_SELECTED) {
 				await tx.resourceAccountShare.createMany({
 					data: accountIds.map((accountId) => ({ resourceId: id, accountId })),

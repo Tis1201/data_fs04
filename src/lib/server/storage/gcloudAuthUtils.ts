@@ -8,7 +8,7 @@ import { execSync } from 'child_process';
 
 /**
  * Get GCloud access token using gcloud CLI with service account impersonation
- * This is more reliable than SDK impersonation in LOCAL_CLOUD mode
+ * Useful when the SDK impersonation path is flaky in local dev.
  * 
  * @param targetServiceAccount - Service account to impersonate
  * @returns Access token string

@@ -1,7 +1,8 @@
 import {
 	resourceVisibilityOrForAccount,
 	resourceVisibilityOrForAccountIds,
-	unifiedEndpoint
+	unifiedEndpoint,
+	whereNotPublicDeveloperCatalog
 } from '$lib/server/api/unifiedEndpoint';
 import { successResponse } from '$lib/types/api';
 import { ErrorCodes } from '$lib/types/api';
@@ -179,6 +180,8 @@ export const GET = unifiedEndpoint(
         ];
       }
     }
+
+    where.AND = [...(where.AND ?? []), whereNotPublicDeveloperCatalog];
 
     // Pagination
     const skip = (page - 1) * pageSize;

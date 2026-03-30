@@ -16,6 +16,8 @@ import { logAudit } from '$lib/server/audit-logger';
 // Removed unused S3 import
 import { inferTypeAndFormatFromFile, saveFile } from '$lib/utils/FileUtils';
 import { getStorageConfig } from '$lib/server/storage';
+const SCOPE_SELECTED = 'SELECTED_ACCOUNTS';
+const SCOPE_PUBLIC_DEVELOPER = 'PUBLIC_DEVELOPER';
 
 export const load = restrict(
     async (event: any) => {
@@ -39,9 +41,20 @@ export const load = restrict(
             // Get storage configuration
             const storageConfig = getStorageConfig();
 
+            const accounts = await locals.prisma.account.findMany({
+                where: { isSystem: false },
+                select: { id: true, name: true },
+                orderBy: { name: 'asc' }
+            });
+            const accountOptions = accounts.map((a: { id: string; name: string }) => ({
+                value: a.id,
+                label: a.name
+            }));
+
             return {
                 form,
-                storageConfig
+                storageConfig,
+                accountOptions
             };
         } catch (err) {
             logger.error(`Error loading admin resource form: ${String(err)}`);
@@ -129,6 +142,17 @@ export const actions: Actions = {
                 });
 
                 const form = await superValidate(validateRequest, zod(resourceSchema));
+
+                if (!form.valid) {
+                    return fail(400, { form });
+                }
+
+                const sharedAccountIds: string[] = [];
+                for (const v of formData.getAll('sharedAccountIds')) {
+                    if (typeof v === 'string' && v.length > 0) {
+                        sharedAccountIds.push(v);
+                    }
+                }
 
                 // Normalize accountId early
                 let accountId = form.data.accountId;
@@ -224,6 +248,50 @@ export const actions: Actions = {
                     );
                 }
 
+                const shareScope = form.data.shareScope;
+                if (shareScope === SCOPE_SELECTED && sharedAccountIds.length === 0) {
+                    return message(
+                        form,
+                        createErrorResponse(
+                            'Invalid sharing',
+                            'VALIDATION_ERROR',
+                            {
+                                details:
+                                    'Select at least one account for “Selected accounts”, or choose Private, All accounts, or Developer SDK catalog.'
+                            }
+                        )
+                    );
+                }
+                if (shareScope === SCOPE_PUBLIC_DEVELOPER && sharedAccountIds.length > 0) {
+                    return message(
+                        form,
+                        createErrorResponse(
+                            'Invalid sharing',
+                            'VALIDATION_ERROR',
+                            { details: 'Developer SDK catalog scope does not use account picks.' }
+                        )
+                    );
+                }
+                if (shareScope === SCOPE_SELECTED) {
+                    const found = await locals.prisma.account.findMany({
+                        where: {
+                            id: { in: sharedAccountIds },
+                            OR: [{ isSystem: false }, { id: accountId }]
+                        },
+                        select: { id: true }
+                    });
+                    if (found.length !== sharedAccountIds.length) {
+                        return message(
+                            form,
+                            createErrorResponse(
+                                'Invalid accounts',
+                                'VALIDATION_ERROR',
+                                { details: 'One or more account IDs are invalid.' }
+                            )
+                        );
+                    }
+                }
+
                 // Log a sanitized summary (avoid embedding file object)
                 logger.debug(
                     `Form submission summary: ${JSON.stringify({
@@ -238,6 +306,7 @@ export const actions: Actions = {
                         path: form.data.path,
                         size: form.data.size,
                         accountId: accountId,
+                        shareScope: form.data.shareScope,
                         file: form.data.file ? (form.data.file as File).name : null
                     })}`
                 );
@@ -311,23 +380,39 @@ export const actions: Actions = {
                     }
 
                     // Create the resource (only after successful file upload)
-                    const resource = await locals.prisma.resource.create({
-                        data: {
-                            name: form.data.name,
-                            description: form.data.description,
-                            type: form.data.type,
-                            version: form.data.version,
-                            versionCode: form.data.versionCode ?? null,
-                            signature: form.data.signature ?? null,
-                            format: form.data.format,
-                            packageName: form.data.packageName,
-                            path: form.data.path,
-                            size: form.data.size,
-                            releaseType: form.data.releaseType,
-                            accountId: accountId || undefined,
-                            createdBy: auth.user.id,
-                            updatedBy: auth.user.id
+                    const resource = await locals.prisma.$transaction(async (tx: {
+                        resource: typeof locals.prisma.resource;
+                        resourceAccountShare: typeof locals.prisma.resourceAccountShare;
+                    }) => {
+                        const r = await tx.resource.create({
+                            data: {
+                                name: form.data.name,
+                                description: form.data.description,
+                                type: form.data.type,
+                                version: form.data.version,
+                                versionCode: form.data.versionCode ?? null,
+                                signature: form.data.signature ?? null,
+                                format: form.data.format,
+                                packageName: form.data.packageName,
+                                path: form.data.path,
+                                size: form.data.size,
+                                releaseType: form.data.releaseType,
+                                shareScope: form.data.shareScope,
+                                accountId: accountId || undefined,
+                                createdBy: auth.user.id,
+                                updatedBy: auth.user.id
+                            }
+                        });
+                        if (shareScope === SCOPE_SELECTED && sharedAccountIds.length > 0) {
+                            await tx.resourceAccountShare.createMany({
+                                data: sharedAccountIds.map((aid: string) => ({
+                                    resourceId: r.id,
+                                    accountId: aid
+                                })),
+                                skipDuplicates: true
+                            });
                         }
+                        return r;
                     });
 
                     logger.info(`Resource created by admin: ${resource.id}`);

@@ -60,7 +60,7 @@
     } | null = null;
     /** Accounts for Account dropdown: { id, name }[] */
     export let accounts: { id: string; name: string }[] = [];
-    /** When set (LOCAL_CLOUD/GCLOUD), APK/DEB use upload-to-GCS then parse by path */
+    /** When R2, APK/DEB use presigned upload then parse by bucket/path */
     export let storageConfig: { mode: string; bucket?: string } | null = null;
 
     const dispatch = createEventDispatcher<{
@@ -269,7 +269,7 @@
         isApk = fileName.endsWith('.apk');
         const isDeb = fileName.endsWith('.deb');
         const isExe = fileName.endsWith('.exe');
-        const isCloudMode = storageConfig?.mode === 'R2' || storageConfig?.mode === 'LOCAL_CLOUD' || storageConfig?.mode === 'GCLOUD';
+        const isCloudMode = storageConfig?.mode === 'R2';
 
         if (isSupported) {
             zipParsing = true;
@@ -325,7 +325,7 @@
                     resourcePath = resourceDisplayUrl ?? `${apiResourcePath ?? objectPath}`;
                 }
 
-                // Type-specific parsing (metadata only; file already in GCloud when isCloudMode)
+                // Type-specific parsing (metadata only; file already on R2 when isCloudMode)
                 if (isApk) {
                     let apkResult;
                     if (uploadedCloudPath && objectPathVal && bucketVal) {

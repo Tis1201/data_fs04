@@ -1,5 +1,6 @@
 <script lang="ts">
-    import { ArrowLeft, Save, FileText, File, Upload } from "lucide-svelte";
+    import { ArrowLeft, Save, FileText, File, Upload, Share2 } from "lucide-svelte";
+    import { Badge } from "$lib/components/ui/badge";
     import { Input } from "$lib/components/ui/input";
     import { Textarea } from "$lib/components/ui/textarea";
     import AdminPageLayout from "$lib/components/admin/layout/AdminPageLayout.svelte";
@@ -72,6 +73,16 @@
         { value: 'Production', label: 'Production' }
     ];
 
+    const SCOPE_NONE = 'NONE';
+    const SCOPE_ALL = 'ALL_ACCOUNTS';
+    const SCOPE_SELECTED = 'SELECTED_ACCOUNTS';
+    const SCOPE_PUBLIC_DEVELOPER = 'PUBLIC_DEVELOPER';
+
+    /** When share scope is “Selected accounts” — submitted as `sharedAccountIds` for create action / JSON for cloud. */
+    let shareSelectedAccountIds: string[] = [];
+
+    $: accountOptions = data.accountOptions ?? [];
+
     // Reactive clear of errors
     $: if ($form.name) nameError = '';
 
@@ -126,7 +137,7 @@
         // Set flag for APK/CPK files (will be set to true if parsing succeeds)
         isApkOrCpk = false;
 
-        const isCloudMode = data.storageConfig?.mode === 'R2' || data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+        const isCloudMode = data.storageConfig?.mode === 'R2';
         
         if (isSupportedFile) {
             zipParsing = true;
@@ -307,6 +318,13 @@
     async function handleUploadComplete(event: CustomEvent<{ file: File; url: string }>) {
         console.log('[NewResource] Upload complete event received:', event.detail);
         const { file, url } = event.detail;
+
+        if ($form.shareScope === SCOPE_SELECTED && shareSelectedAccountIds.length === 0) {
+            uploadError =
+                'Select at least one account for sharing, or choose Private, All accounts, or Developer SDK catalog.';
+            uploadSuccess = '';
+            return;
+        }
         
         try {
             console.log('[NewResource] Creating resource record...');
@@ -328,7 +346,10 @@
                     packageName: $form.packageName || '',
                     path: url,
                     size: file.size,
-                    accountId: $form.accountId || ''
+                    accountId: $form.accountId || '',
+                    shareScope: $form.shareScope,
+                    accountIds:
+                        $form.shareScope === SCOPE_SELECTED ? shareSelectedAccountIds : undefined
                 })
             });
 
@@ -404,13 +425,13 @@
         console.log('[NewResource] Form data:', { name: $form.name, path: $form.path, file: $form.file });
         
         nameError = $form.name ? '' : 'Resource name is required.';
-        
-        // Check if file exists
-        if (!$form.file) {
-            uploadError = 'File is required.';
-        } else {
-            uploadError = '';
-        }
+
+        const shareErr =
+            $form.shareScope === SCOPE_SELECTED && shareSelectedAccountIds.length === 0
+                ? 'Select at least one account for sharing, or choose Private, All accounts, or Developer SDK catalog.'
+                : '';
+        const fileErr = !$form.file ? 'File is required.' : '';
+        uploadError = shareErr || fileErr;
 
         if (nameError || uploadError) {
             console.log('[NewResource] Form validation failed:', { nameError, uploadError });
@@ -423,9 +444,9 @@
         }
 
         try {
-            // Check if this is a cloud storage mode (LOCAL_CLOUD or GCLOUD)
+            // R2: presigned client upload; LOCAL: multipart form to server
             console.log('[NewResource] Storage config:', data.storageConfig);
-            const isCloudMode = data.storageConfig?.mode === 'R2' || data.storageConfig?.mode === 'LOCAL_CLOUD' || data.storageConfig?.mode === 'GCLOUD';
+            const isCloudMode = data.storageConfig?.mode === 'R2';
             console.log('[NewResource] Is cloud mode:', isCloudMode);
             
             if (isCloudMode) {
@@ -446,7 +467,11 @@
                             packageName: $form.packageName || '',
                             path: uploadedCloudPath,
                             size: $form.size || 0,
-                            accountId: $form.accountId || ''
+                            accountId: $form.accountId || '',
+                            releaseType: $form.releaseType || 'Production',
+                            shareScope: $form.shareScope,
+                            accountIds:
+                                $form.shareScope === SCOPE_SELECTED ? shareSelectedAccountIds : undefined
                         })
                     });
                     if (!createResponse.ok) {
@@ -776,6 +801,85 @@
                             </p>
                         </FormField>
                     </FormRow>
+                </div>
+            </AdminCard>
+
+            <AdminCard
+                title="Sharing"
+                description="Control which accounts can see and install this resource (view + install only; no edit or download for recipients)."
+                icon={Share2}
+                compact={true}
+                class_name={formLocked ? 'opacity-50 pointer-events-none' : ''}
+            >
+                <div class="space-y-4">
+                    <div class="flex flex-col gap-3">
+                        <label class="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                                type="radio"
+                                bind:group={$form.shareScope}
+                                value={SCOPE_NONE}
+                                name="shareScope"
+                                disabled={formLocked}
+                            />
+                            <span>Private</span>
+                            <Badge variant="secondary">Owner account only</Badge>
+                        </label>
+                        <label class="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                                type="radio"
+                                bind:group={$form.shareScope}
+                                value={SCOPE_ALL}
+                                name="shareScope"
+                                disabled={formLocked}
+                            />
+                            <span>All accounts</span>
+                            <Badge variant="default">Shared (all)</Badge>
+                        </label>
+                        <label class="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                                type="radio"
+                                bind:group={$form.shareScope}
+                                value={SCOPE_SELECTED}
+                                name="shareScope"
+                                disabled={formLocked}
+                            />
+                            <span>Selected accounts</span>
+                            <Badge variant="outline">Shared (N)</Badge>
+                        </label>
+                        <label class="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                                type="radio"
+                                bind:group={$form.shareScope}
+                                value={SCOPE_PUBLIC_DEVELOPER}
+                                name="shareScope"
+                                disabled={formLocked}
+                            />
+                            <span>Developer SDK catalog</span>
+                            <Badge variant="secondary">Not in account library</Badge>
+                        </label>
+                    </div>
+
+                    {#if $form.shareScope === SCOPE_SELECTED}
+                        <div class="rounded-md border border-border p-3">
+                            <p class="mb-2 text-xs text-muted-foreground">
+                                Choose accounts that may use this resource.
+                            </p>
+                            <div class="max-h-48 space-y-2 overflow-y-auto">
+                                {#each accountOptions as opt (opt.value)}
+                                    <label class="flex cursor-pointer items-center gap-2 text-sm">
+                                        <input
+                                            type="checkbox"
+                                            name="sharedAccountIds"
+                                            value={opt.value}
+                                            bind:group={shareSelectedAccountIds}
+                                            disabled={formLocked}
+                                        />
+                                        <span>{opt.label}</span>
+                                    </label>
+                                {/each}
+                            </div>
+                        </div>
+                    {/if}
                 </div>
             </AdminCard>
 

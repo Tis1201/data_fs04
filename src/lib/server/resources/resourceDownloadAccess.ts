@@ -1,4 +1,5 @@
 import { error } from '@sveltejs/kit';
+import { ResourceShareScope } from '@prisma/client';
 import {
 	canAccessResourceFields,
 	getResourceAccessLevelFields,
@@ -21,6 +22,10 @@ export function requireResourceBinaryDownloadAccess(
 	}
 
 	const accessInput = normalizeResourceAccessInput(resource);
+	if (accessInput.shareScope === ResourceShareScope.PUBLIC_DEVELOPER) {
+		return;
+	}
+
 	const params = {
 		systemRole: locals.user.systemRole as SystemRole,
 		userId: locals.user.id,

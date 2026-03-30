@@ -4,7 +4,8 @@ import {
 	canAccessResourceFields,
 	getResourceAccessLevelFields,
 	normalizeResourceAccessInput,
-	resourceVisibilityOrForAccount
+	resourceVisibilityOrForAccount,
+	whereNotPublicDeveloperCatalog
 } from '$lib/server/api/unifiedEndpoint';
 import { restrict, type AuthenticatedEvent, type AuthenticatedLoadEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -322,12 +323,15 @@ export const load = restrict(
                 ? await prisma.resource.findFirst({
                         where: {
                             id,
-                            AND: [{ OR: resourceVisibilityOrForAccount(currentAccountId) }]
+                            AND: [
+                                { OR: resourceVisibilityOrForAccount(currentAccountId) },
+                                whereNotPublicDeveloperCatalog
+                            ]
                         },
                         include: includeBlock as any
                     })
-                : await prisma.resource.findUnique({
-                        where: { id },
+                : await prisma.resource.findFirst({
+                        where: { AND: [{ id }, whereNotPublicDeveloperCatalog] },
                         include: includeBlock as any
                     });
             

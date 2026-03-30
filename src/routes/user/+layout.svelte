@@ -15,7 +15,8 @@
         CircleHelp,
         LayoutList,
         Box,
-        Radio
+        Radio,
+        Code2
     } from "lucide-svelte";
 
     export let data;
@@ -71,8 +72,18 @@
             children: [
                 { id: 'sensors', label: 'Sensors', href: '/user/controllers/radar' },
                 { id: 'templates', label: 'Templates', href: '/user/iot/templates' },
-                { id: 'data', label: 'Data', href: '/user/analytics/radar' },
-                { id: 'api-keys', label: 'API Keys', href: '/user/settings/api-keys' }
+                { id: 'data', label: 'Data', href: '/user/analytics/radar' }
+            ]
+        },
+        // Developers Section
+        {
+            id: 'developers',
+            label: 'Developers',
+            icon: Code2,
+            children: [
+                { id: 'api-docs', label: 'API Documentation', href: '/user/developers/api-docs' },
+                { id: 'sdks', label: 'SDKs', href: '/user/developers/sdks' },
+                { id: 'api-keys', label: 'API Keys', href: '/user/developers/api-keys' }
             ]
         },
         // Settings – temporarily only Members per design (Account, Organizations, API Keys, Billing can be added later)
@@ -362,6 +373,38 @@
                 headerStyle: 'page',
                 title: 'My Profile',
                 subtitle: 'Manage your profile account here'
+            };
+        }
+        // Developers — API Documentation
+        if (pathname === '/user/developers/api-docs' || pathname === '/user/developers/api-docs/') {
+            return {
+                headerStyle: 'page',
+                title: 'API Documentation',
+                // Subtitle lives in-page (blue hero) to match Web App prototype — avoid duplicate tagline in TopNavigation
+                subtitle: ''
+            };
+        }
+        // Developers — SDKs
+        if (pathname === '/user/developers/sdks' || pathname === '/user/developers/sdks/') {
+            return {
+                headerStyle: 'page',
+                title: 'SDKs',
+                subtitle: 'Native libraries and integration packages'
+            };
+        }
+        if (pathname === '/user/developers/api-keys' || pathname === '/user/developers/api-keys/') {
+            return {
+                headerStyle: 'page',
+                title: 'API Keys',
+                subtitle: 'Create and manage account API keys for integrations'
+            };
+        }
+        if (pathname === '/user/developers/sdks/radar' || pathname === '/user/developers/sdks/radar/') {
+            return {
+                headerStyle: 'page',
+                title: 'Radar SDK',
+                subtitle: 'Real-Time Edge Integration',
+                showBackButton: true
             };
         }
         // Default

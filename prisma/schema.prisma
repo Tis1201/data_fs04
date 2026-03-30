@@ -16,6 +16,8 @@ enum ResourceShareScope {
   NONE
   ALL_ACCOUNTS
   SELECTED_ACCOUNTS
+  /// Developer SDK catalog: admin-managed; not listed under account Resources; latest shown on developer pages.
+  PUBLIC_DEVELOPER
 }
 
 enum ClaimStatus {

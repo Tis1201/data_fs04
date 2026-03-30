@@ -3,7 +3,10 @@ import { json } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	whereNotPublicDeveloperCatalog
+} from '$lib/server/api/unifiedEndpoint';
 
 const ALLOWED_FORMATS = new Set(['txt', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'mp4', 'avi', 'mov', 'wmv', 'mp3', 'wav', 'flac', 'zip', 'rar', '7z', 'tar', 'gz', 'json', 'xml', 'csv', 'log', 'md', 'html', 'css', 'js', 'ts', 'py', 'java', 'cpp', 'c', 'h', 'sql', 'sh', 'bat', 'ps1', 'apk', 'ipa', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg']);
 const SORT_FIELDS = new Set(['createdAt', 'name', 'version', 'size']);
@@ -39,7 +42,10 @@ export const GET: RequestHandler = restrict(
         return json({ success: false, error: 'Invalid sort field' }, { status: 400 });
       }
 
-      const and: any[] = [{ OR: resourceVisibilityOrForAccount(currentAccountId) }];
+      const and: any[] = [
+        { OR: resourceVisibilityOrForAccount(currentAccountId) },
+        whereNotPublicDeveloperCatalog
+      ];
 
       if (formats) {
         and.push({ format: { in: formats } });

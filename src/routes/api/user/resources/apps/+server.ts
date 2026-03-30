@@ -3,7 +3,10 @@ import { json } from '@sveltejs/kit';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
-import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	whereNotPublicDeveloperCatalog
+} from '$lib/server/api/unifiedEndpoint';
 
 // Allowed app formats (server-enforced)
 const ALLOWED_FORMATS = new Set(['apk', 'ipa', 'app', 'exe', 'msi', 'deb', 'rpm', 'dmg', 'pkg', 'cpk']);
@@ -75,7 +78,10 @@ export const GET: RequestHandler = restrict(
         });
       }
 
-      const and: any[] = [{ OR: resourceVisibilityOrForAccount(currentAccountId) }];
+      const and: any[] = [
+        { OR: resourceVisibilityOrForAccount(currentAccountId) },
+        whereNotPublicDeveloperCatalog
+      ];
 
       const formatIn = formatFilter?.length ? formatFilter : Array.from(ALLOWED_FORMATS);
       and.push({ format: { in: formatIn } });

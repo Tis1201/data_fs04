@@ -1,4 +1,4 @@
-import { unifiedEndpoint } from '$lib/server/api/unifiedEndpoint';
+import { unifiedEndpoint, whereNotPublicDeveloperCatalog } from '$lib/server/api/unifiedEndpoint';
 import { successResponse, ErrorCodes } from '$lib/types/api';
 import type { Prisma } from '@prisma/client';
 
@@ -89,7 +89,8 @@ export const GET = unifiedEndpoint(async ({ context, event }) => {
 			// Only filter by accountId if it's provided
 			...(targetAccountId && { accountId: targetAccountId }),
 			packageName: { not: null },
-			...typeFilter
+			...typeFilter,
+			...whereNotPublicDeveloperCatalog
 		},
 		select: {
 			packageName: true,

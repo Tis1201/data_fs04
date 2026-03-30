@@ -18,6 +18,7 @@
     const SCOPE_NONE = 'NONE';
     const SCOPE_ALL = 'ALL_ACCOUNTS';
     const SCOPE_SELECTED = 'SELECTED_ACCOUNTS';
+    const SCOPE_PUBLIC_DEVELOPER = 'PUBLIC_DEVELOPER';
 
     let scope: string = SCOPE_NONE;
     let selectedAccountIds: string[] = [];
@@ -28,7 +29,11 @@
     $: if (resourceId && syncKey !== lastSyncKey) {
         lastSyncKey = syncKey;
         const s = resource.shareScope;
-        scope = s === SCOPE_ALL || s === SCOPE_SELECTED ? s : SCOPE_NONE;
+        if (s === SCOPE_ALL || s === SCOPE_SELECTED || s === SCOPE_PUBLIC_DEVELOPER) {
+            scope = s;
+        } else {
+            scope = SCOPE_NONE;
+        }
         selectedAccountIds = [...(resource.sharedWithAccountIds ?? [])];
     }
 
@@ -44,7 +49,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     shareScope: scope,
-                    accountIds: scope === SCOPE_SELECTED ? selectedAccountIds : undefined
+                    accountIds:
+                        scope === SCOPE_SELECTED ? selectedAccountIds : scope === SCOPE_PUBLIC_DEVELOPER ? [] : undefined
                 })
             });
             const json = await res.json().catch(() => ({}));
@@ -85,6 +91,11 @@
                 <input type="radio" bind:group={scope} value={SCOPE_SELECTED} name="shareScope" />
                 <span>Selected accounts</span>
                 <Badge variant="outline">Shared (N)</Badge>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="radio" bind:group={scope} value={SCOPE_PUBLIC_DEVELOPER} name="shareScope" />
+                <span>Developer SDK catalog</span>
+                <Badge variant="secondary">Not in account library</Badge>
             </label>
         </div>
 

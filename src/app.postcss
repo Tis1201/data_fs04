@@ -76,3 +76,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Developers / prototype parity — used by SDK cards, resource forms, etc. */
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 rounded-md bg-[#1e3a8a] px-3.5 py-[7px] text-[12.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#1a3475] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3.5 py-[7px] text-[12.5px] font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}

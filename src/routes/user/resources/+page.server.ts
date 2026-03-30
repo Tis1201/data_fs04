@@ -6,7 +6,10 @@ import { logger } from '$lib/server/logger';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { deleteFileFromCloudStorage, getStorageConfig } from '$lib/server/storage';
-import { resourceVisibilityOrForAccount } from '$lib/server/api/unifiedEndpoint';
+import {
+	resourceVisibilityOrForAccount,
+	whereNotPublicDeveloperCatalog
+} from '$lib/server/api/unifiedEndpoint';
 
 export const load = restrict(
     async (event: AuthenticatedLoadEvent) => {
@@ -55,7 +58,8 @@ export const load = restrict(
             const take = perPage;
 
             const andClauses: Record<string, unknown>[] = [
-                { OR: resourceVisibilityOrForAccount(currentAccountId) }
+                { OR: resourceVisibilityOrForAccount(currentAccountId) },
+                whereNotPublicDeveloperCatalog
             ];
 
             if (search) {
@@ -133,7 +137,12 @@ export const load = restrict(
             const accounts = currentAccount ? [currentAccount] : [];
 
             const resourceTypesRows = await locals.prisma.resource.findMany({
-                where: { AND: [{ OR: resourceVisibilityOrForAccount(currentAccountId) }] },
+                where: {
+                    AND: [
+                        { OR: resourceVisibilityOrForAccount(currentAccountId) },
+                        whereNotPublicDeveloperCatalog
+                    ]
+                },
                 select: { type: true },
                 distinct: ['type'],
                 orderBy: { type: 'asc' }
