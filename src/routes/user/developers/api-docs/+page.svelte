@@ -216,7 +216,7 @@
 					<Globe size={15} class="shrink-0 text-gray-400" strokeWidth={2} />
 					<div class="min-w-0">
 						<p class="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">API host</p>
-						<code class="block truncate font-mono text-[12px] text-gray-800">{apiBaseUrl()}</code>
+						<code class="block break-all font-mono text-[12px] text-gray-800">{apiBaseUrl()}</code>
 						<p class="mt-1 text-[10px] leading-snug text-gray-400">
 							Routes: <code class="font-mono">GET /api/sensor-logs/sessions</code>,
 							<code class="font-mono">GET /api/sensor-logs/paths</code>
