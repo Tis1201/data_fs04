@@ -78,6 +78,7 @@
         formatActionDescription
     } from '$lib/utils/deviceDetailsUtils';
     import { formatBytes } from '$lib/utils/format';
+    import { labelForScreenOrientation } from '$lib/components/ui_components_sveltekit/form/deviceProfileSettings';
 
     interface Props {
         // Data from server
@@ -1781,7 +1782,7 @@
                                             </div>
                                         </div>
                                         <div class="config-cell value-cell">
-                                            <span class="cell-value">{getProfileSetting('screen_orientation', dev.orientation ?? '—')}</span>
+                                            <span class="cell-value">{labelForScreenOrientation(getProfileSetting('screen_orientation', dev.orientation ?? '—'), '—')}</span>
                                         </div>
                                     </div>
                                     <div class="config-row">

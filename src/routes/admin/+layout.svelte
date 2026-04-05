@@ -93,7 +93,7 @@
                 </div>
             </div>
         </header>
-        <main class="flex-1 p-2 overflow-y-auto">
+        <main class="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
             <slot />
         </main>
     </div>

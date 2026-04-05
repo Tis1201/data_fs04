@@ -29,6 +29,10 @@
 	// Layout options
 	export let contentSpacing: string = "space-y-6";
 	export let compact: boolean = false;
+	/** Extra classes on PageContainer (e.g. flex fill for full-viewport pages). */
+	export let containerClass: string = "";
+	/** PageContent uses flex column + flex-1 to fill height below header (use with containerClass). */
+	export let contentFlexFill: boolean = false;
 	export let gridLayout: boolean = false;
 	export let gridCols: string = "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 	export let gridGap: string = "gap-4";
@@ -39,7 +43,7 @@
 	export const breadcrumbs: any[] = [];
 </script>
 
-<PageContainer crumbs={crumbs}>
+<PageContainer crumbs={crumbs} className={containerClass}>
 	<PageHeader title={title}>
 		<div slot="action">
 			{#if actionButtons.length > 0}
@@ -70,14 +74,18 @@
 		<slot name="header" />
 	</PageHeader>
 	
-	<PageContent>
+	<PageContent flexFill={contentFlexFill}>
 	{#if gridLayout}
 		<div class="grid {gridCols} {gridGap}">
 			<!-- Grid content -->
 			<slot />
 		</div>
 	{:else}
-		<div class={compact ? "space-y-4" : contentSpacing}>
+		<div
+			class="{compact ? 'space-y-4' : contentSpacing} {contentFlexFill
+				? 'flex flex-col flex-1 min-h-0 overflow-hidden'
+				: ''}"
+		>
 			<!-- Main content -->
 			<slot />
 		</div>

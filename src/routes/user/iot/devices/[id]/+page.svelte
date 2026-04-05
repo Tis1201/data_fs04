@@ -45,6 +45,7 @@
     import { formatBytes } from "$lib/utils/format";
     import { triggerFileDownload } from "$lib/utils/download";
     import { getAppFormatsForDeviceType } from "$lib/utils/bundleUtils";
+    import { labelForScreenOrientation } from "$lib/components/ui_components_sveltekit/form/deviceProfileSettings";
     import {
         PenLine,
         RefreshCw,
@@ -2294,7 +2295,7 @@
                             </div>
                         </div>
                         <div class="config-cell value-cell">
-                            <span class="cell-value">{getProfileSetting('screen_orientation', deviceInfo?.orientation || '-')}</span>
+                            <span class="cell-value">{labelForScreenOrientation(getProfileSetting('screen_orientation', deviceInfo?.orientation || '-'))}</span>
                         </div>
                     </div>
                     <div class="config-row">
@@ -3499,6 +3500,8 @@
     .tabs-wrapper {
         /*margin-top: 8px;*/
         width: 100%;
+        flex-shrink: 0;
+        min-height: 48px;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
     }

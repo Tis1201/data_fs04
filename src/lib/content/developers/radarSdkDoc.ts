@@ -3,6 +3,9 @@
  */
 import { Cpu, Monitor, Smartphone } from 'lucide-svelte';
 
+/** Set to `true` to show the Quick Start section (C++ / Node.js / Android examples). */
+export const RADAR_SDK_SHOW_QUICK_START = false;
+
 export type RequirementCard = {
 	lang: string;
 	/** Lucide Svelte icon constructor */

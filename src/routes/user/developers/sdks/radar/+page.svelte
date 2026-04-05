@@ -14,6 +14,7 @@
 	import DevBadge from '$lib/components/developers/DevBadge.svelte';
 	import DevCodeBlock from '$lib/components/developers/DevCodeBlock.svelte';
 	import {
+		RADAR_SDK_SHOW_QUICK_START,
 		radarRequirements,
 		radarCapabilities,
 		radarCodeExamples,
@@ -182,68 +183,70 @@
 			</div>
 		</div>
 
-		<!-- Quick Start -->
-		<div class="mb-6 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-card">
-			<div class="border-b border-gray-100 px-5 py-3.5">
-				<h3 class="text-sm font-semibold text-gray-900">Quick Start</h3>
-				<p class="mt-0.5 text-xs text-gray-500">Install, sample project layout, and minimal running example</p>
-			</div>
-			<div class="border-b border-gray-200 px-3 sm:px-5">
-				<div class="flex flex-wrap gap-0">
-					{#each mainTabs as t}
-						<button
-							type="button"
-							class="border-b-2 px-3 py-2.5 text-[12px] font-medium transition-colors sm:px-4
-								{activeTab === t.id
-								? 'border-[#1e3a8a] text-[#1e3a8a]'
-								: 'border-transparent text-gray-500 hover:text-gray-700'}"
-							on:click={() => {
-								activeTab = t.id;
-								if (t.id !== 'cpp') cppSub = 'quickstart';
-							}}
-						>
-							{t.label}
-						</button>
-					{/each}
+		{#if RADAR_SDK_SHOW_QUICK_START}
+			<!-- Quick Start -->
+			<div class="mb-6 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-card">
+				<div class="border-b border-gray-100 px-5 py-3.5">
+					<h3 class="text-sm font-semibold text-gray-900">Quick Start</h3>
+					<p class="mt-0.5 text-xs text-gray-500">Install, sample project layout, and minimal running example</p>
 				</div>
-			</div>
+				<div class="border-b border-gray-200 px-3 sm:px-5">
+					<div class="flex flex-wrap gap-0">
+						{#each mainTabs as t}
+							<button
+								type="button"
+								class="border-b-2 px-3 py-2.5 text-[12px] font-medium transition-colors sm:px-4
+									{activeTab === t.id
+									? 'border-[#1e3a8a] text-[#1e3a8a]'
+									: 'border-transparent text-gray-500 hover:text-gray-700'}"
+								on:click={() => {
+									activeTab = t.id;
+									if (t.id !== 'cpp') cppSub = 'quickstart';
+								}}
+							>
+								{t.label}
+							</button>
+						{/each}
+					</div>
+				</div>
 
-			{#if activeTab === 'cpp'}
-				<div class="flex flex-wrap gap-0 border-b border-gray-100 bg-gray-50/80 px-3 sm:px-5">
-					{#each cppSubTabs as st}
-						<button
-							type="button"
-							class="border-b-2 px-3 py-2 text-[11px] font-medium transition-colors sm:text-[12px]
-								{cppSub === st.id
-								? 'border-[#1e3a8a] text-[#1e3a8a]'
-								: 'border-transparent text-gray-500 hover:text-gray-700'}"
-							on:click={() => (cppSub = st.id)}
-						>
-							{st.label}
-						</button>
-					{/each}
-				</div>
-				<div class="p-4 sm:p-5">
-					{#key cppSub}
-						<DevCodeBlock code={cppBlock.code} language={cppBlock.language} />
-					{/key}
-				</div>
-			{:else}
-				{@const ex = radarCodeExamples[activeTab]}
-				{@const setupLang = quickSetupLang[activeTab]}
-				{@const codeLang = quickCodeLang[activeTab]}
-				<div class="space-y-4 p-4 sm:p-5">
-					<div>
-						<p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Setup</p>
-						<DevCodeBlock code={ex.setup} language={setupLang} />
+				{#if activeTab === 'cpp'}
+					<div class="flex flex-wrap gap-0 border-b border-gray-100 bg-gray-50/80 px-3 sm:px-5">
+						{#each cppSubTabs as st}
+							<button
+								type="button"
+								class="border-b-2 px-3 py-2 text-[11px] font-medium transition-colors sm:text-[12px]
+									{cppSub === st.id
+									? 'border-[#1e3a8a] text-[#1e3a8a]'
+									: 'border-transparent text-gray-500 hover:text-gray-700'}"
+								on:click={() => (cppSub = st.id)}
+							>
+								{st.label}
+							</button>
+						{/each}
 					</div>
-					<div>
-						<p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Example</p>
-						<DevCodeBlock code={ex.code} language={codeLang} />
+					<div class="p-4 sm:p-5">
+						{#key cppSub}
+							<DevCodeBlock code={cppBlock.code} language={cppBlock.language} />
+						{/key}
 					</div>
-				</div>
-			{/if}
-		</div>
+				{:else}
+					{@const ex = radarCodeExamples[activeTab]}
+					{@const setupLang = quickSetupLang[activeTab]}
+					{@const codeLang = quickCodeLang[activeTab]}
+					<div class="space-y-4 p-4 sm:p-5">
+						<div>
+							<p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Setup</p>
+							<DevCodeBlock code={ex.setup} language={setupLang} />
+						</div>
+						<div>
+							<p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Example</p>
+							<DevCodeBlock code={ex.code} language={codeLang} />
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/if}
 
 		<!-- Configuration Reference -->
 		<div class="mb-6 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-card">

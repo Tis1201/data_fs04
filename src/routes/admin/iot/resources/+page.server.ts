@@ -24,10 +24,18 @@ export const load = restrict(
  * Resource actions
  * Per structural standard: thin wrapper using shared actions factory
  */
+async function resourceIdFromEvent(event: AuthenticatedEvent): Promise<string | undefined> {
+    const fromParams = event.params.id;
+    if (fromParams) return fromParams;
+    const formData = await event.request.clone().formData();
+    const raw = formData.get('id');
+    return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined;
+}
+
 export const actions: Actions = {
     update: restrict(
         async (event: AuthenticatedEvent) => {
-            const id = event.params.id;
+            const id = await resourceIdFromEvent(event);
             if (!id) {
                 return fail(400, { error: 'Resource ID is required' });
             }
@@ -37,7 +45,7 @@ export const actions: Actions = {
     ),
     delete: restrict(
         async (event: AuthenticatedEvent) => {
-            const id = event.params.id;
+            const id = await resourceIdFromEvent(event);
             if (!id) {
                 return fail(400, { error: 'Resource ID is required' });
             }

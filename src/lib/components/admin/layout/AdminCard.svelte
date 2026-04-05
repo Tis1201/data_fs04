@@ -8,10 +8,12 @@
 	export let icon: ComponentType<SvelteComponent> | null = null;
 	export let class_name: string = "";
 	export let compact: boolean = false;
+	/** Merged into CardContent (e.g. flex-1 min-h-0 for fill layouts). */
+	export let contentClass: string = "";
 </script>
 
 <Card class="w-full {class_name}">
-	<CardHeader class={compact ? "pb-2" : ""}>
+	<CardHeader class="{compact ? 'pb-2' : ''} shrink-0">
 		{#if title}
 			<CardTitle class={`${icon ? "flex items-center" : ""} ${compact ? "text-base" : ""}`}>
 				{#if icon}
@@ -31,7 +33,7 @@
 		<slot name="header" />
 	</CardHeader>
 	
-	<CardContent class={compact ? "pt-0 px-4 pb-4" : ""}>
+	<CardContent class="{compact ? 'pt-0 px-4 pb-4' : ''} {contentClass}">
 		<!-- Card content -->
 		<slot />
 	</CardContent>

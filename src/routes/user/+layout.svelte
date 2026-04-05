@@ -531,8 +531,8 @@
             />
         </div>
 
-        <!-- Page content -->
-        <main class="flex-1 overflow-auto bg-[#F9FAFB]">
+        <!-- Page content (min-h-0 + flex so routes like RDP can fill viewport without page scroll) -->
+        <main class="flex min-h-0 flex-1 flex-col overflow-auto bg-[#F9FAFB]">
             <slot />
         </main>
     </div>
