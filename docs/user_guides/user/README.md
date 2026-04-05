@@ -24,6 +24,12 @@ Welcome to the **User Interface User Guides**! These guides are designed for end
 - **[Preclaims](./iot/preclaims.md)** - Claiming devices using PIN codes
 - **[PIN Rules](./iot/pin_rules.md)** - Managing PIN-based device claiming rules
 
+#### **📡 IoT Management (Sensors & analytics)**
+- **[Sensors](./iot/sensors.md)** - Radar sensor list, filters, and Register Device (PIN enrollment)
+- **[Templates](./iot/templates.md)** - Alert and configuration templates for sensors
+- **[Data](./iot/data.md)** - Radar session logs and path tracking analytics
+- **[API Keys](./iot/api_keys.md)** - Account-level API keys for integrations (`/user/settings/api-keys`)
+
 #### **🔗 Integrations & Communication**
 - **[WhatsApp](./integrations/whatsapp.md)** - WhatsApp integration for notifications and messaging
 
