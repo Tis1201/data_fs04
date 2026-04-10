@@ -214,7 +214,8 @@
     // Next zone number for Add Zone modal
     $: nextZoneNumberForAdd = (() => {
         const existing = editorZonesValue.map((z) => z.zoneNumber || 0);
-        return Math.max(1, ...existing, 0) + 1;
+        if (existing.length === 0) return 1;
+        return Math.max(...existing) + 1;
     })();
 
     // Tracking area dimensions for Add Zone modal
@@ -458,11 +459,11 @@
         const em = as.email ?? { enabled: false, address: '' };
         const wh = as.webhook ?? { enabled: false, url: '' };
         return {
-            sensorOffline: { text: so.enabled ? 'Enable' : 'Disable', threshold: `${so.threshold ?? '5'} ${so.unit ?? 'minutes'}` },
-            noData: { text: nd.enabled ? 'Enable' : 'Disable', threshold: `${nd.threshold ?? '30'} ${nd.unit ?? 'minutes'}` },
-            dwellTime: { text: dt.enabled ? 'Enable' : 'Disable', zoneLabel: zoneName, threshold: `${dt.threshold ?? '120'} seconds` },
-            email: { text: em.enabled ? 'Enable' : 'Disable', address: em.address ?? '—' },
-            webhook: { text: wh.enabled ? 'Enable' : 'Disable', url: wh.url ?? '—' }
+            sensorOffline: { enabled: so.enabled, text: so.enabled ? 'Enable' : 'Disable', threshold: `${so.threshold ?? '5'} ${so.unit ?? 'minutes'}` },
+            noData: { enabled: nd.enabled, text: nd.enabled ? 'Enable' : 'Disable', threshold: `${nd.threshold ?? '30'} ${nd.unit ?? 'minutes'}` },
+            dwellTime: { enabled: dt.enabled, text: dt.enabled ? 'Enable' : 'Disable', zoneLabel: zoneName, threshold: `${dt.threshold ?? '120'} seconds` },
+            email: { enabled: em.enabled, text: em.enabled ? 'Enable' : 'Disable', address: em.address ?? '—' },
+            webhook: { enabled: wh.enabled, text: wh.enabled ? 'Enable' : 'Disable', url: wh.url ?? '—' }
         };
     })();
 
@@ -670,6 +671,7 @@
                                     <span class="alert-value">{alertDisplay.sensorOffline.text}</span>
                                 </div>
                             </div>
+                            {#if alertDisplay.sensorOffline.enabled}
                             <div class="alert-row">
                                 <div class="alert-cell alert-cell-left">
                                     <span class="alert-text">Threshold</span>
@@ -678,6 +680,7 @@
                                     <span class="alert-text">{alertDisplay.sensorOffline.threshold}</span>
                                 </div>
                             </div>
+                            {/if}
                         </div>
                         <div class="alert-table-wrap">
                             <div class="alert-row">
@@ -689,6 +692,7 @@
                                     <span class="alert-value">{alertDisplay.noData.text}</span>
                                 </div>
                             </div>
+                            {#if alertDisplay.noData.enabled}
                             <div class="alert-row">
                                 <div class="alert-cell alert-cell-left">
                                     <span class="alert-text">Threshold</span>
@@ -697,6 +701,7 @@
                                     <span class="alert-text">{alertDisplay.noData.threshold}</span>
                                 </div>
                             </div>
+                            {/if}
                         </div>
                         <div class="alert-table-wrap">
                             <div class="alert-row">
@@ -708,6 +713,7 @@
                                     <span class="alert-value">{alertDisplay.dwellTime.text}</span>
                                 </div>
                             </div>
+                            {#if alertDisplay.dwellTime.enabled}
                             <div class="alert-row">
                                 <div class="alert-cell alert-cell-left">
                                     <span class="alert-text">{alertDisplay.dwellTime.zoneLabel}</span>
@@ -716,6 +722,7 @@
                                     <span class="alert-text">{alertDisplay.dwellTime.threshold}</span>
                                 </div>
                             </div>
+                            {/if}
                         </div>
                     </div>
                 </Card>
@@ -785,6 +792,7 @@
                                     zones={editorZonesValue}
                                     maxZones={5}
                                     readonly={false}
+                                    highlightZoneId={activeZoneTab === 'all' ? null : activeZoneTab}
                                     on:arenaChange={handleArenaChange}
                                     on:zonesChange={handleZonesChange}
                                 />
@@ -927,7 +935,7 @@
                             />
                             <div class="config-zone-tab-content">
                                 <div class="config-zone-list">
-                                    {#each editorZonesValue as zone, zoneIndex}
+                                    {#each editorZonesValue.filter(z => activeZoneTab === 'all' || (z.id ?? `zone-${z.zoneNumber}`) === activeZoneTab) as zone, zoneIndex}
                                         {@const zoneId = zone.id ?? `zone-${zone.zoneNumber}`}
                                         {@const zoneColors = getZoneColors(zone.zoneNumber ?? zoneIndex + 1)}
                                         {@const active = zone.active !== false}
