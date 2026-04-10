@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto, invalidateAll } from "$app/navigation";
+  import { page } from "$app/stores";
   import { browser } from "$app/environment";
   import { onMount } from "svelte";
   import { toast } from "$lib/stores/alertToast";
@@ -120,10 +121,6 @@
   let pendingZoneId = '';
   let pendingZoneName = '';
   let pendingZonePersisted = false;
-  let activeTab = "summary";
-  /** Active tab in Zones Configuration: 'all' or zone id (zone.id ?? `zone-${zone.zoneNumber}`) */
-  let activeZoneTab = "all";
-
   const TABS = [
     { id: "summary", label: "Summary" },
     { id: "configuration", label: "Configuration" },
@@ -131,6 +128,12 @@
     { id: "alert", label: "Alert" },
     { id: "live-preview", label: "Live Preview" },
   ];
+
+  const VALID_TABS = TABS.map(t => t.id);
+  const urlTab = $page.url.searchParams.get('tab');
+  let activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : "summary";
+  /** Active tab in Zones Configuration: 'all' or zone id (zone.id ?? `zone-${zone.zoneNumber}`) */
+  let activeZoneTab = "all";
 
   /** Zone tabs for Zones Configuration: All + one per zone. Use editorZonesValue so new zones appear before Save. */
   $: zoneTabs = (() => {

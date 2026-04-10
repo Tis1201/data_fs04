@@ -805,7 +805,7 @@
                     {
                         id: 'live-preview',
                         label: 'Live Preview',
-                        onClick: () => goto(`/user/controllers/radar/${controllerId}`)
+                        onClick: () => goto(`/user/controllers/radar/${controllerId}?tab=live-preview`)
                     },
                     {
                         id: 'view',
