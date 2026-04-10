@@ -111,6 +111,7 @@ src/routes/dev/ui
 
 # Design System Development Files (local only, for agent tasks)
 .cursorrules
+.cursor/
 scripts/validate-design-system.sh
 src/lib/design-system/COMPONENT_AUDIT.md
 src/lib/design-system/WORKFLOW.md
