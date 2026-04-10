@@ -307,6 +307,13 @@
             pathTracking: boolean;
             dwellThreshold: number;
         };
+        alertSettings?: {
+            sensorOffline: { enabled: boolean; threshold: string; unit: string };
+            noData: { enabled: boolean; threshold: string; unit: string };
+            dwellTime: { enabled: boolean; zoneId: string; threshold: string };
+            email: { enabled: boolean; address: string };
+            webhook: { enabled: boolean; url: string };
+        };
         selectedSensors: { id: string; name: string; mac?: string }[];
     }
 
@@ -325,6 +332,9 @@
             fd.set('zones', JSON.stringify(payload.zones));
             fd.set('deviceSettings', JSON.stringify(payload.deviceSettings));
             fd.set('selectedSensors', JSON.stringify(payload.selectedSensors));
+            if (payload.alertSettings) {
+                fd.set('alertSettings', JSON.stringify(payload.alertSettings));
+            }
 
             const res = await fetch('?/create', { method: 'POST', body: fd });
             const result = await res.json().catch(() => ({}));
@@ -511,6 +521,7 @@
 <AddTemplateModal
     bind:open={showAddTemplateModal}
     templateType={addTemplateType}
+    {availableSensors}
     on:close={() => (showAddTemplateModal = false)}
     on:add={handleAddTemplate}
 />

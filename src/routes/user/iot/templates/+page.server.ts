@@ -3,6 +3,7 @@ import type { PageServerLoad, Actions } from './$types';
 import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma';
+import type { Prisma } from '@prisma/client';
 
 // Define enum locally to avoid Vite ESM/CJS issues with @prisma/client
 const SensorTemplateType = {
@@ -166,10 +167,11 @@ export const actions: Actions = {
             const trackingArea = form.get('trackingArea') as string | null;
             const zones = form.get('zones') as string | null;
             const deviceSettings = form.get('deviceSettings') as string | null;
+            const alertSettingsRaw = form.get('alertSettings') as string | null;
             const selectedSensors = form.get('selectedSensors') as string | null;
 
             if (!name?.trim()) return { success: false, error: 'Template name is required' };
-            if (name.length > 500) return { success: false, error: 'Template name must be 500 characters or less' };
+            if (name.length > 50) return { success: false, error: 'Template name must be 50 characters or less' };
             if (!type) return { success: false, error: 'Template type is required' };
 
             const accountId = getCurrentAccountId(cookies, locals);
@@ -181,14 +183,21 @@ export const actions: Actions = {
             const parsedTrackingArea = trackingArea ? JSON.parse(trackingArea) : null;
             const parsedZones = zones ? JSON.parse(zones) : [];
             const parsedDeviceSettings = deviceSettings ? JSON.parse(deviceSettings) : null;
+            const parsedAlertSettings =
+                alertSettingsRaw && typeof alertSettingsRaw === 'string' && alertSettingsRaw.trim().startsWith('{')
+                    ? JSON.parse(alertSettingsRaw)
+                    : undefined;
             const parsedSelectedSensors = selectedSensors ? JSON.parse(selectedSensors) : [];
 
-            // Build config object
-            const config = {
+            // Build config object (include alertSettings for Alert templates)
+            const config: Record<string, unknown> = {
                 trackingArea: parsedTrackingArea,
                 zones: parsedZones,
                 deviceSettings: parsedDeviceSettings
             };
+            if (parsedAlertSettings != null) {
+                config.alertSettings = parsedAlertSettings;
+            }
 
             try {
                 // Verify all selected sensors belong to current account
@@ -211,7 +220,7 @@ export const actions: Actions = {
                         name: name.trim(),
                         description: description?.trim() || null,
                         type: parseTemplateType(type),
-                        config,
+                        config: config as Prisma.InputJsonValue,
                         accountId,
                         createdBy: user?.id
                     }
@@ -250,7 +259,7 @@ export const actions: Actions = {
 
             if (!id) return { success: false, error: 'Missing template id' };
             if (!name?.trim()) return { success: false, error: 'Template name is required' };
-            if (name.length > 500) return { success: false, error: 'Template name must be 500 characters or less' };
+            if (name.length > 50) return { success: false, error: 'Template name must be 50 characters or less' };
 
             const accountId = getCurrentAccountId(cookies, locals);
             if (!accountId) return { success: false, error: 'No account found' };
@@ -304,7 +313,7 @@ export const actions: Actions = {
                     data: {
                         name: name.trim(),
                         description: description?.trim() || null,
-                        config
+                        config: config as Prisma.InputJsonValue
                     }
                 });
 
