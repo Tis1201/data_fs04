@@ -379,6 +379,8 @@
                 return;
             }
             toast.success('Configuration saved successfully!');
+            zonesInitialized = false;
+            arenaInitialized = false;
             await invalidate('app:userTemplates');
         } catch {
             toast.error('Unable to save configuration. Please try again!');
@@ -433,6 +435,8 @@
             }
             toast.success('Template updated successfully!');
             closeEditModal();
+            zonesInitialized = false;
+            arenaInitialized = false;
             await invalidate('app:userTemplates');
         } catch {
             toast.error('Unable to save template. Please try again!');
