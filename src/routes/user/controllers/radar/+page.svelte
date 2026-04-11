@@ -18,6 +18,8 @@
     export let data: PageData;
 
     type SensorRow = Sensor & {
+        /** ISO timestamp — same semantics as IoT devices list (Prisma + ClickHouse + connect fallbacks). */
+        deviceLastPingAt?: string | null;
         controller?: {
             id: string;
             device?: {
@@ -591,15 +593,40 @@
                 }
                 const res = await fetch('?/createSensorForDevice', { method: 'POST', body: fd });
                 const raw = await res.text();
-                const result = typeof raw === 'string' && raw.trim() ? (deserialize(raw) as any) : {};
-                const actionData = result?.data as { type?: string; controllerId?: string; message?: string } | undefined;
-                if (result.type === 'success' && actionData?.type === 'success' && actionData?.controllerId) {
+                const result = typeof raw === 'string' && raw.trim() ? (deserialize(raw) as { type?: string; data?: unknown }) : {};
+                let actionData = result.data as
+                    | { type?: string; controllerId?: string; message?: string }
+                    | string
+                    | undefined;
+                // Some proxies or double-encoding can leave `data` as a devalue string; parse once more.
+                if (typeof actionData === 'string' && actionData.trimStart().startsWith('[')) {
+                    try {
+                        actionData = deserialize(actionData) as { type?: string; controllerId?: string; message?: string };
+                    } catch {
+                        /* keep string */
+                    }
+                }
+                const payload =
+                    typeof actionData === 'object' && actionData !== null
+                        ? actionData
+                        : ({} as { type?: string; controllerId?: string; message?: string });
+
+                if (result.type === 'failure') {
+                    const err = String(payload.message ?? 'Failed to create sensor. Please try again.');
+                    addDeviceError = err;
+                    toast.error(err);
+                } else if (result.type === 'success' && payload.controllerId) {
                     toast.success('Device registered successfully!');
                     showAddDeviceModal = false;
                     await invalidate('app:userControllersRadar');
-                    goto(`/user/controllers/radar/${actionData.controllerId}`, { noScroll: true });
+                    goto(`/user/controllers/radar/${payload.controllerId}`, { noScroll: true });
+                } else if (result.type === 'success' && payload.type === 'error' && payload.message) {
+                    // Legacy server: returned { type: 'error', message } as action data (outer envelope was still success).
+                    const err = payload.message;
+                    addDeviceError = err;
+                    toast.error(err);
                 } else {
-                    const err = actionData?.message || 'Failed to create sensor. Please try again.';
+                    const err = payload.message || 'Failed to create sensor. Please try again.';
                     addDeviceError = err;
                     toast.error(err);
                 }
@@ -787,9 +814,10 @@
             width: '120px'
         },
         {
-            id: 'updatedAt',
+            id: 'lastDevicePing',
             header: 'Last ping',
-            accessor: (row: SensorRow) => row.updatedAt ?? row.createdAt,
+            accessor: (row: SensorRow) =>
+                row.deviceLastPingAt ?? row.updatedAt ?? row.createdAt,
             type: 'relativeTime' as const,
             sortable: true,
             width: '150px'

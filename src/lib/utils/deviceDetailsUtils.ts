@@ -125,6 +125,28 @@ export function formatRelativeTime(date: string | Date | null): string {
     return formatLastSeen(date);
 }
 
+/**
+ * Same “most recent timestamp” rule as `/user/iot/devices` list: max of Prisma heartbeat fields,
+ * ClickHouse `last_connected_at` / `last_status_at`, and `disconnectedAt` / `connectedAt` fallbacks.
+ */
+export function computeDeviceListLastPingAt(
+    device: {
+        lastUsedAt?: Date | string | null;
+        lastSeenAt?: Date | string | null;
+        connectedAt?: Date | string | null;
+        disconnectedAt?: Date | string | null;
+    },
+    deviceInfo?: { last_connected_at?: string | null; last_status_at?: string | null } | null
+): Date | undefined {
+    const prisma = device.lastUsedAt || device.lastSeenAt;
+    const ch = deviceInfo?.last_connected_at || deviceInfo?.last_status_at;
+    const fallback = device.disconnectedAt || device.connectedAt;
+    const candidates = [prisma, ch, fallback].filter(Boolean);
+    if (candidates.length === 0) return undefined;
+    const parsed = candidates.map((c) => parseAsUtc(c as string | Date) ?? new Date(c as string));
+    return parsed.reduce((a, b) => (a.getTime() > b.getTime() ? a : b));
+}
+
 export function formatUptime(seconds: number | null): string {
     if (!seconds) return '00:00:00';
     const hours = Math.floor(seconds / 3600);

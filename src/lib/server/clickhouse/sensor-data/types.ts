@@ -24,7 +24,7 @@ export const MV_REGISTRY: Record<SensorDataType, MVConfig> = {
         mv: 'mv_radar_session',
         defaultSort: 'log_creation_time',
         defaultOrder: 'desc',
-        searchFields: ['target_id', 'sensor_id', 'sensor_name'],
+        searchFields: ['target_id', 'sensor_id', 'sensor_name', 'mac_address'],
         allowedSortFields: [
             'processed_at',
             'log_creation_time',
@@ -44,7 +44,7 @@ export const MV_REGISTRY: Record<SensorDataType, MVConfig> = {
         // "Date" on Path Tracking UI should reflect when the MV processed the row (processed_at).
         defaultSort: 'processed_at',
         defaultOrder: 'desc',
-        searchFields: ['target_id', 'sensor_id', 'sensor_name', 'timezone_label'],
+        searchFields: ['target_id', 'sensor_id', 'sensor_name', 'mac_address', 'timezone_label'],
         allowedSortFields: [
             'processed_at',
             'log_creation_time',

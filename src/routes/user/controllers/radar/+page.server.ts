@@ -12,8 +12,6 @@ import { getUserModulePermissions } from '$lib/server/security/modulePermissions
 import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-sensor';
 import type { Prisma } from '@prisma/client';
 import { validateBounds, normalizeBounds } from '$lib/components/ui_components_sveltekit/radar/constraints';
-// Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for updates.
-import prisma from '$lib/server/prisma';
 import { areDevicesOnline } from '$lib/server/device/devicePresence';
 import { deviceHasActiveRadarSensor } from '$lib/server/device/radarRegistrationGuards';
 import { getRadarSensorDisplayNameForDevice, resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
@@ -22,6 +20,27 @@ import {
     buildRadarInitConfigFromDeviceProfile
 } from '$lib/server/device/radarAddDeviceProfileStep2';
 import { syncRadarSensorNameWithLinkedDevice } from '$lib/server/device/radarDeviceNameSync';
+import { getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
+import { computeDeviceListLastPingAt } from '$lib/utils/deviceDetailsUtils';
+
+/** Modal/detail load shape (no device ping fields). */
+type RadarEditSensorPayload = Prisma.SensorGetPayload<{
+    select: {
+        id: true;
+        name: true;
+        serialNumber: true;
+        status: true;
+        description: true;
+        location: true;
+        firmware: true;
+        createdAt: true;
+        updatedAt: true;
+        accountId: true;
+        account: { select: { id: true; name: true } };
+        controller: { select: { id: true; name: true; device: { select: { id: true; name: true } } } };
+        config: true;
+    };
+}>;
 
 export const load = restrict(
     async ({ url, locals, cookies, depends }: AuthenticatedLoadEvent) => {
@@ -39,7 +58,10 @@ export const load = restrict(
             const search = url.searchParams.get('search') || '';
             const page = parseInt(url.searchParams.get('page') || '1');
             const perPage = parseInt(url.searchParams.get('per_page') || '10');
-            const sortField = url.searchParams.get('sort_field') || 'createdAt';
+            const requestedSortField = url.searchParams.get('sort_field') || 'createdAt';
+            /** Legacy URLs used `updatedAt` for the “Last ping” column; align with device list semantics. */
+            const effectiveSortField =
+                requestedSortField === 'updatedAt' ? 'lastDevicePing' : requestedSortField;
             const sortOrder = (url.searchParams.get('sort_order') || 'desc') as 'asc' | 'desc';
             const statuses = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
             const deviceMacs = url.searchParams.get('device_macs')?.split(',').filter(Boolean) || [];
@@ -103,59 +125,74 @@ export const load = restrict(
                 'createdAt',
                 'updatedAt'
             ]);
-            const sensorOrderBy: Prisma.SensorOrderByWithRelationInput =
-                sortField === 'deviceMac'
-                    ? { controller: { device: { macAddress: sortOrder } } }
-                    : SENSOR_SCALAR_SORT.has(sortField)
-                      ? { [sortField]: sortOrder }
-                      : { createdAt: sortOrder };
+            const isLastPingSort = effectiveSortField === 'lastDevicePing';
+            const sensorOrderBy: Prisma.SensorOrderByWithRelationInput = isLastPingSort
+                ? { createdAt: 'desc' }
+                : effectiveSortField === 'deviceMac'
+                  ? { controller: { device: { macAddress: sortOrder } } }
+                  : SENSOR_SCALAR_SORT.has(effectiveSortField)
+                    ? { [effectiveSortField]: sortOrder }
+                    : { createdAt: sortOrder };
 
-            const [sensors, totalSensors, sensorsForMacList] = await Promise.all([
-                locals.prisma.sensor.findMany({
-                    where: {
-                        ...where,
-                        controller: {
-                            isDeleted: false // Only show sensors with non-deleted controllers
-                        }
-                    },
-                    orderBy: sensorOrderBy,
-                    skip,
-                    take,
+            const radarListWhere = {
+                ...where,
+                controller: {
+                    isDeleted: false as const // Only show sensors with non-deleted controllers
+                }
+            };
+
+            const radarListSelect = {
+                id: true,
+                name: true,
+                serialNumber: true,
+                status: true,
+                description: true,
+                location: true,
+                firmware: true,
+                createdAt: true,
+                updatedAt: true,
+                accountId: true,
+                account: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                },
+                controller: {
                     select: {
                         id: true,
                         name: true,
-                        serialNumber: true,
-                        status: true,
-                        description: true,
-                        location: true,
-                        firmware: true,
-                        createdAt: true,
-                        updatedAt: true,
-                        accountId: true,
-                        account: {
-                            select: {
-                                id: true,
-                                name: true
-                            }
-                        },
-                        controller: {
+                        device: {
                             select: {
                                 id: true,
                                 name: true,
-                                device: {
-                                    select: {
-                                        id: true,
-                                        name: true,
-                                        macAddress: true,
-                                        lanMac: true,
-                                        wifiMac: true
-                                    }
-                                }
+                                macAddress: true,
+                                lanMac: true,
+                                wifiMac: true,
+                                lastUsedAt: true,
+                                connectedAt: true,
+                                disconnectedAt: true
                             }
-                        },
-                        config: true
+                        }
                     }
-                }),
+                },
+                config: true
+            };
+
+            const [sensors, totalSensors, sensorsForMacList] = await Promise.all([
+                isLastPingSort
+                    ? locals.prisma.sensor.findMany({
+                          where: radarListWhere,
+                          orderBy: sensorOrderBy,
+                          select: radarListSelect
+                      })
+                    : locals.prisma.sensor.findMany({
+                          where: radarListWhere,
+                          orderBy: sensorOrderBy,
+                          skip,
+                          take,
+                          select: radarListSelect
+                      }),
                 locals.prisma.sensor.count({
                     where: { ...where, controller: { isDeleted: false } }
                 }),
@@ -192,7 +229,7 @@ export const load = restrict(
 
             // When opening from detail page "Edit Device", load the sensor to open Edit Device modal
             const editSensorId = url.searchParams.get('editSensorId');
-            let editSensor: typeof sensors[0] | null = null;
+            let editSensor: RadarEditSensorPayload | null = null;
             if (editSensorId && editSensorId.trim()) {
                 const one = await locals.prisma.sensor.findFirst({
                     where: {
@@ -226,9 +263,61 @@ export const load = restrict(
                 if (one) editSensor = one;
             }
 
-            // Enrich radar sensors with device connection status (Redis/MQTT presence) – batch lookup
-            const deviceIds = sensors
-                .map((s: { controller?: { device?: { id: string } } }) => s.controller?.device?.id)
+            // Device “Last ping”: same sources as /user/iot/devices (Prisma + ClickHouse + connect fallbacks)
+            const chDeviceIds = [
+                ...new Set(
+                    sensors.map((s) => s.controller?.device?.id).filter((id): id is string => !!id)
+                )
+            ];
+            const chByDeviceId =
+                chDeviceIds.length > 0
+                    ? await getBulkDeviceInformationByDeviceIds(chDeviceIds).catch((err) => {
+                          logger.warn(`[Radar] ClickHouse bulk device info failed: ${err}`);
+                          return new Map();
+                      })
+                    : new Map();
+
+            type SensorListRow = (typeof sensors)[number] & { deviceLastPingAt: string | null };
+
+            let rowsWithPing: SensorListRow[] = sensors.map((sensor) => {
+                const d = sensor.controller?.device;
+                const ch = d?.id ? chByDeviceId.get(d.id) : undefined;
+                const dt = d
+                    ? computeDeviceListLastPingAt(
+                          {
+                              lastUsedAt: d.lastUsedAt,
+                              connectedAt: d.connectedAt,
+                              disconnectedAt: d.disconnectedAt
+                          },
+                          ch
+                      )
+                    : undefined;
+                return {
+                    ...sensor,
+                    deviceLastPingAt: dt ? dt.toISOString() : null
+                };
+            });
+
+            if (isLastPingSort) {
+                if (totalSensors > 5000) {
+                    logger.warn(
+                        `[Radar] Sorting ${totalSensors} rows by last device ping in memory may be slow`
+                    );
+                }
+                const dir = sortOrder === 'asc' ? 1 : -1;
+                rowsWithPing.sort((a, b) => {
+                    const ta = a.deviceLastPingAt ? new Date(a.deviceLastPingAt).getTime() : 0;
+                    const tb = b.deviceLastPingAt ? new Date(b.deviceLastPingAt).getTime() : 0;
+                    if (ta === 0 && tb === 0) return 0;
+                    if (ta === 0) return 1;
+                    if (tb === 0) return -1;
+                    return dir * (ta - tb);
+                });
+                rowsWithPing = rowsWithPing.slice(skip, skip + take);
+            }
+
+            const deviceIds = rowsWithPing
+                .map((s) => s.controller?.device?.id)
                 .filter((id): id is string => !!id);
             let presenceMap = new Map<string, boolean>();
             try {
@@ -236,18 +325,18 @@ export const load = restrict(
             } catch (e) {
                 logger.warn(`[Radar] Failed batch device presence check: ${e}`);
             }
-            const radarSensorsEnriched = sensors.map((sensor: { controller?: { device?: { id: string } } }) => {
+            const radarSensorsEnriched = rowsWithPing.map((sensor) => {
                 const deviceId = sensor.controller?.device?.id;
                 const connected = deviceId ? (presenceMap.get(deviceId) ?? false) : false;
                 return {
                     ...sensor,
                     controller: sensor.controller
                         ? {
-                            ...sensor.controller,
-                            device: sensor.controller.device
-                                ? { ...sensor.controller.device, connected }
-                                : undefined
-                        }
+                              ...sensor.controller,
+                              device: sensor.controller.device
+                                  ? { ...sensor.controller.device, connected }
+                                  : undefined
+                          }
                         : undefined
                 };
             });
@@ -263,7 +352,7 @@ export const load = restrict(
                 },
                 filters: {},
                 sort: {
-                    field: sortField,
+                    field: effectiveSortField,
                     order: sortOrder
                 },
                 availableMacs,
@@ -304,7 +393,7 @@ async function createRadarController(
 
     try {
         const pinResult = await resolveDeviceIdByPinForRadar(
-            prisma,
+            locals.prisma,
             form.data.pin!,
             currentAccountId,
             userId
@@ -312,7 +401,7 @@ async function createRadarController(
         if (pinResult.error) return fail(400, { form, error: pinResult.error });
         const deviceId = pinResult.deviceId;
         const sensorDisplayName = await getRadarSensorDisplayNameForDevice(
-            prisma,
+            locals.prisma,
             deviceId,
             pinResult.displayName ?? 'Unknown device'
         );
@@ -320,7 +409,7 @@ async function createRadarController(
         if (!serialNumber) return fail(400, { form, error: 'Serial number is required' });
 
         const initConfigFromProfile = await buildRadarInitConfigFromDeviceProfile(
-            prisma,
+            locals.prisma,
             deviceId,
             currentAccountId,
             sensorDisplayName
@@ -408,10 +497,10 @@ async function createSensorForDevice(
     request: Request,
     locals: AuthenticatedEvent['locals'],
     cookies: AuthenticatedEvent['cookies']
-): Promise<{ type: 'success'; controllerId: string } | { type: 'error'; message: string }> {
+) {
     const currentAccountId = cookies.get('current_account_id') || (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
     if (!currentAccountId) {
-        return { type: 'error', message: 'User account not found' };
+        return fail(403, { message: 'User account not found' });
     }
     const userId = (locals as { user?: { id: string } }).user?.id ?? 'unknown';
     const formData = await request.formData();
@@ -439,12 +528,12 @@ async function createSensorForDevice(
                 const ex = Number(cfg.trackingArea.endX);
                 const ey = Number(cfg.trackingArea.endY);
                 if (!Number.isFinite(sx) || !Number.isFinite(sy) || !Number.isFinite(ex) || !Number.isFinite(ey)) {
-                    return { type: 'error', message: 'Invalid Tracking Area: coordinates must be numbers' };
+                    return fail(400, { message: 'Invalid Tracking Area: coordinates must be numbers' });
                 }
                 const ta = { startX: sx, startY: sy, endX: ex, endY: ey };
                 const taNorm = normalizeBounds(ta);
                 const taVal = validateBounds(taNorm);
-                if (!taVal.valid) return { type: 'error', message: `Invalid Tracking Area: ${taVal.errors[0] ?? 'Out of range'}` };
+                if (!taVal.valid) return fail(400, { message: `Invalid Tracking Area: ${taVal.errors[0] ?? 'Out of range'}` });
             }
             if (cfg.zones && Array.isArray(cfg.zones)) {
                 for (let i = 0; i < cfg.zones.length; i++) {
@@ -454,12 +543,12 @@ async function createSensorForDevice(
                     const zex = Number(z?.endX);
                     const zey = Number(z?.endY);
                     if (!Number.isFinite(zx) || !Number.isFinite(zy) || !Number.isFinite(zex) || !Number.isFinite(zey)) {
-                        return { type: 'error', message: `Invalid zone ${i + 1}: coordinates must be numbers` };
+                        return fail(400, { message: `Invalid zone ${i + 1}: coordinates must be numbers` });
                     }
                     const zb = { startX: zx, startY: zy, endX: zex, endY: zey };
                     const zbNorm = normalizeBounds(zb);
                     const zbVal = validateBounds(zbNorm);
-                    if (!zbVal.valid) return { type: 'error', message: `Invalid zone ${i + 1}: ${zbVal.errors[0] ?? 'Out of range'}` };
+                    if (!zbVal.valid) return fail(400, { message: `Invalid zone ${i + 1}: ${zbVal.errors[0] ?? 'Out of range'}` });
                 }
             }
         } catch (e) {
@@ -467,8 +556,8 @@ async function createSensorForDevice(
         }
     }
 
-    if (!deviceId) return { type: 'error', message: 'Device ID is required' };
-    if (!serialNumber) return { type: 'error', message: 'Serial number is required' };
+    if (!deviceId) return fail(400, { message: 'Device ID is required' });
+    if (!serialNumber) return fail(400, { message: 'Serial number is required' });
 
     try {
         const device = await locals.prisma.device.findFirst({
@@ -481,7 +570,7 @@ async function createSensorForDevice(
             }
         });
         if (!device) {
-            return { type: 'error', message: 'Device not found or access denied' };
+            return fail(403, { message: 'Device not found or access denied' });
         }
 
         // Prefer current Device.name (user may have renamed after claim); form `name` only if device name is empty.
@@ -508,22 +597,22 @@ async function createSensorForDevice(
             const isAutoCreated = existingController.description === 'Auto-created during config retrieval';
             if (isAutoCreated && Object.keys(initConfig as object).length > 0) {
                 const existingSensorForUpdate = await locals.prisma.sensor.findFirst({
-                    where: { controllerId: existingController.id, type: 'radar' }
+                    where: { controllerId: existingController.id, type: 'radar', accountId: currentAccountId }
                 });
 
                 // Guard: if the wizard-provided serialNumber is already used by a different sensor, reject.
                 if (serialNumber && existingSensorForUpdate && existingSensorForUpdate.serialNumber !== serialNumber) {
                     const serialConflict = await locals.prisma.sensor.findFirst({
-                        where: { serialNumber, NOT: { id: existingSensorForUpdate.id } }
+                        where: { serialNumber, accountId: currentAccountId, NOT: { id: existingSensorForUpdate.id } }
                     });
                     if (serialConflict) {
-                        return { type: 'error', message: 'A sensor with this serial number already exists' };
+                        return fail(400, { message: 'A sensor with this serial number already exists' });
                     }
                 }
 
                 // Update controller name/info to match wizard input
                 await locals.prisma.controller.update({
-                    where: { id: existingController.id },
+                    where: { id: existingController.id, accountId: currentAccountId },
                     data: {
                         name: `${sensorDisplayName} Controller`,
                         description: null,
@@ -535,7 +624,7 @@ async function createSensorForDevice(
                 // Single sensor update — merge config + metadata in one write
                 if (existingSensorForUpdate) {
                     await locals.prisma.sensor.update({
-                        where: { id: existingSensorForUpdate.id },
+                        where: { id: existingSensorForUpdate.id, accountId: currentAccountId },
                         data: {
                             name: sensorDisplayName,
                             ...(serialNumber ? { serialNumber } : {}),
@@ -550,9 +639,11 @@ async function createSensorForDevice(
                     });
                 }
                 logger.info(`Updated auto-created controller ${existingController.id} with wizard config for device ${deviceId}`);
-                return { type: 'success', controllerId: existingController.id };
+                return { controllerId: existingController.id };
             }
-            return { type: 'error', message: 'This device already has an active radar sensor. Only one sensor per device is allowed.' };
+            return fail(400, {
+                message: 'This device already has an active radar sensor. Only one sensor per device is allowed.'
+            });
         }
 
         // Clean up soft-deleted sensors in current account only
@@ -564,14 +655,14 @@ async function createSensorForDevice(
             where: { serialNumber },
             include: { controller: true }
         });
-        if (existingSensor) return { type: 'error', message: 'A sensor with this serial number already exists' };
+        if (existingSensor) return fail(400, { message: 'A sensor with this serial number already exists' });
 
         // Radar controller exists but all radar sensors were removed (e.g. user deleted sensor from list): attach a new sensor.
         if (device.controllers.length > 0) {
             const orphanController = device.controllers[0];
             await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
                 await tx.controller.update({
-                    where: { id: orphanController.id },
+                    where: { id: orphanController.id, accountId: currentAccountId },
                     data: {
                         name: `${sensorDisplayName} Controller`,
                         status,
@@ -596,7 +687,7 @@ async function createSensorForDevice(
                 });
             });
             logger.info(`Re-attached radar sensor to controller ${orphanController.id} for device ${deviceId}`);
-            return { type: 'success', controllerId: orphanController.id };
+            return { controllerId: orphanController.id };
         }
 
         const controllerSerial = `${serialNumber}-CTRL`;
@@ -613,7 +704,7 @@ async function createSensorForDevice(
         const existingController = await locals.prisma.controller.findFirst({
             where: { serialNumber: controllerSerial, isDeleted: false }
         });
-        if (existingController) return { type: 'error', message: 'Controller generation failed (Duplicate Serial). Please contact support.' };
+        if (existingController) return fail(400, { message: 'Controller generation failed (Duplicate Serial). Please contact support.' });
 
         const result = await locals.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
             const controller = await tx.controller.create({
@@ -646,13 +737,15 @@ async function createSensorForDevice(
         });
 
         logger.info(`User created Radar Controller & Sensor for device ${deviceId}: ${result.controller.id}`);
-        return { type: 'success', controllerId: result.controller.id };
+        return { controllerId: result.controller.id };
     } catch (err: unknown) {
         logger.error(`Error creating radar sensor for device:`, err);
         if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'P2002') {
-            return { type: 'error', message: 'A controller or sensor with this serial number already exists. Please use a unique serial number.' };
+            return fail(400, {
+                message: 'A controller or sensor with this serial number already exists. Please use a unique serial number.'
+            });
         }
-        return { type: 'error', message: 'Failed to create radar sensor. Please try again or contact support.' };
+        return fail(500, { message: 'Failed to create radar sensor. Please try again or contact support.' });
     }
 }
 
@@ -707,7 +800,7 @@ async function updateSensorFromList(
     if (location !== null && location.length > 200) return { type: 'error', message: 'Location must be 200 characters or less' };
 
     try {
-        const ok = await syncRadarSensorNameWithLinkedDevice(prisma, {
+        const ok = await syncRadarSensorNameWithLinkedDevice(locals.prisma, {
             sensorId,
             name,
             location: location || null,

@@ -2000,9 +2000,8 @@ model Controller {
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
-  @@allow('read', auth() != null && account.members?[userId == auth().id])
-  @@allow('create', auth() != null)
+  // Any account member may manage controllers for their account (not only the row creator).
+  @@allow('read,create,update,delete', auth() != null && account.members?[userId == auth().id])
   
   // Custom constraint: Only one active controller per device/type, but multiple deleted ones allowed
   // We'll handle this in application logic since Prisma doesn't support conditional unique constraints
@@ -2054,9 +2053,8 @@ model Sensor {
   
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')
-  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
-  @@allow('read', auth() != null && account.members?[userId == auth().id])
-  @@allow('create', auth() != null)
+  // Any account member may manage sensors for their account (not only the row creator).
+  @@allow('read,create,update,delete', auth() != null && account.members?[userId == auth().id])
   
   @@index([controllerId])
   @@index([accountId])

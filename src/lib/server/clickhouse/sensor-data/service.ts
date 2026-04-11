@@ -8,10 +8,20 @@
 import { getClickHouseClient } from '../client';
 import {
     MV_REGISTRY,
+    type MVConfig,
     type SensorDataQueryParams,
     type SensorDataResponse,
     type SensorDataRow,
 } from './types';
+import { RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS } from '$lib/utils/radarExportLimits';
+
+/** Thrown for invalid export requests (returns HTTP 400 from API). */
+export class SensorDataExportValidationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'SensorDataExportValidationError';
+    }
+}
 
 /** Normalize ISO datetime to ClickHouse-friendly format (YYYY-MM-DD HH:MM:SS) for query params. */
 function toClickHouseDateTime(isoOrDate: string | Date): string {
@@ -25,10 +35,106 @@ function toClickHouseDateTime(isoOrDate: string | Date): string {
     return `${y}-${m}-${day} ${h}:${min}:${s}`;
 }
 
+type ChClient = ReturnType<typeof getClickHouseClient>;
+
+interface BuiltSensorDataQuery {
+    mvConfig: MVConfig;
+    client: ChClient;
+    whereClause: string;
+    queryParams: Record<string, string | number>;
+    sortBy: string;
+    sortOrder: 'asc' | 'desc';
+}
+
+function validateExportDateRange(startTime: string, endTime: string): void {
+    const startMs = new Date(startTime).getTime();
+    const endMs = new Date(endTime).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+        throw new SensorDataExportValidationError('Invalid start or end time for export.');
+    }
+    if (endMs <= startMs) {
+        throw new SensorDataExportValidationError('End time must be after start time.');
+    }
+    if (endMs - startMs > RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS) {
+        throw new SensorDataExportValidationError(
+            'You can only export data within a 31-day window. Please narrow your date range in the filter.'
+        );
+    }
+}
+
+function buildSensorDataQueryParts(params: SensorDataQueryParams): BuiltSensorDataQuery {
+    if (!params.accountId) {
+        throw new Error('accountId is required');
+    }
+
+    const mvConfig = MV_REGISTRY[params.dataType];
+    if (!mvConfig) {
+        throw new Error(`Unknown data type: ${params.dataType}`);
+    }
+
+    const client = getClickHouseClient();
+    const timeField = mvConfig.timeField ?? 'log_creation_time';
+
+    if (!params.startTime || !params.endTime) {
+        throw new Error(
+            'startTime and endTime are required. Please select a date range (Current week, Current month, or Custom).'
+        );
+    }
+    const startTime = params.startTime;
+    const endTime = params.endTime;
+
+    const conditions: string[] = ['account_id = {accountId:String}'];
+    const queryParams: Record<string, string | number> = {
+        accountId: params.accountId,
+    };
+
+    if (params.deviceId) {
+        conditions.push('device_id = {deviceId:String}');
+        queryParams.deviceId = params.deviceId;
+    }
+
+    if (params.sensorId) {
+        conditions.push('sensor_id = {sensorId:String}');
+        queryParams.sensorId = params.sensorId;
+    }
+
+    if (params.targetId) {
+        conditions.push('target_id = {targetId:String}');
+        queryParams.targetId = params.targetId;
+    }
+
+    conditions.push(`${timeField} >= {startTime:DateTime}`);
+    queryParams.startTime = toClickHouseDateTime(startTime);
+
+    conditions.push(`${timeField} <= {endTime:DateTime}`);
+    queryParams.endTime = toClickHouseDateTime(endTime);
+
+    if (params.search && mvConfig.searchFields.length > 0) {
+        const searchConditions = mvConfig.searchFields.map((field) => `${field} ILIKE {search:String}`);
+        conditions.push(`(${searchConditions.join(' OR ')})`);
+        queryParams.search = `%${params.search}%`;
+    }
+
+    const whereClause = conditions.join(' AND ');
+
+    const sortByCandidate = params.sortBy ?? mvConfig.defaultSort;
+    const sortBy =
+        mvConfig.allowedSortFields && mvConfig.allowedSortFields.length > 0
+            ? mvConfig.allowedSortFields.includes(sortByCandidate)
+                ? sortByCandidate
+                : mvConfig.defaultSort
+            : sortByCandidate;
+
+    const sortOrder =
+        params.sortOrder === 'asc' || params.sortOrder === 'desc' ? params.sortOrder : mvConfig.defaultOrder;
+
+    return { mvConfig, client, whereClause, queryParams, sortBy, sortOrder };
+}
+
 export class SensorDataService {
     private static instance: SensorDataService;
 
-    private constructor() { }
+    private constructor() {}
 
     static getInstance(): SensorDataService {
         if (!SensorDataService.instance) {
@@ -38,124 +144,90 @@ export class SensorDataService {
     }
 
     /**
-     * Query sensor data from the appropriate MV
+     * Stream all matching rows as CSV (with header) from ClickHouse without buffering the full dataset in Node.
+     * Enforces the same 31-day export window as the analytics UI.
      */
-    async query<T extends SensorDataRow = SensorDataRow>(
-        params: SensorDataQueryParams
-    ): Promise<SensorDataResponse<T>> {
-        // Validate required params
-        if (!params.accountId) {
-            throw new Error('accountId is required');
-        }
+    async streamExportCsvWeb(params: SensorDataQueryParams): Promise<ReadableStream<Uint8Array>> {
+        const b = buildSensorDataQueryParts(params);
+        validateExportDateRange(params.startTime!, params.endTime!);
 
-        const mvConfig = MV_REGISTRY[params.dataType];
-        if (!mvConfig) {
-            throw new Error(`Unknown data type: ${params.dataType}`);
-        }
+        const exportSql = `
+            SELECT *
+            FROM ${b.mvConfig.mv}
+            WHERE ${b.whereClause}
+            ORDER BY ${b.sortBy} ${b.sortOrder.toUpperCase()}
+        `;
 
-        const client = getClickHouseClient();
-        const timeField = mvConfig.timeField ?? 'log_creation_time';
+        const result = await b.client.query({
+            query: exportSql,
+            format: 'CSVWithNames',
+            query_params: b.queryParams,
+        });
 
-        // Date range is required from the UI for both session and path-tracking
-        if (!params.startTime || !params.endTime) {
-            throw new Error('startTime and endTime are required. Please select a date range (Current week, Current month, or Custom).');
-        }
-        const startTime = params.startTime;
-        const endTime = params.endTime;
+        const encoder = new TextEncoder();
+        const nodeRows = result.stream() as AsyncIterable<Array<{ text: string }>>;
 
-        // Build WHERE conditions
-        const conditions: string[] = ['account_id = {accountId:String}'];
-        const queryParams: Record<string, string | number> = {
-            accountId: params.accountId,
-        };
+        return new ReadableStream<Uint8Array>({
+            async start(controller) {
+                try {
+                    for await (const rows of nodeRows) {
+                        for (const row of rows) {
+                            controller.enqueue(encoder.encode(`${row.text}\n`));
+                        }
+                    }
+                    controller.close();
+                } catch (e) {
+                    try {
+                        result.close();
+                    } catch {
+                        /* ignore */
+                    }
+                    controller.error(e instanceof Error ? e : new Error(String(e)));
+                }
+            },
+        });
+    }
 
-        if (params.deviceId) {
-            conditions.push('device_id = {deviceId:String}');
-            queryParams.deviceId = params.deviceId;
-        }
+    /**
+     * Query sensor data from the appropriate MV (paginated JSON).
+     */
+    async query<T extends SensorDataRow = SensorDataRow>(params: SensorDataQueryParams): Promise<SensorDataResponse<T>> {
+        const b = buildSensorDataQueryParts(params);
 
-        if (params.sensorId) {
-            conditions.push('sensor_id = {sensorId:String}');
-            queryParams.sensorId = params.sensorId;
-        }
+        const countQuery = `
+            SELECT count() as total
+            FROM ${b.mvConfig.mv}
+            WHERE ${b.whereClause}
+        `;
 
-        if (params.targetId) {
-            conditions.push('target_id = {targetId:String}');
-            queryParams.targetId = params.targetId;
-        }
-
-        if (startTime) {
-            conditions.push(`${timeField} >= {startTime:DateTime}`);
-            queryParams.startTime = toClickHouseDateTime(startTime);
-        }
-
-        if (endTime) {
-            conditions.push(`${timeField} <= {endTime:DateTime}`);
-            queryParams.endTime = toClickHouseDateTime(endTime);
-        }
-
-        // Search across configured fields
-        if (params.search && mvConfig.searchFields.length > 0) {
-            const searchConditions = mvConfig.searchFields.map(
-                (field) => `${field} ILIKE {search:String}`
-            );
-            conditions.push(`(${searchConditions.join(' OR ')})`);
-            queryParams.search = `%${params.search}%`;
-        }
-
-        const whereClause = conditions.join(' AND ');
-
-        // Pagination
         const page = params.page ?? 1;
         const perPage = Math.min(params.perPage ?? 25, 100); // Max 100
         const offset = (page - 1) * perPage;
 
-        // Sorting
-        const sortByCandidate = params.sortBy ?? mvConfig.defaultSort;
-        const sortBy =
-            mvConfig.allowedSortFields && mvConfig.allowedSortFields.length > 0
-                ? (mvConfig.allowedSortFields.includes(sortByCandidate) ? sortByCandidate : mvConfig.defaultSort)
-                : sortByCandidate;
-
-        const sortOrder =
-            params.sortOrder === 'asc' || params.sortOrder === 'desc'
-                ? params.sortOrder
-                : mvConfig.defaultOrder;
-
-        // Execute data query
         const dataQuery = `
             SELECT *
-            FROM ${mvConfig.mv}
-            WHERE ${whereClause}
-            ORDER BY ${sortBy} ${sortOrder.toUpperCase()}
+            FROM ${b.mvConfig.mv}
+            WHERE ${b.whereClause}
+            ORDER BY ${b.sortBy} ${b.sortOrder.toUpperCase()}
             LIMIT {limit:UInt32}
             OFFSET {offset:UInt32}
         `;
 
-        queryParams.limit = perPage;
-        queryParams.offset = offset;
+        const dataQueryParams = {
+            ...b.queryParams,
+            limit: perPage,
+            offset,
+        };
 
-        const dataResult = await client.query({
+        const dataResult = await b.client.query({
             query: dataQuery,
-            query_params: queryParams,
+            query_params: dataQueryParams,
         });
         const data = (await dataResult.json()).data as T[];
 
-        // Execute count query (reuse conditions, no pagination)
-        const countQuery = `
-            SELECT count() as total
-            FROM ${mvConfig.mv}
-            WHERE ${whereClause}
-        `;
-
-        // Remove pagination params for count
-        const countParams = { ...queryParams };
-        delete countParams.limit;
-        delete countParams.offset;
-
-        const countResult = await client.query({
+        const countResult = await b.client.query({
             query: countQuery,
-            query_params: countParams,
+            query_params: b.queryParams,
         });
         const countData = (await countResult.json()).data as Array<{ total: string }>;
         const totalRecords = parseInt(countData[0]?.total ?? '0', 10);
@@ -169,8 +241,8 @@ export class SensorDataService {
                 total_pages: Math.ceil(totalRecords / perPage),
             },
             sort: {
-                field: sortBy,
-                order: sortOrder,
+                field: b.sortBy,
+                order: b.sortOrder,
             },
         };
     }

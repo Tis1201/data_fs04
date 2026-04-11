@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { tick, onDestroy } from 'svelte';
+    import { get } from 'svelte/store';
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
@@ -15,6 +17,7 @@
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
     import { formatDuration, formatZoneDwellJson, formatProximityM } from '$lib/utils/radarFormatting';
+    import { RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS } from '$lib/utils/radarExportLimits';
 
     export let data: PageData;
 
@@ -43,7 +46,7 @@
 
     $: effectiveRange = (rangeParam === 'week' || rangeParam === 'month' || rangeParam === 'custom') ? rangeParam : 'week';
 
-    let searchValue: string = searchParam || '';
+    let searchValue: string = browser ? (get(page).url.searchParams.get('search') || '') : '';
     let filterModalOpen = false;
     let filterDeviceId = deviceParam;
     let filterRangeType: RangeType = effectiveRange;
@@ -88,18 +91,21 @@
     let previewPathRow: Record<string, unknown> | null = null;
     $: previewPathRaw = previewPathRow?._raw != null ? (previewPathRow._raw as Record<string, unknown>) : null;
 
-    function setUrlParams(updates: Record<string, string | null>) {
+    /** Await so $page / derived range & pagination params match the URL before client fetches. */
+    async function setUrlParams(updates: Record<string, string | null>): Promise<void> {
         const url = new URL($page.url);
         for (const [k, v] of Object.entries(updates)) {
             if (v == null || v === '') url.searchParams.delete(k);
             else url.searchParams.set(k, v);
         }
-        goto(url.toString(), { replaceState: true, noScroll: true });
+        await goto(url.toString(), { replaceState: true, noScroll: true });
+        await tick();
     }
 
-    function handleTabChange(e: CustomEvent<string>) {
+    async function handleTabChange(e: CustomEvent<string>) {
         const tab = e.detail;
-        setUrlParams({ tab, page: null });
+        // Session logs uses `page`, path tracking uses `path_page` — clear both so the inactive tab’s pagination never sticks in the URL.
+        await setUrlParams({ tab, page: null, path_page: null });
     }
 
     function parseClickHouseDateTime(value: unknown): Date | null {
@@ -127,6 +133,17 @@
         const d = parseClickHouseDateTime(value);
         if (!d) return '—';
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    /** MV row: show device/sensor label — name first, then MAC, then sensor id (matches search/filter semantics). */
+    function displayDeviceNameFromRow(r: Record<string, unknown>): string {
+        const name = r.sensor_name;
+        if (name != null && String(name).trim() !== '') return String(name);
+        const mac = r.mac_address;
+        if (mac != null && String(mac).trim() !== '') return String(mac);
+        const sid = r.sensor_id;
+        if (sid != null && String(sid).trim() !== '') return String(sid);
+        return '—';
     }
 
     async function fetchSessionLogs(pageNum?: number) {
@@ -162,7 +179,7 @@
             const rows = (json.data || []).map((r: Record<string, unknown>, i: number) => ({
                 id: `sess-${i}-${r.target_id ?? r.log_creation_time ?? i}`,
                 sessionId: r.target_id ?? '—',
-                sensor: r.sensor_name ?? '—',
+                sensor: displayDeviceNameFromRow(r),
                 startOn: r.log_creation_time,
                 duration: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : '—',
                 zone: formatZoneDwellJson(r.zone_dwell_times_json),
@@ -181,6 +198,7 @@
         } catch (e) {
             toast.error(e instanceof Error ? e.message : 'Failed to load session logs');
             sessionLogsData = [];
+            sessionLogsPagination = { page: 1, pageSize: PAGE_SIZE, totalItems: 0, totalPages: 0 };
         } finally {
             sessionLogsLoading = false;
         }
@@ -222,7 +240,7 @@
                 targetId: r.target_id ? String(r.target_id) : '—',
                 xM: r.x_m != null ? Number(r.x_m).toFixed(2) : '—',
                 yM: r.y_m != null ? Number(r.y_m).toFixed(2) : '—',
-                deviceName: r.sensor_name ?? '—',
+                deviceName: displayDeviceNameFromRow(r),
                 timezone: r.timezone_label ?? '—',
                 _raw: r
             }));
@@ -237,6 +255,7 @@
         } catch (e) {
             toast.error(e instanceof Error ? e.message : 'Failed to load path tracking');
             pathTrackingData = [];
+            pathTrackingPagination = { page: 1, pageSize: PAGE_SIZE, totalItems: 0, totalPages: 0 };
         } finally {
             pathTrackingLoading = false;
         }
@@ -249,30 +268,62 @@
         fetchPathTracking();
     }
 
-    function onSessionSort(e: CustomEvent<SortState>) {
+    async function onSessionSort(e: CustomEvent<SortState>) {
         sessionLogsSort = e.detail;
-        setUrlParams({ page: '1' });
-        fetchSessionLogs();
+        await setUrlParams({ page: '1' });
+        await fetchSessionLogs(1);
     }
-    function onSessionPageChange(pageNum: number) {
-        setUrlParams({ page: String(pageNum) });
-        fetchSessionLogs(pageNum);
+    async function onSessionPageChange(pageNum: number) {
+        await setUrlParams({ page: String(pageNum) });
+        await fetchSessionLogs(pageNum);
     }
-    function onPathSort(e: CustomEvent<SortState>) {
+    async function onPathSort(e: CustomEvent<SortState>) {
         pathTrackingSort = e.detail;
-        setUrlParams({ path_page: '1' });
-        fetchPathTracking();
+        await setUrlParams({ path_page: '1' });
+        await fetchPathTracking(1);
     }
-    function onPathPageChange(pageNum: number) {
-        setUrlParams({ path_page: String(pageNum) });
-        fetchPathTracking(pageNum);
+    async function onPathPageChange(pageNum: number) {
+        await setUrlParams({ path_page: String(pageNum) });
+        await fetchPathTracking(pageNum);
     }
 
-    function applySearch() {
-        setUrlParams({ search: searchValue?.trim() || null, page: null, path_page: null });
-        if (activeTab === 'session-logs') fetchSessionLogs();
-        else if (activeTab === 'path-tracking') fetchPathTracking();
+    /** Enter / explicit submit: apply immediately (debounced input also updates URL). */
+    async function applySearch() {
+        await setUrlParams({ search: searchValue?.trim() || null, page: null, path_page: null });
+        if (activeTab === 'session-logs') await fetchSessionLogs(1);
+        else if (activeTab === 'path-tracking') await fetchPathTracking(1);
     }
+
+    const SEARCH_DEBOUNCE_MS = 500;
+    let searchDebounceTimeout: ReturnType<typeof setTimeout>;
+
+    /** Same pattern as user/controllers/radar: debounce keystrokes, sync search to URL, reset pagination, refetch. */
+    $: if (browser && typeof searchValue !== 'undefined') {
+        clearTimeout(searchDebounceTimeout);
+        searchDebounceTimeout = setTimeout(() => {
+            void (async () => {
+                const currentSearch = $page.url.searchParams.get('search') || '';
+                const newSearch = searchValue.trim();
+                if (newSearch === currentSearch) return;
+                const url = new URL($page.url);
+                if (newSearch) {
+                    url.searchParams.set('search', newSearch);
+                } else {
+                    url.searchParams.delete('search');
+                }
+                url.searchParams.delete('page');
+                url.searchParams.delete('path_page');
+                await goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
+                await tick();
+                const tab = $page.url.searchParams.get('tab') || 'session-logs';
+                const display = tab === 'summary-logs' ? 'session-logs' : tab;
+                if (display === 'session-logs') await fetchSessionLogs(1);
+                else if (display === 'path-tracking') await fetchPathTracking(1);
+            })();
+        }, SEARCH_DEBOUNCE_MS);
+    }
+
+    onDestroy(() => clearTimeout(searchDebounceTimeout));
 
     function openFilterModal() {
         filterRangeType = effectiveRange;
@@ -303,13 +354,13 @@
         }
     }
 
-    function applyFilter() {
+    async function applyFilter() {
         if (filterRangeType === 'custom') {
             if (!filterFrom || !filterTo) {
                 toast.error('Please select both From and To dates for Custom range.');
                 return;
             }
-            setUrlParams({
+            await setUrlParams({
                 range: 'custom',
                 startTime: `${filterFrom}T00:00:00.000Z`,
                 endTime: `${filterTo}T23:59:59.999Z`,
@@ -318,7 +369,7 @@
                 path_page: null
             });
         } else {
-            setUrlParams({
+            await setUrlParams({
                 range: filterRangeType,
                 startTime: null,
                 endTime: null,
@@ -328,20 +379,20 @@
             });
         }
         filterModalOpen = false;
-        if (activeTab === 'session-logs') fetchSessionLogs();
-        else if (activeTab === 'path-tracking') fetchPathTracking();
+        if (activeTab === 'session-logs') await fetchSessionLogs(1);
+        else if (activeTab === 'path-tracking') await fetchPathTracking(1);
     }
 
-    function clearFilter() {
+    async function clearFilter() {
         // Only reset selection; user must click Apply to apply changes (modal stays open)
         filterDeviceId = '';
         filterFrom = '';
         filterTo = '';
         filterRangeType = 'week';
         deviceOptionsList = [...sensors];
-        setUrlParams({ range: 'week', sensorId: null, startTime: null, endTime: null, page: null, path_page: null });
-        if (activeTab === 'session-logs') fetchSessionLogs();
-        else if (activeTab === 'path-tracking') fetchPathTracking();
+        await setUrlParams({ range: 'week', sensorId: null, startTime: null, endTime: null, page: null, path_page: null });
+        if (activeTab === 'session-logs') await fetchSessionLogs(1);
+        else if (activeTab === 'path-tracking') await fetchPathTracking(1);
     }
 
     async function exportData() {
@@ -354,55 +405,67 @@
         const range = getDateRangeForFilter();
         if (!range) {
             toast.error('Please select a date range in the filter (Current week, Current month, or Custom with From/To).');
-            exporting = false;
+            return;
+        }
+        const exportSpanMs = new Date(range.endTime).getTime() - new Date(range.startTime).getTime();
+        if (exportSpanMs > RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS) {
+            toast.error(
+                'You can only export data within a 31-day window. Please narrow your date range in the filter.'
+            );
             return;
         }
         exporting = true;
         try {
-            const params = new URLSearchParams($page.url.searchParams);
-            params.set('per_page', '10000');
-            params.set('page', '1');
+            const params = new URLSearchParams();
             params.set('startTime', range.startTime);
             params.set('endTime', range.endTime);
-            if (filterDeviceId) params.set('sensorId', filterDeviceId);
+            if (deviceParam) params.set('sensorId', deviceParam);
             if (searchValue?.trim()) params.set('search', searchValue.trim());
-            const res = await fetch(`/api/sensor-data/${dataType}?${params}`);
-            const result = await res.json();
-            if (!res.ok) throw new Error(result.error || 'Export failed');
-            const rows = result.data || [];
-            if (rows.length === 0) {
+            if (dataType === 'radar_session') {
+                const sessionSortField =
+                    sessionLogsSort.field === 'sessionId' ? 'target_id'
+                    : sessionLogsSort.field === 'sensor' ? 'sensor_name'
+                    : sessionLogsSort.field === 'startOn' ? 'log_creation_time'
+                    : sessionLogsSort.field === 'duration' ? 'dwell_tracking_area_sec'
+                    : sessionLogsSort.field === 'timezone' ? 'timezone_label'
+                    : sessionLogsSort.field === 'proximityM' ? 'proximity_m'
+                    : 'log_creation_time';
+                params.set('sort', sessionSortField);
+                params.set('order', sessionLogsSort.direction || 'desc');
+            } else {
+                const pathSortField =
+                    pathTrackingSort.field === 'date' ? 'processed_at'
+                    : pathTrackingSort.field === 'targetId' ? 'target_id'
+                    : pathTrackingSort.field === 'xM' ? 'x_m'
+                    : pathTrackingSort.field === 'yM' ? 'y_m'
+                    : pathTrackingSort.field === 'sensor' ? 'sensor_name'
+                    : pathTrackingSort.field === 'timezone' ? 'timezone_label'
+                    : 'processed_at';
+                params.set('sort', pathSortField);
+                params.set('order', pathTrackingSort.direction || 'desc');
+            }
+
+            const res = await fetch(`/api/sensor-data/${dataType}/export?${params}`, { credentials: 'include' });
+            const contentType = res.headers.get('content-type') || '';
+            if (!res.ok) {
+                const errBody = contentType.includes('application/json') ? await res.json().catch(() => ({})) : {};
+                throw new Error((errBody as { error?: string }).error || 'Export failed');
+            }
+            if (!contentType.includes('text/csv') && !contentType.includes('application/octet-stream')) {
+                const errBody = await res.json().catch(() => ({}));
+                throw new Error((errBody as { error?: string }).error || 'Export failed');
+            }
+            const blob = await res.blob();
+            if (blob.size === 0) {
                 toast.error('No data to export');
                 return;
             }
-            const headers = dataType === 'radar_session'
-                ? ['Session ID', 'Sensor', 'Start On', 'Duration (sec)', 'Zone', 'Timezone', 'Proximity (m)']
-                : ['Date', 'Target ID', 'X (m)', 'Y (m)', 'Sensor', 'Timezone'];
-            const keys = dataType === 'radar_session'
-                ? ['target_id', 'sensor_name', 'log_creation_time', 'dwell_tracking_area_sec', 'zone_dwell_times_json', 'timezone_label', 'proximity_m']
-                : ['processed_at', 'target_id', 'x_m', 'y_m', 'sensor_name', 'timezone_label'];
-            const csvRows = [headers.map((h) => `"${h}"`).join(',')];
-            for (const row of rows) {
-                const values = keys.map((k) => {
-                    if (!k) return '""';
-                    let v: unknown = (row as Record<string, unknown>)[k];
-                    if (v == null) return '""';
-                    if (k === 'dwell_tracking_area_sec') v = formatDuration(Number(v));
-                    if (k === 'proximity_m') v = formatProximityM(v);
-                    if (k === 'zone_dwell_times_json' && v != null) {
-                        const z = formatZoneDwellJson(v);
-                        v = z === '—' ? '' : z;
-                    }
-                    return `"${String(v).replace(/"/g, '""')}"`;
-                });
-                csvRows.push(values.join(','));
-            }
-            const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
+            const blobUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
+            a.href = blobUrl;
             a.download = `${dataType}_export_${new Date().toISOString().slice(0, 10)}.csv`;
             a.click();
-            URL.revokeObjectURL(url);
+            URL.revokeObjectURL(blobUrl);
             toast.success('Export completed');
         } catch (e) {
             toast.error(e instanceof Error ? e.message : 'Export failed');
@@ -413,7 +476,7 @@
 
     const sessionLogsColumns: ColumnDef[] = [
         { id: 'sessionId', header: 'Session ID', accessor: (r) => r.sessionId, type: 'text', sortable: true, width: '14%' },
-        { id: 'sensor', header: 'Sensor', accessor: (r) => r.sensor, type: 'text', sortable: true, width: '14%' },
+        { id: 'sensor', header: 'Device name', accessor: (r) => r.sensor, type: 'text', sortable: true, width: '14%' },
         { id: 'startOn', header: 'Start On', accessor: (r) => formatDateTime(r.startOn ?? ''), type: 'text', sortable: true, width: '14%' },
         { id: 'duration', header: 'Duration', accessor: (r) => r.duration, type: 'text', sortable: true, width: '12%' },
         { id: 'zone', header: 'Zone', accessor: (r) => r.zone ?? '—', type: 'text', width: '18%' },
@@ -436,12 +499,15 @@
         { id: 'targetId', header: 'Target ID', accessor: (r) => r.targetId, type: 'text', width: '16%' },
         { id: 'xM', header: 'X (m)', accessor: (r) => r.xM, type: 'text', width: '12%' },
         { id: 'yM', header: 'Y (m)', accessor: (r) => r.yM, type: 'text', width: '12%' },
-        { id: 'sensor', header: 'Sensor', accessor: (r) => r.deviceName, type: 'text', width: '22%' },
+        { id: 'sensor', header: 'Device name', accessor: (r) => r.deviceName, type: 'text', width: '22%' },
         { id: 'timezone', header: 'Timezone', accessor: (r) => r.timezone ?? '—', type: 'text', width: '20%' }
     ];
 
-    function handlePathRowClick(row: Record<string, unknown>) {
-        previewPathRow = row;
+    /** DataTable dispatches `rowClick` with `{ row, index }`, not the row alone. */
+    function handlePathRowClick(
+        e: CustomEvent<{ row: Record<string, unknown>; index: number }>
+    ) {
+        previewPathRow = e.detail.row;
     }
 
     $: currentPage = activeTab === 'session-logs'
@@ -462,7 +528,7 @@
             <form role="search" on:submit|preventDefault={applySearch} style="height: 100%;">
                 <InputField
                     type="search"
-                    placeholder="Search by Device name"
+                    placeholder="Search by device name"
                     bind:value={searchValue}
                     label=""
                     prefixIcon={true}
@@ -531,7 +597,7 @@
                 on:pageChange={(e) => onPathPageChange(e.detail)}
                 loading={pathTrackingLoading}
                 emptyMessage="No path tracking data found"
-                on:rowClick={(e) => handlePathRowClick(e.detail)}
+                on:rowClick={handlePathRowClick}
             />
         </div>
     {/if}
@@ -612,7 +678,9 @@
             <!-- Info wrap -->
             <div class="preview-info-wrap">
                 <div class="preview-timestamp">
-                    {formatDateTime(String(previewPathRaw.log_creation_time ?? ''))}
+                    {formatDateTime(
+                        previewPathRaw.processed_at ?? previewPathRaw.log_creation_time ?? ''
+                    )}
                 </div>
                 <div class="preview-stats">
                     <span class="preview-stat">• Path Point: {previewPathRow.id ?? '—'}</span>
