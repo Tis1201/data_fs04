@@ -379,9 +379,9 @@
                 return;
             }
             toast.success('Configuration saved successfully!');
+            await invalidate('app:userTemplates');
             zonesInitialized = false;
             arenaInitialized = false;
-            await invalidate('app:userTemplates');
         } catch {
             toast.error('Unable to save configuration. Please try again!');
         } finally {
@@ -435,9 +435,9 @@
             }
             toast.success('Template updated successfully!');
             closeEditModal();
+            await invalidate('app:userTemplates');
             zonesInitialized = false;
             arenaInitialized = false;
-            await invalidate('app:userTemplates');
         } catch {
             toast.error('Unable to save template. Please try again!');
         } finally {
@@ -472,7 +472,7 @@
     })();
 
     $: trackingAreaDisplay = (() => {
-        const ta = trackingArea;
+        const ta = editorArenaValue;
         if (!ta) {
             return {
                 leftM: 0,
@@ -485,11 +485,10 @@
                 yMax: 0
             };
         }
-        // Support both xMin/xMax/yMin/yMax and startX/startY/endX/endY formats
-        const xMin = ta.xMin ?? ta.startX ?? 0;
-        const xMax = ta.xMax ?? ta.endX ?? 0;
-        const yMin = ta.yMin ?? ta.startY ?? 0;
-        const yMax = ta.yMax ?? ta.endY ?? 0;
+        const xMin = ta.startX;
+        const xMax = ta.endX;
+        const yMin = ta.startY;
+        const yMax = ta.endY;
         return {
             leftM: Math.abs(xMin),
             rightM: Math.abs(xMax),
@@ -750,11 +749,13 @@
                                     <span class="alert-value">{alertDisplay.email.text}</span>
                                 </div>
                             </div>
+                            {#if alertDisplay.email.enabled}
                             <div class="alert-row">
                                 <div class="alert-cell alert-cell-full">
                                     <span class="alert-text">{alertDisplay.email.address}</span>
                                 </div>
                             </div>
+                            {/if}
                         </div>
                         <div class="alert-table-wrap alert-table-wrap-last">
                             <div class="alert-row">
@@ -765,11 +766,13 @@
                                     <span class="alert-value">{alertDisplay.webhook.text}</span>
                                 </div>
                             </div>
+                            {#if alertDisplay.webhook.enabled}
                             <div class="alert-row">
                                 <div class="alert-cell alert-cell-full">
                                     <span class="alert-text">{alertDisplay.webhook.url}</span>
                                 </div>
                             </div>
+                            {/if}
                         </div>
                     </div>
                 </Card>
@@ -1025,6 +1028,8 @@
     open={showEditModal}
     template={editTemplateData}
     availableSensors={availableSensorsForEdit}
+    existingTemplateNames={data.existingTemplateNames ?? []}
+    loading={editSaving}
     on:close={closeEditModal}
     on:save={handleSaveTemplate}
 />

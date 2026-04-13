@@ -179,6 +179,18 @@ export const actions: Actions = {
 
             const user = locals.user;
 
+            // Check for duplicate template name within the account
+            const existingTemplate = await prisma.sensorTemplate.findFirst({
+                where: {
+                    accountId,
+                    name: { equals: name.trim(), mode: 'insensitive' }
+                },
+                select: { id: true }
+            });
+            if (existingTemplate) {
+                return { success: false, error: 'Template name already exists' };
+            }
+
             // Parse JSON fields
             const parsedTrackingArea = trackingArea ? JSON.parse(trackingArea) : null;
             const parsedZones = zones ? JSON.parse(zones) : [];

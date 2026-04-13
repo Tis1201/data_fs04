@@ -522,6 +522,8 @@
     bind:open={showAddTemplateModal}
     templateType={addTemplateType}
     {availableSensors}
+    existingTemplateNames={templates.map(t => t.name)}
+    loading={addTemplateLoading}
     on:close={() => (showAddTemplateModal = false)}
     on:add={handleAddTemplate}
 />

@@ -209,10 +209,18 @@ export const load = restrict(
             mac: s.serialNumber || undefined
         }));
 
+        // Fetch all template names for duplicate validation (excluding current template)
+        const allTemplates = await prisma.sensorTemplate.findMany({
+            where: { accountId, id: { not: id } },
+            select: { name: true }
+        });
+        const existingTemplateNames = allTemplates.map(t => t.name);
+
         return {
             template,
             assignedSensors,
             availableSensors,
+            existingTemplateNames,
             assignedPagination: {
                 page: assignedPage,
                 per_page: assignedPerPage,
@@ -274,6 +282,19 @@ export const actions: Actions = {
 
                 if (!existingTemplate) {
                     return { success: false, error: 'Template not found' };
+                }
+
+                // Check for duplicate template name (case-insensitive, excluding current template)
+                const duplicateName = await prisma.sensorTemplate.findFirst({
+                    where: {
+                        accountId,
+                        id: { not: id },
+                        name: { equals: name.trim(), mode: 'insensitive' }
+                    },
+                    select: { id: true }
+                });
+                if (duplicateName) {
+                    return { success: false, error: 'Template name already exists' };
                 }
 
                 // Update template in database
