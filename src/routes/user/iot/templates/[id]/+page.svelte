@@ -33,6 +33,17 @@
     import type { TemplateDetail, TemplateConfig, TemplateAlertSettings } from './+page.server';
     import { toast } from '$lib/stores/alertToast';
     import { invalidate } from '$app/navigation';
+    import { deserialize } from '$app/forms';
+
+    function parseActionResult(result: ReturnType<typeof deserialize>): Record<string, unknown> {
+        if (result.type === 'success' && result.data) {
+            return result.data as Record<string, unknown>;
+        }
+        if (result.type === 'failure' && result.data) {
+            return result.data as Record<string, unknown>;
+        }
+        return {};
+    }
 
     export let data: PageData;
 
@@ -373,9 +384,9 @@
             }))));
 
             const res = await fetch('?/saveConfig', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to save configuration. Please try again!');
+                toast.error((result?.error as string) || 'Unable to save configuration. Please try again!');
                 return;
             }
             toast.success('Configuration saved successfully!');
@@ -428,9 +439,9 @@
             }
 
             const res = await fetch('?/update', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to save template. Please try again!');
+                toast.error((result?.error as string) || 'Unable to save template. Please try again!');
                 return;
             }
             toast.success('Template updated successfully!');
@@ -542,9 +553,9 @@
             fd.set('sensorId', sensorToRemove.id);
             fd.set('templateId', template?.id ?? '');
             const res = await fetch('?/removeSensor', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to remove sensor. Please try again!');
+                toast.error((result?.error as string) || 'Unable to remove sensor. Please try again!');
                 return;
             }
             toast.success('Sensor removed successfully!');

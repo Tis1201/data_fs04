@@ -2,6 +2,7 @@
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
+    import { deserialize } from '$app/forms';
     import {
         Button,
         InputField,
@@ -17,6 +18,16 @@
     import { invalidate } from '$app/navigation';
     import AddTemplateModal from '$lib/components/ui_components_sveltekit/templates/AddTemplateModal.svelte';
     import EditTemplateModal from '$lib/components/ui_components_sveltekit/templates/EditTemplateModal.svelte';
+
+    function parseActionResult(result: ReturnType<typeof deserialize>): Record<string, unknown> {
+        if (result.type === 'success' && result.data) {
+            return result.data as Record<string, unknown>;
+        }
+        if (result.type === 'failure' && result.data) {
+            return result.data as Record<string, unknown>;
+        }
+        return {};
+    }
 
     export let data: PageData;
 
@@ -125,9 +136,9 @@
             const fd = new FormData();
             fd.set('id', duplicateTarget.id);
             const res = await fetch('?/duplicate', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to duplicate template. Please try again!');
+                toast.error((result?.error as string) || 'Unable to duplicate template. Please try again!');
                 return;
             }
             toast.success('Template duplicated successfully!');
@@ -157,9 +168,9 @@
             const fd = new FormData();
             fd.set('id', deleteTarget.id);
             const res = await fetch('?/delete', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to delete template. Please try again!');
+                toast.error((result?.error as string) || 'Unable to delete template. Please try again!');
                 return;
             }
             toast.success('Template deleted successfully!');
@@ -189,9 +200,9 @@
             const fd = new FormData();
             fd.set('id', setDefaultTarget.id);
             const res = await fetch('?/setDefault', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to set template as default. Please try again!');
+                toast.error((result?.error as string) || 'Unable to set template as default. Please try again!');
                 return;
             }
             toast.success('Template set as default successfully!');
@@ -276,10 +287,10 @@
             fd.set('selectedSensors', JSON.stringify(detail.selectedSensors || []));
 
             const res = await fetch('?/update', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
 
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to update template. Please try again!');
+                toast.error((result?.error as string) || 'Unable to update template. Please try again!');
                 return;
             }
 
@@ -337,10 +348,10 @@
             }
 
             const res = await fetch('?/create', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = parseActionResult(deserialize(await res.text()));
 
             if (result?.success === false) {
-                toast.error(result?.error || 'Unable to create template. Please try again!');
+                toast.error((result?.error as string) || 'Unable to create template. Please try again!');
                 return;
             }
 
@@ -533,6 +544,8 @@
     bind:open={showEditTemplateModal}
     template={editTemplateData}
     availableSensors={availableSensors}
+    existingTemplateNames={templates.filter(t => t.id !== editTarget?.id).map(t => t.name)}
+    loading={editTemplateLoading}
     on:close={closeEditModal}
     on:save={handleEditTemplate}
 />
