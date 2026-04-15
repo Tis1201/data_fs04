@@ -237,6 +237,19 @@
         editTarget = null;
     }
 
+    // Build map of sensorId → templateName for each template type (for duplicate assignment checks)
+    $: sensorAssignmentMap = (() => {
+        const map: Record<string, string> = {};
+        for (const t of templates) {
+            if (t.assignedSensorsList) {
+                for (const s of t.assignedSensorsList) {
+                    map[`${t.type}::${s.id}`] = t.name;
+                }
+            }
+        }
+        return map;
+    })();
+
     // Prepare edit template data for modal
     $: editTemplateData = editTarget ? {
         id: editTarget.id,
@@ -534,6 +547,7 @@
     templateType={addTemplateType}
     {availableSensors}
     existingTemplateNames={templates.map(t => t.name)}
+    {sensorAssignmentMap}
     loading={addTemplateLoading}
     on:close={() => (showAddTemplateModal = false)}
     on:add={handleAddTemplate}
@@ -545,6 +559,7 @@
     template={editTemplateData}
     availableSensors={availableSensors}
     existingTemplateNames={templates.filter(t => t.id !== editTarget?.id).map(t => t.name)}
+    {sensorAssignmentMap}
     loading={editTemplateLoading}
     on:close={closeEditModal}
     on:save={handleEditTemplate}

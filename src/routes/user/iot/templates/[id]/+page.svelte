@@ -333,6 +333,7 @@
     function confirmZoneAction(): void {
         if (zoneConfirmKind === 'delete') {
             editorZonesValue = editorZonesValue.filter((z) => (z.id ?? `zone-${z.zoneNumber}`) !== pendingZoneId);
+            activeZoneTab = 'all';
             toast.success('Zone deleted! Click "Save Configuration" to persist changes.');
         } else if (zoneConfirmKind === 'deactivate' || zoneConfirmKind === 'activate') {
             editorZonesValue = editorZonesValue.map((z) => {
