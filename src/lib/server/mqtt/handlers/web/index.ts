@@ -36,6 +36,7 @@ import {
 } from './webrtc/handle_webrtc';
 import { handleSensorPreviewStart, handleSensorPreviewStop } from './handle_sensor_preview';
 import { handleSensorConfigSave, handleSensorConfigPush } from './handle_sensor_config';
+import { handleSensorUsbStatusRequest } from './handle_sensor_usb_status';
 
 /********************************************************************************************
  * Register web-side MQTT RPC handlers for user topics (user/<subject>/...).
@@ -72,7 +73,8 @@ export function registerWebHandlers(prisma: PrismaClient): void {
             'sensor.preview.start': handleSensorPreviewStart as any,
             'sensor.preview.stop': handleSensorPreviewStop as any,
             'sensor.config.save': handleSensorConfigSave as any,
-            'sensor.config.push': handleSensorConfigPush as any
+            'sensor.config.push': handleSensorConfigPush as any,
+            'sensor.usb.status.request': handleSensorUsbStatusRequest as any
         },
         prisma
     );

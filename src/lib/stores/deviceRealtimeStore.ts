@@ -44,6 +44,31 @@ export const deviceRealtimeStore = derived(deviceStates, ($states) => ({
     }
 }));
 
+/** Last radar USB link status from device MQTT (`radar:usb_status`). */
+export type RadarUsbStatusUpdate = {
+    deviceId: string;
+    sensorId?: string;
+    controllerId?: string;
+    usbConnected: boolean;
+    timestamp: string;
+};
+
+const radarUsbBySensorKey = writable<Map<string, RadarUsbStatusUpdate>>(new Map());
+const radarUsbByDeviceControllerKey = writable<Map<string, RadarUsbStatusUpdate>>(new Map());
+
+/** Real-time radar USB status (populated when device publishes `radar:usb_status`). */
+export const radarUsbRealtimeStore = derived(
+    [radarUsbBySensorKey, radarUsbByDeviceControllerKey],
+    ([$bySensor, $byDevCtrl]) => ({
+        getForRadar(sensorId: string, deviceId: string, controllerId: string): RadarUsbStatusUpdate | null {
+            const bySensor = $bySensor.get(sensorId);
+            if (bySensor) return bySensor;
+            const k = `${deviceId}:${controllerId}`;
+            return $byDevCtrl.get(k) ?? null;
+        }
+    })
+);
+
 // MQTT notification handlers for device connection updates
 let mqttUnsubscribes: (() => void)[] = [];
 
@@ -119,7 +144,45 @@ export function initializeDeviceRealtime(): void {
         }
     });
 
-    mqttUnsubscribes = [unsubConnection, unsubDisconnection];
+    const unsubRadarUsb = mqttClient.onNotification('radar:usb_status', (payload: any) => {
+        try {
+            const deviceId = payload?.deviceId as string | undefined;
+            if (!deviceId) {
+                if (browser) console.debug('[DeviceRealtimeStore] radar:usb_status missing deviceId');
+                return;
+            }
+            const row: RadarUsbStatusUpdate = {
+                deviceId,
+                sensorId: typeof payload?.sensorId === 'string' ? payload.sensorId : undefined,
+                controllerId: typeof payload?.controllerId === 'string' ? payload.controllerId : undefined,
+                usbConnected: Boolean(payload?.usbConnected),
+                timestamp:
+                    typeof payload?.timestamp === 'string'
+                        ? payload.timestamp
+                        : new Date().toISOString()
+            };
+            const sensorId = row.sensorId;
+            if (sensorId) {
+                radarUsbBySensorKey.update((m) => {
+                    const n = new Map(m);
+                    n.set(sensorId, row);
+                    return n;
+                });
+            }
+            if (row.controllerId) {
+                const dcKey = `${deviceId}:${row.controllerId}`;
+                radarUsbByDeviceControllerKey.update((m) => {
+                    const n = new Map(m);
+                    n.set(dcKey, row);
+                    return n;
+                });
+            }
+        } catch (error) {
+            if (browser) console.error('[DeviceRealtimeStore] radar:usb_status handler error:', error as any);
+        }
+    });
+
+    mqttUnsubscribes = [unsubConnection, unsubDisconnection, unsubRadarUsb];
 }
 
 export function cleanupDeviceRealtime(): void {
@@ -128,6 +191,8 @@ export function cleanupDeviceRealtime(): void {
         mqttUnsubscribes.forEach(unsub => unsub());
         mqttUnsubscribes = [];
     }
+    radarUsbBySensorKey.set(new Map());
+    radarUsbByDeviceControllerKey.set(new Map());
 }
 
 // Utility function to get device connection state

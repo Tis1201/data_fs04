@@ -4,7 +4,7 @@
   import { browser } from "$app/environment";
   import { onMount } from "svelte";
   import { toast } from "$lib/stores/alertToast";
-  import { initializeDeviceRealtime, deviceRealtimeStore } from "$lib/stores/deviceRealtimeStore";
+  import { initializeDeviceRealtime, deviceRealtimeStore, radarUsbRealtimeStore } from "$lib/stores/deviceRealtimeStore";
   import {
     MapPin,
     Settings,
@@ -26,6 +26,7 @@
     ScanSearch,
     ClipboardList,
     Upload,
+    RefreshCw,
   } from "lucide-svelte";
   import { mqttStore } from "$lib/stores/mqtt-store";
   import { callUserRpc } from "$lib/client/mqtt/userRpc";
@@ -116,6 +117,7 @@
 
   let showSensorConfigDialog = false;
   let isPushingToDevice = false;
+  let isSyncingUsbStatus = false;
   /** Shared Edit Device modal (same as Listing) – opened by header "Edit Device" button */
   let showEditDeviceModal = false;
   /** Add Zone modal – opened by Add Zone button in Zones Configuration */
@@ -774,7 +776,12 @@
 
   // Real-time device connection via MQTT (same as device listing)
   onMount(() => {
-    if (browser) initializeDeviceRealtime();
+    if (browser) {
+      initializeDeviceRealtime();
+      // Request current USB status from the controller so we don't start at "Waiting…"
+      const t = setTimeout(() => syncUsbStatus(), 1500);
+      return () => clearTimeout(t);
+    }
   });
 
   // Merge MQTT real-time store with server-loaded connected; prefer store when device is known
@@ -790,6 +797,52 @@
 
   $: connectionStatus = isDeviceConnectedRealtime ? "Online" : "Offline";
   $: connectionBadgeColor = isDeviceConnectedRealtime ? "success" as const : "gray" as const;
+
+  /** Radar USB host link — MQTT `radar:usb_status` from device (`device/{id}/events`). */
+  $: radarUsbLive = (() => {
+    const sid = data?.radarSensor?.id;
+    const did = data?.radarSensor?.controller?.device?.id;
+    const cid = data?.radarSensor?.controller?.id;
+    if (!sid || !did || !cid) return null;
+    return $radarUsbRealtimeStore.getForRadar(sid, did, cid);
+  })();
+
+  $: usbRadarLabel = !data?.radarSensor?.controller?.device?.id
+    ? "—"
+    : !isDeviceConnectedRealtime
+      ? "Offline"
+      : radarUsbLive
+        ? radarUsbLive.usbConnected
+          ? "Connected"
+          : "Disconnected"
+        : "Waiting…";
+
+  $: usbRadarBadgeColor = !data?.radarSensor?.controller?.device?.id
+    ? ("gray" as const)
+    : !isDeviceConnectedRealtime
+      ? ("gray" as const)
+      : radarUsbLive
+        ? radarUsbLive.usbConnected
+          ? ("success" as const)
+          : ("gray" as const)
+        : ("gray" as const);
+
+  async function syncUsbStatus(): Promise<void> {
+    const sensorId = data?.radarSensor?.id;
+    if (!sensorId || !isDeviceConnectedRealtime || isSyncingUsbStatus) return;
+    isSyncingUsbStatus = true;
+    try {
+      await callUserRpc<{ requested?: boolean }>(
+        "sensor.usb.status.request",
+        { sensorId },
+        { timeoutMs: 5000 }
+      );
+    } catch {
+      // Fire-and-forget; real update arrives via MQTT notification
+    } finally {
+      isSyncingUsbStatus = false;
+    }
+  }
 
   function formatDate(d: Date | string | null | undefined): string {
     if (!d) return "—";
@@ -1307,10 +1360,28 @@
           <span class="text-display-label">Device Code</span>
           <span class="text-display-value">{data.radarSensor.serialNumber || "—"}</span>
         </div>
-        <div class="text-display">
-          <span class="text-display-label">Connection Status</span>
-          <div class="text-display-value">
-            <Badge color={connectionBadgeColor} size="md" variant="filled" label={connectionStatus} />
+        <div class="text-display text-display-stack">
+          <div class="text-display-item">
+            <span class="text-display-label">Connection Status</span>
+            <div class="text-display-value">
+              <Badge color={connectionBadgeColor} size="md" variant="filled" label={connectionStatus} />
+            </div>
+          </div>
+          <div class="text-display-item">
+            <span class="text-display-label">USB Status</span>
+            <div class="text-display-value usb-status-row">
+              <Badge color={usbRadarBadgeColor} size="md" variant="filled" label={usbRadarLabel} />
+              {#if isDeviceConnectedRealtime}
+                <button
+                  class="usb-sync-btn"
+                  title="Sync USB status"
+                  disabled={isSyncingUsbStatus}
+                  on:click={syncUsbStatus}
+                >
+                  <RefreshCw size={14} strokeWidth={2} class={isSyncingUsbStatus ? "spin" : ""} />
+                </button>
+              {/if}
+            </div>
           </div>
         </div>
         <div class="text-display">
@@ -2341,6 +2412,42 @@
     display: flex;
     flex-direction: column;
     gap: var(--ds-space-1);
+  }
+
+  .usb-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .usb-sync-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid var(--ds-border-color, #e2e8f0);
+    border-radius: 6px;
+    background: var(--ds-surface-1, #fff);
+    color: var(--ds-text-secondary, #64748b);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .usb-sync-btn:hover:not(:disabled) {
+    background: var(--ds-surface-2, #f1f5f9);
+    color: var(--ds-text-primary, #0f172a);
+  }
+  .usb-sync-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .usb-sync-btn :global(.spin) {
+    animation: usb-spin 0.8s linear infinite;
+  }
+  @keyframes usb-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
 
   .details-wrap > :global(hr),

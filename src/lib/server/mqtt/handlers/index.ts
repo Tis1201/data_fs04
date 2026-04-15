@@ -8,7 +8,9 @@
  * - Connection events → events/connection_handler.ts
  * - RPC requests → rpc/registry.ts (dynamically routed)
  * - Device replies → replies/reply_router.ts
- * - Data streams → streams/preview_data_handler.ts
+ * - Controller `/data` → streams/controller_data_handler.ts (USB telemetry + preview frames)
+ * - Device events → device/device_events_handler.ts
+ * - Device heartbeats → device/heartbeat_handler.ts
  * 
  * @module mqtt/handlers
  */
@@ -59,30 +61,14 @@ export { broadcastDeviceActionUpdate, publishDeviceStatusNotification };
 /**
  * Central dispatcher for all incoming MQTT messages
  * 
- * This function acts as the main router for all MQTT messages consumed by the worker.
- * It analyzes the topic pattern and message structure to route messages to appropriate handlers:
- * 
  * Routing Logic:
  * 1. Connection Events (`$events/client/*`) → Connection handler
  * 2. RPC Requests (messages with `requestId`, `op`, `params`) → RPC registry
- * 3. Device Replies (`device/<id>/replies`) → Reply router
- * 4. Data Streams (`*​/data`) → Preview data handler
- * 5. Unmatched → Logged and ignored
- * 
- * The dispatcher is designed to be defensive:
- * - Malformed messages are logged but don't crash the worker
- * - Each handler is responsible for its own error handling
- * - All routing is done via dynamic imports to enable lazy loading
- * 
- * @param topic - The MQTT topic on which the message was received
- * @param payload - The raw message payload as a Buffer
- * @param prisma - The Prisma client instance for database operations
- * 
- * @throws Never throws - all errors are caught and logged within handlers
- * 
- * @example
- * // Called by MQTT worker for each incoming message
- * await handleIncoming('device/abc123/replies', messageBuffer, prisma);
+ * 3. Device Replies (`…/replies`) → Reply router
+ * 4. Controller Data (`…/data`) → Controller data handler (USB telemetry + preview frames)
+ * 5. Device Events (`device/{id}/events`) → Device events handler
+ * 6. Device Heartbeats (`device/{id}/heartbeat`) → Heartbeat handler
+ * 7. Unmatched → Logged and ignored
  */
 export async function handleIncoming(topic: string, payload: Buffer, prisma: PrismaClient): Promise<void> {
     // Only log non-data, non-heartbeat topics to reduce spam (high-frequency)
@@ -93,7 +79,6 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // ─────────────────────────────────────────────────────────────────────────────────────
     // ROUTE 1: Connection/Disconnection Events
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // System-level topics that notify when devices connect/disconnect from MQTT broker
     if (
         topic === '$events/client/connected' ||
         topic === '$events/client/connected/' ||
@@ -109,7 +94,6 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // ─────────────────────────────────────────────────────────────────────────────────────
     // ROUTE 2: RPC (Remote Procedure Call) Requests
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // Messages with { requestId, op, params } structure are treated as RPC calls
     const raw = payload.toString('utf8');
     let rpcData: any;
     try {
@@ -123,10 +107,8 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
             `[MQTT Messaging] Detected raw RPC payload ${JSON.stringify({ topic, rpcData })}`
         );
         
-        // Import RPC registry functions
         const { getRpcHandler, extractTopicSub, getAllRpcHandlerPrefixes } = await import('./rpc/registry');
         
-        // Find matching RPC handler by iterating through all registered prefixes
         const prefixes = getAllRpcHandlerPrefixes();
         for (const prefix of prefixes) {
             if (topic.startsWith(prefix)) {
@@ -147,7 +129,6 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                     });
                     const operationDuration = Date.now() - startTime;
                     logger.info(`[MQTT Messaging] RPC operation completed: op=${rpcData.op}, requestId=${rpcData.requestId}, duration=${operationDuration}ms`);
-                    // Publish response if result is returned
                     if (result !== undefined) {
                         const publishStartTime = Date.now();
                         const { getMqttTransport } = await import('../core/transport');
@@ -168,7 +149,6 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
                 } catch (err) {
                     const errorDetails = err instanceof Error ? err.stack ?? err.message : String(err);
                     logger.error(`[MQTT Messaging] RPC handler error: ${errorDetails}`);
-                    // Publish error response
                     const { getMqttTransport } = await import('../core/transport');
                     const transport = getMqttTransport();
                     const responseTopic = topic.replace('/requests', '/response');
@@ -192,8 +172,6 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // ─────────────────────────────────────────────────────────────────────────────────────
     // ROUTE 3: Device Reply Messages
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // Topics ending in `/replies` contain device responses to commands
-    // Format: { ticket, result } where ticket is used for routing back to the requester
     if (topic.endsWith('/replies')) {
         const { handleReplyMessage } = await import('./replies/reply_router');
         await handleReplyMessage(topic, payload, prisma);
@@ -201,20 +179,26 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // ROUTE 4: Data Streams (Sensor Preview)
+    // ROUTE 4: Controller `/data` streams (radar USB telemetry + preview frames)
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // High-frequency data streams from devices (e.g., camera preview frames)
-    // These use ticket-based stateless routing or legacy session-based routing
     if (topic.endsWith('/data')) {
-        const { handlePreviewDataMessage } = await import('./streams/preview_data_handler');
-        await handlePreviewDataMessage(topic, payload, prisma);
+        const { handleControllerDataMessage } = await import('./streams/controller_data_handler');
+        await handleControllerDataMessage(topic, payload, prisma);
         return;
     }
 
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // ROUTE 5: Device Heartbeats (Last ping / presence)
+    // ROUTE 5: Device events (telemetry, e.g. radar USB status)
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // device/{deviceId}/heartbeat - batched for Redis + ClickHouse
+    if (/^device\/[^/]+\/events$/.test(topic)) {
+        const { handleDeviceEventsMessage } = await import('./device/device_events_handler');
+        await handleDeviceEventsMessage(topic, payload, prisma);
+        return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────
+    // ROUTE 6: Device Heartbeats (Last ping / presence)
+    // ─────────────────────────────────────────────────────────────────────────────────────
     if (topic.endsWith('/heartbeat') && topic.startsWith('device/')) {
         const { handleHeartbeatMessage } = await import('./device/heartbeat_handler');
         await handleHeartbeatMessage(topic, payload, prisma);
@@ -224,6 +208,5 @@ export async function handleIncoming(topic: string, payload: Buffer, prisma: Pri
     // ─────────────────────────────────────────────────────────────────────────────────────
     // FALLBACK: Unmatched Topics
     // ─────────────────────────────────────────────────────────────────────────────────────
-    // If we reach here, the topic didn't match any known pattern
     logger.debug('[MQTT Messaging] No handler matched for topic', { topic });
 }
