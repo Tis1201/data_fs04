@@ -3,6 +3,7 @@ import type { RequestHandler } from './$types';
 import { z } from 'zod';
 import { logger } from '$lib/server/logger';
 import prisma from '$lib/server/prisma';
+import { sanitizeTriggerRulesFromPayload } from '$lib/server/radar/sanitizeTriggerRules';
 
 // Type definitions
 interface RadarConfig {
@@ -17,6 +18,7 @@ interface RadarConfig {
     };
     zones?: unknown[];
     dwellBuckets?: unknown[];
+    triggerRules?: unknown[];
     alertSettings?: unknown;
     deviceMode?: string;
     timezone?: string;
@@ -44,7 +46,8 @@ const updateConfigSchema = z.object({
         timezone: z.string(),
         pathTracking: z.boolean(),
         dwellThreshold: z.number()
-    }).optional()
+    }).optional(),
+    triggerRules: z.unknown().optional()
 });
 
 /**
@@ -143,6 +146,20 @@ export const PATCH: RequestHandler = async ({ request, params, locals, cookies }
             if (parsed.data.deviceSettings.timezone !== undefined) config.timezone = parsed.data.deviceSettings.timezone;
             if (parsed.data.deviceSettings.pathTracking !== undefined) config.pathTracking = parsed.data.deviceSettings.pathTracking;
             if (parsed.data.deviceSettings.dwellThreshold !== undefined) config.dwellThreshold = parsed.data.deviceSettings.dwellThreshold;
+        }
+
+        if (parsed.data.triggerRules !== undefined) {
+            const allowedTracking = new Set<string>(['entire']);
+            const zones = (config.zones ?? []) as Array<{ id?: string; zoneNumber?: number }>;
+            for (const z of zones) {
+                if (z.id) allowedTracking.add(z.id);
+                if (typeof z.zoneNumber === 'number') allowedTracking.add(`zone-${z.zoneNumber}`);
+            }
+            const tr = sanitizeTriggerRulesFromPayload(parsed.data.triggerRules, allowedTracking);
+            if (!tr.ok) {
+                return json({ error: tr.error }, { status: 400 });
+            }
+            config.triggerRules = tr.rules;
         }
 
         await prisma.sensor.update({

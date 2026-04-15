@@ -11,6 +11,8 @@ import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
+import { sanitizeTriggerRulesFromPayload } from '$lib/server/radar/sanitizeTriggerRules';
+import type { RadarTriggerRule } from '$lib/types/radarTriggerRule';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 
 // Type definitions for JSON Config
@@ -48,6 +50,7 @@ export interface RadarConfig {
     trackingArea?: TrackingArea;
     zones?: Zone[];
     dwellBuckets?: DwellBucket[];
+    triggerRules?: RadarTriggerRule[];
 }
 
 const trackingAreaSchema = z.object({
@@ -818,8 +821,12 @@ export const actions: Actions = {
             if (!layoutJson) return fail(400, { error: 'Layout data missing' });
 
             try {
-                const layout = JSON.parse(layoutJson);
-                const { arena, zones } = layout;
+                const layout = JSON.parse(layoutJson) as {
+                    arena?: unknown;
+                    zones?: unknown;
+                    triggerRules?: unknown;
+                };
+                const { arena, zones, triggerRules: triggerRulesPayload } = layout;
 
                 // Get sensor from controller ID
                 const { error: sensorError, sensor } = await getSensorFromControllerId(locals.prisma, id);
@@ -994,6 +1001,19 @@ export const actions: Actions = {
                     // Source of truth: layout zones (after dedupe). Replace config.zones and cap.
                     reconciledZones.sort((a, b) => (a.zoneNumber ?? 999) - (b.zoneNumber ?? 999));
                     config.zones = reconciledZones.slice(0, MAX_ZONES);
+                }
+
+                if (triggerRulesPayload !== undefined) {
+                    const allowedTracking = new Set<string>(['entire']);
+                    for (const z of config.zones ?? []) {
+                        if (z.id) allowedTracking.add(z.id);
+                        allowedTracking.add(`zone-${z.zoneNumber}`);
+                    }
+                    const tr = sanitizeTriggerRulesFromPayload(triggerRulesPayload, allowedTracking);
+                    if (!tr.ok) {
+                        return fail(400, { error: tr.error });
+                    }
+                    config.triggerRules = tr.rules;
                 }
 
                 await locals.prisma.sensor.update({

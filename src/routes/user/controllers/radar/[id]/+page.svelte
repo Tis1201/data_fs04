@@ -41,6 +41,8 @@
     InputField,
   } from "$lib/design-system/components";
   import EditDeviceModal from "$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte";
+  import RadarTriggerRulesEditor from "$lib/components/ui_components_sveltekit/radar/RadarTriggerRulesEditor.svelte";
+  import type { RadarTriggerRule } from "$lib/types/radarTriggerRule";
   import AddZoneModal from "$lib/components/ui_components_sveltekit/radar/AddZoneModal.svelte";
   import EditZoneModal from "$lib/components/ui_components_sveltekit/radar/EditZoneModal.svelte";
   import RadarSensorConfigDialog from "$lib/components/ui_components_sveltekit/radar/RadarSensorConfigDialog.svelte";
@@ -57,6 +59,8 @@
   interface RadarConfig {
     trackingArea?: { id?: string; name: string; startX: number; startY: number; endX: number; endY: number; description?: string };
     zones?: Array<{ id?: string; name: string; zoneNumber: number; startX: number; startY: number; endX: number; endY: number; color?: string; description?: string; active?: boolean }>;
+    /** Custom webhook rules (saved with layout from Edit Device dialog). */
+    triggerRules?: import("$lib/types/radarTriggerRule").RadarTriggerRule[];
     dwellBuckets?: Array<{ id?: string; name: string; minDuration: number; maxDuration?: number; description?: string }>;
     alertSettings?: {
       sensorOffline?: { enabled: boolean; threshold: string; unit: string };
@@ -94,15 +98,19 @@
 
   $: trackingAreaDisplay = (() => {
     const ta = config?.trackingArea;
+    const xMin = ta ? Math.min(ta.startX, ta.endX) : -5;
+    const xMax = ta ? Math.max(ta.startX, ta.endX) : 5;
+    const yMin = ta ? Math.min(ta.startY, ta.endY) : 0;
+    const yMax = ta ? Math.max(ta.startY, ta.endY) : 10;
     return {
-      leftM: ta ? Math.abs(ta.startX) : 5,
-      rightM: ta ? Math.abs(ta.endX) : 5,
-      fwdStart: ta ? ta.startY : 0,
-      fwdRange: ta ? (ta.endY - ta.startY) : 10,
-      xMin: ta ? ta.startX : -5,
-      xMax: ta ? ta.endX : 5,
-      yMin: ta ? ta.startY : 0,
-      yMax: ta ? ta.endY : 10,
+      leftM: Math.abs(xMin),
+      rightM: Math.abs(xMax),
+      fwdStart: yMin,
+      fwdRange: yMax - yMin,
+      xMin,
+      xMax,
+      yMin,
+      yMax,
     };
   })();
 
@@ -124,6 +132,7 @@
   const TABS = [
     { id: "summary", label: "Summary" },
     { id: "configuration", label: "Configuration" },
+    { id: "trigger-rules", label: "Trigger Rules" },
     { id: "analytics", label: "Analytics" },
     { id: "alert", label: "Alert" },
     { id: "live-preview", label: "Live Preview" },
@@ -132,6 +141,19 @@
   const VALID_TABS = TABS.map(t => t.id);
   const urlTab = $page.url.searchParams.get('tab');
   let activeTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : "summary";
+  /** Trigger Rules tab: draft list; re-hydrated when server sensor row updates. */
+  let triggerRulesLocal: RadarTriggerRule[] = [];
+  let triggerRulesHydrateKey = "";
+  let triggerRulesSaveLoading = false;
+  $: {
+    const rid = data.radarSensor?.id ?? "";
+    const rut = String(data.radarSensor?.updatedAt ?? "");
+    const k = `${rid}|${rut}`;
+    if (rid && k !== triggerRulesHydrateKey) {
+      triggerRulesHydrateKey = k;
+      triggerRulesLocal = JSON.parse(JSON.stringify(config?.triggerRules ?? [])) as RadarTriggerRule[];
+    }
+  }
   /** Active tab in Zones Configuration: 'all' or zone id (zone.id ?? `zone-${zone.zoneNumber}`) */
   let activeZoneTab = "all";
 
@@ -166,8 +188,8 @@
   $: trackingAreaSizeDisplay = (() => {
     const ta = config?.trackingArea;
     if (!ta) return "—";
-    const w = (ta.endX - ta.startX).toFixed(1);
-    const h = (ta.endY - ta.startY).toFixed(1);
+    const w = Math.abs(ta.endX - ta.startX).toFixed(1);
+    const h = Math.abs(ta.endY - ta.startY).toFixed(1);
     return `${w} × ${h} m`;
   })();
 
@@ -287,6 +309,11 @@
     zonesInitialized = true;
   }
 
+  $: zoneRowsForTriggers = (editorZonesValue.length > 0 ? editorZonesValue : (config?.zones ?? [])).map((z: ZoneData) => ({
+    id: z.id ?? `zone-${z.zoneNumber ?? 0}`,
+    name: z.name?.trim() ? z.name : `Zone ${z.zoneNumber ?? 0}`,
+  }));
+
   interface CoordinateBounds {
     startX: number;
     startY: number;
@@ -300,10 +327,10 @@
   $: if (!arenaInitialized) {
     editorArenaValue = config?.trackingArea
       ? {
-          startX: config.trackingArea.startX,
-          startY: config.trackingArea.startY,
-          endX: config.trackingArea.endX,
-          endY: config.trackingArea.endY,
+          startX: Math.min(config.trackingArea.startX, config.trackingArea.endX),
+          startY: Math.min(config.trackingArea.startY, config.trackingArea.endY),
+          endX: Math.max(config.trackingArea.startX, config.trackingArea.endX),
+          endY: Math.max(config.trackingArea.startY, config.trackingArea.endY),
         }
       : {
           startX: -4,
@@ -330,11 +357,52 @@
     }
     if (config?.trackingArea) {
       editorArenaValue = {
-        startX: config.trackingArea.startX,
-        startY: config.trackingArea.startY,
-        endX: config.trackingArea.endX,
-        endY: config.trackingArea.endY,
+        startX: Math.min(config.trackingArea.startX, config.trackingArea.endX),
+        startY: Math.min(config.trackingArea.startY, config.trackingArea.endY),
+        endX: Math.max(config.trackingArea.startX, config.trackingArea.endX),
+        endY: Math.max(config.trackingArea.startY, config.trackingArea.endY),
       };
+    }
+  }
+
+  async function saveTriggerRulesFromTab(): Promise<void> {
+    const controllerId = data.radarSensor?.controllerId;
+    if (!controllerId) {
+      toast.error("Missing controller.");
+      return;
+    }
+    triggerRulesSaveLoading = true;
+    try {
+      const res = await fetch(`/user/controllers/radar/${controllerId}/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triggerRules: triggerRulesLocal }),
+      });
+      let message = "";
+      try {
+        const j = (await res.json()) as { error?: string };
+        if (typeof j?.error === "string") message = j.error;
+      } catch {
+        /* ignore */
+      }
+      if (!res.ok) {
+        toast.error(message || "Could not save trigger rules.");
+        return;
+      }
+      const push = await pushSensorConfigToRadarViaMqtt();
+      if (push.status === "synced") {
+        toast.success("Trigger rules saved and sent to radar.");
+      } else if (push.status === "offline") {
+        toast.success("Trigger rules saved. Radar is offline — use “Push to device” when online.");
+      } else if (push.status === "error") {
+        toast.error(`Trigger rules saved, but radar push failed: ${push.message}`);
+      } else {
+        toast.success("Trigger rules saved.");
+      }
+      await invalidateAll();
+      reinitializeFromConfig();
+    } finally {
+      triggerRulesSaveLoading = false;
     }
   }
 
@@ -526,18 +594,36 @@
     );
   }
 
-  function handleSaveLayout(layoutData: { arena: { startX: number; startY: number; endX: number; endY: number } | null; zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number; active?: boolean }> }): void {
+  function handleSaveLayout(layoutData: {
+    arena: { startX: number; startY: number; endX: number; endY: number } | null;
+    zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number; active?: boolean }>;
+    triggerRules?: import("$lib/types/radarTriggerRule").RadarTriggerRule[];
+  }): void {
     // Ensure active is explicitly sent for each zone (false must not be stripped by JSON)
     const zonesWithActive = (layoutData.zones ?? []).map((z) => ({
       ...z,
       active: z.active !== undefined ? z.active : true,
     }));
     const formData = new FormData();
-    formData.append("layout", JSON.stringify({ ...layoutData, zones: zonesWithActive }));
+    const layoutPayload: Record<string, unknown> = { ...layoutData, zones: zonesWithActive };
+    if (layoutData.triggerRules !== undefined) {
+      layoutPayload.triggerRules = layoutData.triggerRules;
+    }
+    formData.append("layout", JSON.stringify(layoutPayload));
     fetch(`?/saveLayout`, { method: "POST", body: formData }).then(
       async (response) => {
         if (response.ok) {
           toast.success("Layout saved successfully!");
+          if (layoutData.triggerRules !== undefined) {
+            const push = await pushSensorConfigToRadarViaMqtt();
+            if (push.status === "synced") {
+              toast.success("Trigger rules sent to radar.");
+            } else if (push.status === "offline") {
+              toast.success("Radar is offline — trigger rules are saved; use “Push to device” when online.");
+            } else if (push.status === "error") {
+              toast.error(`Trigger rules saved, but radar push failed: ${push.message}`);
+            }
+          }
           await invalidateAll();
           // Brief yield so SvelteKit can apply fresh data before reinit
           await new Promise((r) => setTimeout(r, 50));
@@ -549,45 +635,138 @@
     );
   }
 
-  /** Push current sensor config to device via MQTT (sensor.config.push). Uses callUserRpc to avoid teardown/reconnect cycle (FIX_WEB_TIMEOUT). */
-  async function handlePushToDevice(): Promise<void> {
+  /** Edit Device modal: persist name/location, alerts, zones, and partial config (tracking, device settings, trigger rules). */
+  async function handleEditDeviceModalSave(payload: {
+    name: string;
+    location: string;
+    alertSettings?: Record<string, unknown>;
+    zones?: Array<{ id: string; name: string; active: boolean }>;
+    trackingArea?: { startX: number; startY: number; endX: number; endY: number };
+    deviceSettings?: { deviceMode: string; timezone: string; pathTracking: boolean; dwellThreshold: number };
+    triggerRules?: RadarTriggerRule[];
+  }): Promise<void> {
+    const fd = new FormData();
+    fd.set("name", payload.name);
+    fd.set("location", payload.location);
+    const res = await fetch("?/updateSensorInfo", { method: "POST", body: fd });
+    if (!res.ok) {
+      toast.error("Unable to update device. Please try again.");
+      return;
+    }
+    if (payload.alertSettings) {
+      const resAlert = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/alert-settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload.alertSettings),
+      });
+      if (!resAlert.ok) {
+        toast.error("Device info saved, but alert settings failed to save.");
+      }
+    }
+    if (payload.zones && payload.zones.length > 0) {
+      const resZones = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/zones`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload.zones),
+      });
+      if (!resZones.ok) {
+        toast.error("Device info saved, but zone updates failed to save.");
+      }
+    }
+    const configPayload: {
+      trackingArea?: typeof payload.trackingArea;
+      deviceSettings?: typeof payload.deviceSettings;
+      triggerRules?: typeof payload.triggerRules;
+    } = {};
+    if (payload.trackingArea) configPayload.trackingArea = payload.trackingArea;
+    if (payload.deviceSettings) configPayload.deviceSettings = payload.deviceSettings;
+    if (payload.triggerRules !== undefined) configPayload.triggerRules = payload.triggerRules;
+    let configSaveOk = true;
+    if (Object.keys(configPayload).length > 0) {
+      const resConfig = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(configPayload),
+      });
+      configSaveOk = resConfig.ok;
+      if (!resConfig.ok) {
+        toast.error("Device info saved, but configuration failed to save.");
+      }
+    }
+    toast.success("Device updated.");
+    if (payload.triggerRules !== undefined && configSaveOk && Object.keys(configPayload).length > 0) {
+      const push = await pushSensorConfigToRadarViaMqtt();
+      if (push.status === "synced") {
+        toast.success("Trigger rules sent to radar.");
+      } else if (push.status === "offline") {
+        toast.success("Radar is offline — rules are saved; use “Push to device” when online.");
+      } else if (push.status === "error") {
+        toast.error(`Could not push rules to radar: ${push.message}`);
+      }
+    }
+    showEditDeviceModal = false;
+    zonesInitialized = false;
+    arenaInitialized = false;
+    await invalidateAll();
+    reinitializeFromConfig();
+  }
+
+  const SENSOR_CONFIG_PUSH_TIMEOUT_MS = 20000;
+
+  type MqttSensorPushResult =
+    | { status: "synced" }
+    | { status: "offline" }
+    | { status: "no_sensor" }
+    | { status: "error"; message: string };
+
+  /** Push current DB sensor config to the physical radar via MQTT (`sensor.config.push`). */
+  async function pushSensorConfigToRadarViaMqtt(): Promise<MqttSensorPushResult> {
     const sensorId = data?.radarSensor?.id;
-    if (!sensorId) {
-      toast.error("No sensor selected");
-      return;
-    }
-    const deviceConnected = isDeviceConnectedRealtime;
-    if (!deviceConnected) {
-      toast.error("Device is offline. Push requires the device to be online.");
-      return;
-    }
-    isPushingToDevice = true;
-    const PUSH_TIMEOUT_MS = 20000;
+    if (!sensorId) return { status: "no_sensor" };
+    if (!isDeviceConnectedRealtime) return { status: "offline" };
     try {
       const result = await callUserRpc<{
         result?: { synced?: boolean; syncStatus?: string; error?: string; appliedAt?: string };
         error?: string;
-      }>("sensor.config.push", { sensorId }, { timeoutMs: PUSH_TIMEOUT_MS });
+      }>("sensor.config.push", { sensorId }, { timeoutMs: SENSOR_CONFIG_PUSH_TIMEOUT_MS });
 
       const nestedResult = result?.result;
       const workerError = result?.error;
 
       if (workerError) {
-        toast.error(typeof workerError === "string" ? workerError : "Push failed");
-        return;
+        return { status: "error", message: typeof workerError === "string" ? workerError : "Push failed" };
       }
       if (!nestedResult) {
-        toast.error("Invalid response from server");
-        return;
+        return { status: "error", message: "Invalid response from server" };
       }
       if (nestedResult.synced === true) {
+        return { status: "synced" };
+      }
+      return { status: "error", message: nestedResult.error ?? "Push failed" };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Push failed";
+      return { status: "error", message: msg };
+    }
+  }
+
+  /** Push current sensor config to device via MQTT (sensor.config.push). Uses callUserRpc to avoid teardown/reconnect cycle (FIX_WEB_TIMEOUT). */
+  async function handlePushToDevice(): Promise<void> {
+    isPushingToDevice = true;
+    try {
+      const r = await pushSensorConfigToRadarViaMqtt();
+      if (r.status === "synced") {
         toast.success("Config pushed to device!");
         return;
       }
-      toast.error(nestedResult.error ?? "Push failed");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Push failed";
-      toast.error(msg);
+      if (r.status === "offline") {
+        toast.error("Device is offline. Push requires the device to be online.");
+        return;
+      }
+      if (r.status === "no_sensor") {
+        toast.error("No sensor selected");
+        return;
+      }
+      toast.error(r.message);
     } finally {
       isPushingToDevice = false;
     }
@@ -978,24 +1157,48 @@
   /** Max items to keep from device (real-time); excess is cut off. */
   const LIVE_TRACK_MAX_ITEMS = 100;
 
-  /** Latest raw points from device (frame handler only stores; table updates only on Refresh or preview stop). */
-  let latestLiveTrackPoints: Array<{ x: number; y: number; z?: number; velocity?: number }> = [];
+  /** Latest raw points from preview frames (MQTT preview.data). */
+  let latestLiveTrackPoints: Array<{ trackId?: string; x: number; y: number; z?: number; velocity?: number }> = [];
   /** True when Live Preview is streaming (Start Preview active). Used for contextual UX. */
   let isLivePreviewStreaming = false;
-  /** When the user last took a snapshot (Refresh); shown for real-device UX. */
+  /** Last time the table was rebuilt (each frame while streaming, or manual Sync). */
   let lastSnapshotAt: Date | null = null;
 
-  function onLivePreviewFrame(e: CustomEvent<{ points: Array<{ x: number; y: number; z?: number; velocity?: number }> }>) {
+  /** Tracks when each trackId (or fallback index key) was first seen, so we can compute dwell. */
+  const trackFirstSeen = new Map<string, number>();
+
+  function formatDwell(ms: number): string {
+    const secs = Math.floor(ms / 1000);
+    if (secs < 60) return `${secs}s`;
+    const mins = Math.floor(secs / 60);
+    const rem = secs % 60;
+    return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`;
+  }
+
+  function onLivePreviewFrame(e: CustomEvent<{ points: Array<{ trackId?: string; x: number; y: number; z?: number; velocity?: number }> }>) {
     const points = e.detail?.points ?? [];
     latestLiveTrackPoints = points;
     if (points.length === 0) {
       liveTrackData = [];
       liveTrackPagination = { page: 1, pageSize: LIVE_TRACK_PAGE_SIZE, totalItems: 0, totalPages: 0 };
       lastSnapshotAt = null;
+      trackFirstSeen.clear();
+    } else {
+      const now = Date.now();
+      const currentKeys = new Set<string>();
+      for (let i = 0; i < points.length; i++) {
+        const key = points[i].trackId ?? `idx-${i}`;
+        currentKeys.add(key);
+        if (!trackFirstSeen.has(key)) trackFirstSeen.set(key, now);
+      }
+      for (const key of trackFirstSeen.keys()) {
+        if (!currentKeys.has(key)) trackFirstSeen.delete(key);
+      }
+      refreshLiveTrackSnapshot();
     }
   }
 
-  /** Copy current device snapshot to table once (stable list; no auto-update so pagination is usable). */
+  /** Rebuild table rows from `latestLiveTrackPoints` (called every preview frame and on Sync). */
   function refreshLiveTrackSnapshot() {
     const points = latestLiveTrackPoints;
     const capped = points.length > LIVE_TRACK_MAX_ITEMS ? points.slice(0, LIVE_TRACK_MAX_ITEMS) : points;
@@ -1003,12 +1206,18 @@
     const totalPages = Math.max(1, Math.ceil(total / LIVE_TRACK_PAGE_SIZE));
     const currentPage = liveTrackPagination.page;
     const page = total === 0 ? 1 : Math.min(currentPage, totalPages);
+    const now = Date.now();
 
-    liveTrackData = capped.map((_, i) => ({
-      id: String(i + 1).padStart(3, "0"),
-      dwellTime: "—",
-      seenOn: "Just now",
-    }));
+    liveTrackData = capped.map((pt, i) => {
+      const key = pt.trackId ?? `idx-${i}`;
+      const firstSeen = trackFirstSeen.get(key) ?? now;
+      const dwell = now - firstSeen;
+      return {
+        id: pt.trackId ?? String(i + 1).padStart(3, "0"),
+        dwellTime: dwell < 500 ? "< 1s" : formatDwell(dwell),
+        seenOn: "Just now",
+      };
+    });
     liveTrackPagination = {
       page,
       pageSize: LIVE_TRACK_PAGE_SIZE,
@@ -1023,14 +1232,14 @@
     const n = liveTrackPagination.totalItems;
     if (n === 0) {
       return isLivePreviewStreaming
-        ? "Click Refresh to capture the current frame."
-        : "Start preview on the left, then click Refresh to see tracks.";
+        ? "Waiting for detection points from the live preview…"
+        : "Start preview on the left to see live tracks here.";
     }
-    return `${n} track${n === 1 ? "" : "s"}. Click Refresh to update.`;
+    return `${n} track${n === 1 ? "" : "s"} — updates with each preview frame.`;
   })();
   $: liveTrackEmptyMessage = isLivePreviewStreaming
-    ? "Click Refresh to capture the current frame."
-    : "Start preview, then click Refresh to see tracks.";
+    ? "No points in the latest frame yet. When the preview receives data, rows appear automatically."
+    : "Start preview on the left. Track rows mirror each incoming frame.";
 
   /** Sorted live tracks (client-side sort before pagination). */
   $: sortedLiveTrackData = (() => {
@@ -1134,7 +1343,7 @@
     </div>
   </Card>
 
-  <!-- Tabs: Summary | Configuration | Live Preview -->
+  <!-- Tabs: Summary | Configuration | Trigger Rules | Analytics | Alert | Live Preview -->
   <TabGroup
     tabs={TABS}
     bind:activeTab
@@ -1438,7 +1647,7 @@
                         ></div>
                         <div class="config-zone-info">
                           <span class="config-zone-name">{zone.name || `Zone ${zone.zoneNumber}`}</span>
-                          <span class="config-zone-detail">Position: ({zone.startX}m, {zone.startY}m) | Size: {zone.endX - zone.startX} × {zone.endY - zone.startY} m</span>
+                          <span class="config-zone-detail">Position: ({Math.min(zone.startX, zone.endX)}m, {Math.min(zone.startY, zone.endY)}m) | Size: {Math.abs(zone.endX - zone.startX)} × {Math.abs(zone.endY - zone.startY)} m</span>
                         </div>
                         <Badge variant="filled" color={active ? 'success' : 'gray'} size="sm" label={active ? 'Active' : 'Inactive'} />
                         <ActionMenu
@@ -1490,7 +1699,7 @@
                       ></div>
                       <div class="config-zone-info">
                         <span class="config-zone-name">{selectedZoneDetail.name || `Zone ${selectedZoneDetail.zoneNumber}`}</span>
-                        <span class="config-zone-detail">Position: ({selectedZoneDetail.startX}m, {selectedZoneDetail.startY}m) | Size: {(selectedZoneDetail.endX - selectedZoneDetail.startX).toFixed(1)} × {(selectedZoneDetail.endY - selectedZoneDetail.startY).toFixed(1)} m</span>
+                        <span class="config-zone-detail">Position: ({Math.min(selectedZoneDetail.startX, selectedZoneDetail.endX)}m, {Math.min(selectedZoneDetail.startY, selectedZoneDetail.endY)}m) | Size: {Math.abs(selectedZoneDetail.endX - selectedZoneDetail.startX).toFixed(1)} × {Math.abs(selectedZoneDetail.endY - selectedZoneDetail.startY).toFixed(1)} m</span>
                       </div>
                       <Badge variant="filled" color={selectedActive ? 'success' : 'gray'} size="sm" label={selectedActive ? 'Active' : 'Inactive'} />
                       <ActionMenu
@@ -1531,19 +1740,19 @@
                       <div class="config-tracking-rows">
                         <div class="config-label-value-row">
                           <span class="config-label">X Position</span>
-                          <span class="config-value">{selectedZoneDetail.startX} m</span>
+                          <span class="config-value">{Math.min(selectedZoneDetail.startX, selectedZoneDetail.endX)} m</span>
                         </div>
                         <div class="config-label-value-row">
                           <span class="config-label">Y Position</span>
-                          <span class="config-value">{selectedZoneDetail.startY} m</span>
+                          <span class="config-value">{Math.min(selectedZoneDetail.startY, selectedZoneDetail.endY)} m</span>
                         </div>
                         <div class="config-label-value-row">
                           <span class="config-label">Width</span>
-                          <span class="config-value">{(selectedZoneDetail.endX - selectedZoneDetail.startX).toFixed(1)} m</span>
+                          <span class="config-value">{Math.abs(selectedZoneDetail.endX - selectedZoneDetail.startX).toFixed(1)} m</span>
                         </div>
                         <div class="config-label-value-row">
                           <span class="config-label">Height</span>
-                          <span class="config-value">{(selectedZoneDetail.endY - selectedZoneDetail.startY).toFixed(1)} m</span>
+                          <span class="config-value">{Math.abs(selectedZoneDetail.endY - selectedZoneDetail.startY).toFixed(1)} m</span>
                         </div>
                       </div>
                     </div>
@@ -1554,10 +1763,10 @@
                     <div class="config-computed-box">
                       <div class="config-computed-title">Computed Bounds</div>
                       <div class="config-computed-row">
-                        <span class="config-computed-cell"><span class="config-computed-label">Top – Left:</span> <span class="config-computed-value">({selectedZoneDetail.startX.toFixed(2)}m, {selectedZoneDetail.startY.toFixed(2)}m)</span></span>
+                        <span class="config-computed-cell"><span class="config-computed-label">Top – Left:</span> <span class="config-computed-value">({Math.min(selectedZoneDetail.startX, selectedZoneDetail.endX).toFixed(2)}m, {Math.min(selectedZoneDetail.startY, selectedZoneDetail.endY).toFixed(2)}m)</span></span>
                       </div>
                       <div class="config-computed-row">
-                        <span class="config-computed-cell"><span class="config-computed-label">Bottom – Right:</span> <span class="config-computed-value">({selectedZoneDetail.endX.toFixed(2)}m, {selectedZoneDetail.endY.toFixed(2)}m)</span></span>
+                        <span class="config-computed-cell"><span class="config-computed-label">Bottom – Right:</span> <span class="config-computed-value">({Math.max(selectedZoneDetail.startX, selectedZoneDetail.endX).toFixed(2)}m, {Math.max(selectedZoneDetail.startY, selectedZoneDetail.endY).toFixed(2)}m)</span></span>
                       </div>
                     </div>
                   </div>
@@ -1579,6 +1788,16 @@
           </div>
         </Card>
       </div>
+    </div>
+  {:else if activeTab === "trigger-rules"}
+    <div class="trigger-rules-tab-wrap">
+      <RadarTriggerRulesEditor
+        bind:rules={triggerRulesLocal}
+        zoneRows={zoneRowsForTriggers}
+        disabled={triggerRulesSaveLoading}
+        variant="page"
+        on:change={() => saveTriggerRulesFromTab()}
+      />
     </div>
   {:else if activeTab === "analytics"}
     <div class="analytics-tab-wrap">
@@ -1823,8 +2042,6 @@
                 controllerId={data.radarSensor.controller.id}
                 sensorId={data.radarSensor.id}
                 duration={60}
-                width={400}
-                height={400}
                 trackingArea={config?.trackingArea || null}
                 zones={(config?.zones || []).filter(z => z.active !== false)}
                 showOverlay={true}
@@ -1856,7 +2073,7 @@
           </Card>
         {/if}
       </div>
-      <!-- Right: Live Track Details (snapshot; click Refresh to update, so list stays stable for pagination) -->
+      <!-- Right: Live Track Details (rows mirror preview.data each frame; Refresh re-syncs from buffer) -->
       <div class="live-preview-right">
         <Card variant="default" radius="2xl" padding="none" fullWidth={true} class="live-preview-card">
           <div class="live-preview-card-header live-preview-card-header-with-actions">
@@ -1871,7 +2088,7 @@
             </div>
             <div class="live-preview-card-actions">
               <Button variant="outline" color="primary" size="md" on:click={() => refreshLiveTrackSnapshot()}>
-                Refresh
+                Sync now
               </Button>
             </div>
           </div>
@@ -1903,59 +2120,7 @@
 <EditDeviceModal
   bind:open={showEditDeviceModal}
   sensor={data.radarSensor}
-  onSave={async (payload) => {
-    const fd = new FormData();
-    fd.set("name", payload.name);
-    fd.set("location", payload.location);
-    const res = await fetch("?/updateSensorInfo", { method: "POST", body: fd });
-    if (!res.ok) {
-      toast.error("Unable to update device. Please try again.");
-      return;
-    }
-    if (payload.alertSettings) {
-      const resAlert = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/alert-settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload.alertSettings),
-      });
-      if (!resAlert.ok) {
-        toast.error("Device info saved, but alert settings failed to save.");
-      }
-    }
-    if (payload.zones && payload.zones.length > 0) {
-      const resZones = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/zones`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload.zones),
-      });
-      if (!resZones.ok) {
-        toast.error("Device info saved, but zone updates failed to save.");
-      }
-    }
-    // Update tracking area and device settings if provided
-    if (payload.trackingArea || payload.deviceSettings) {
-      const configPayload = {
-        trackingArea: payload.trackingArea,
-        deviceSettings: payload.deviceSettings
-      };
-      const resConfig = await fetch(`/user/controllers/radar/${data.radarSensor.controllerId}/config`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(configPayload),
-      });
-      if (!resConfig.ok) {
-        toast.error("Device info saved, but configuration failed to save.");
-      }
-    }
-    toast.success("Device updated.");
-    showEditDeviceModal = false;
-    // Reset initialization flags so data will be re-initialized from server
-    zonesInitialized = false;
-    arenaInitialized = false;
-    await invalidateAll();
-    // Re-initialize local state from updated config
-    reinitializeFromConfig();
-  }}
+  onSave={handleEditDeviceModalSave}
   onClose={() => (showEditDeviceModal = false)}
 />
 
@@ -2336,6 +2501,13 @@
     border-radius: 9px;
   }
 
+  .trigger-rules-tab-wrap {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding-top: var(--ds-space-2, 8px);
+  }
+
   /* Analytics tab: Session Logs + Path Tracking (Frame 34, Frame 41) */
   .analytics-tab-wrap {
     display: flex;
@@ -2652,8 +2824,8 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    padding: 16px;
-    gap: 8px;
+    padding: 18px 22px;
+    gap: 14px;
     border-bottom: 1px solid var(--ds-border-default);
   }
   .live-preview-card-header-with-actions {
@@ -2675,13 +2847,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
-    height: 44px;
-    border-radius: var(--ds-radius-lg);
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     flex-shrink: 0;
+    background: var(--ds-color-primary-50, #e8f4fb);
+    color: var(--ds-color-primary-600, #0a84c4);
   }
   .live-preview-card-icon {
-    color: var(--ds-text-tertiary);
+    color: inherit;
   }
   .live-preview-card-content-wrap {
     display: flex;
@@ -2691,25 +2865,26 @@
   }
   .live-preview-card-title {
     font-family: var(--ds-font-family-primary);
-    font-weight: 500;
+    font-weight: 700;
     font-size: 16px;
-    line-height: 24px;
+    line-height: 1.2;
     color: var(--ds-text-primary);
     margin: 0;
   }
   .live-preview-card-subtitle {
     font-family: var(--ds-font-family-primary);
     font-weight: 400;
-    font-size: 14px;
-    line-height: 20px;
+    font-size: 12.5px;
+    line-height: 1.35;
     color: var(--ds-text-tertiary);
     margin: 0;
+    margin-top: 3px;
   }
   .live-preview-card-body {
     display: flex;
     flex-direction: column;
-    padding: 16px;
-    gap: 16px;
+    padding: 20px 22px 22px;
+    gap: 0;
     flex: 1;
     min-height: 0;
     min-width: 0;

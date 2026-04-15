@@ -315,7 +315,11 @@
     );
   }
 
-  function handleSaveLayout(layoutData: { arena: { startX: number; startY: number; endX: number; endY: number } | null; zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number }> }): void {
+  function handleSaveLayout(layoutData: {
+    arena: { startX: number; startY: number; endX: number; endY: number } | null;
+    zones: Array<{ id?: string; name: string; startX: number; startY: number; endX: number; endY: number }>;
+    triggerRules?: import("$lib/types/radarTriggerRule").RadarTriggerRule[];
+  }): void {
     const formData = new FormData();
     formData.append("layout", JSON.stringify(layoutData));
     fetch(`?/saveLayout`, { method: "POST", body: formData }).then(
@@ -562,8 +566,6 @@
             controllerId={data.radarSensor.controller.id}
             sensorId={data.radarSensor.id}
             duration={60}
-            width={400}
-            height={400}
             trackingArea={config?.trackingArea || null}
             zones={config?.zones || []}
             showOverlay={true}

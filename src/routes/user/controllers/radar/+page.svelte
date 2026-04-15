@@ -338,6 +338,7 @@
         zones?: Array<{ id: string; name: string; active: boolean }>;
         trackingArea?: { startX: number; startY: number; endX: number; endY: number };
         deviceSettings?: { deviceMode: string; timezone: string; pathTracking: boolean; dwellThreshold: number };
+        triggerRules?: import('$lib/types/radarTriggerRule').RadarTriggerRule[];
     }) {
         if (!sensorToEdit) return;
         const fd = new FormData();
@@ -365,11 +366,19 @@
                 body: JSON.stringify(payload.zones)
             });
         }
-        if (payload.trackingArea || payload.deviceSettings) {
+        const configPayload: {
+            trackingArea?: typeof payload.trackingArea;
+            deviceSettings?: typeof payload.deviceSettings;
+            triggerRules?: typeof payload.triggerRules;
+        } = {};
+        if (payload.trackingArea) configPayload.trackingArea = payload.trackingArea;
+        if (payload.deviceSettings) configPayload.deviceSettings = payload.deviceSettings;
+        if (payload.triggerRules !== undefined) configPayload.triggerRules = payload.triggerRules;
+        if (Object.keys(configPayload).length > 0) {
             await fetch(`/user/controllers/radar/${controllerId}/config`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ trackingArea: payload.trackingArea, deviceSettings: payload.deviceSettings })
+                body: JSON.stringify(configPayload)
             });
         }
         toast.success('Device updated successfully!');

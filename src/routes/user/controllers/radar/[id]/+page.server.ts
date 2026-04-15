@@ -8,6 +8,8 @@ import { SystemRole } from '$lib/types/roles';
 import { logger } from '$lib/server/logger';
 import { z } from 'zod';
 import { validateBounds, clampBounds, normalizeBounds, RADAR_CONSTRAINTS } from '$lib/components/ui_components_sveltekit/radar/constraints';
+import { sanitizeTriggerRulesFromPayload } from '$lib/server/radar/sanitizeTriggerRules';
+import type { RadarTriggerRule } from '$lib/types/radarTriggerRule';
 import type { PrismaClient, Prisma } from '@prisma/client';
 // Raw Prisma for sensor.update: access is enforced by checkAccountAccess + restrictModule; ZenStack policy only allows account members 'read' on Sensor, so we use unenhanced client for config updates.
 import prisma from '$lib/server/prisma';
@@ -61,6 +63,8 @@ interface RadarConfig {
     trackingArea?: TrackingArea;
     zones?: Zone[];
     dwellBuckets?: DwellBucket[];
+    /** Custom webhook trigger rules (device / edge execution out of scope). */
+    triggerRules?: RadarTriggerRule[];
     alertSettings?: AlertSettings;
     deviceMode?: string;
     timezone?: string;
@@ -791,13 +795,17 @@ export const actions: Actions = {
 
             if (!layoutJson) return fail(400, { error: 'Layout data missing' });
 
-            let layout: { arena?: { startX: number; startY: number; endX: number; endY: number } | null; zones?: unknown[] };
+            let layout: {
+                arena?: { startX: number; startY: number; endX: number; endY: number } | null;
+                zones?: unknown[];
+                triggerRules?: unknown;
+            };
             try {
                 layout = JSON.parse(layoutJson) as typeof layout;
             } catch (_e) {
                 return fail(400, { error: 'Invalid layout JSON' });
             }
-            const { arena, zones } = layout;
+            const { arena, zones, triggerRules: triggerRulesPayload } = layout;
 
             try {
                 if (!currentAccountId) {
@@ -996,6 +1004,19 @@ export const actions: Actions = {
                     // Source of truth: layout zones (after dedupe). Replace config.zones and cap.
                     reconciledZones.sort((a, b) => (a.zoneNumber ?? 999) - (b.zoneNumber ?? 999));
                     config.zones = reconciledZones.slice(0, MAX_ZONES);
+                }
+
+                if (triggerRulesPayload !== undefined) {
+                    const allowedTracking = new Set<string>(['entire']);
+                    for (const z of config.zones ?? []) {
+                        if (z.id) allowedTracking.add(z.id);
+                        if (typeof z.zoneNumber === 'number') allowedTracking.add(`zone-${z.zoneNumber}`);
+                    }
+                    const tr = sanitizeTriggerRulesFromPayload(triggerRulesPayload, allowedTracking);
+                    if (!tr.ok) {
+                        return fail(400, { error: tr.error });
+                    }
+                    config.triggerRules = tr.rules;
                 }
 
                 // Sanitize config: strip undefined so Prisma Json accepts it
