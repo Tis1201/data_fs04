@@ -237,6 +237,21 @@
         editTarget = null;
     }
 
+    // Collect all zones from Configuration templates for Alert template Dwell Time zone dropdown
+    $: configurationZones = (() => {
+        const allZones: { id: string; name: string }[] = [];
+        for (const t of templates) {
+            if (t.type === 'Configuration' && t.config?.zones) {
+                for (const z of t.config.zones) {
+                    if (z.id && z.name) {
+                        allZones.push({ id: z.id, name: z.name });
+                    }
+                }
+            }
+        }
+        return allZones;
+    })();
+
     // Build map of sensorId → templateName for each template type (for duplicate assignment checks)
     $: sensorAssignmentMap = (() => {
         const map: Record<string, string> = {};
@@ -548,6 +563,7 @@
     {availableSensors}
     existingTemplateNames={templates.map(t => t.name)}
     {sensorAssignmentMap}
+    {configurationZones}
     loading={addTemplateLoading}
     on:close={() => (showAddTemplateModal = false)}
     on:add={handleAddTemplate}
@@ -560,6 +576,7 @@
     availableSensors={availableSensors}
     existingTemplateNames={templates.filter(t => t.id !== editTarget?.id).map(t => t.name)}
     {sensorAssignmentMap}
+    {configurationZones}
     loading={editTemplateLoading}
     on:close={closeEditModal}
     on:save={handleEditTemplate}
