@@ -7,6 +7,10 @@ import { SystemRole } from '$lib/types/roles';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
 import { assertResourceRowInstallableByAccount } from '$lib/server/resources/resourceInstallAccess';
+import {
+	resourceVisibilityOrForAccount,
+	whereNotPublicDeveloperCatalog
+} from '$lib/server/api/unifiedEndpoint';
 
 /**
  * App Selection API Endpoint for Bundle Components (User Side)
@@ -56,15 +60,20 @@ export const GET = restrict(
       // Filter formats by bundle target OS: macOS → cpk; Linux → deb, cpk; Android → apk
       const allowedFormats = getFormatsByTargetOs(bundle?.os);
       const currentAccountId = (locals as { currentAccount?: { account?: { id: string } } }).currentAccount?.account?.id;
+      // Own-account apps plus catalog / explicitly shared apps (not PUBLIC_DEVELOPER catalog)
       const baseWhere: Record<string, unknown> = {
         format: {
           in: allowedFormats
-        }
+        },
+        AND: [
+          whereNotPublicDeveloperCatalog,
+          ...(currentAccountId
+            ? [{ OR: resourceVisibilityOrForAccount(currentAccountId) }]
+            : locals.user?.id
+              ? [{ createdBy: locals.user.id }]
+              : [{ id: { in: [] as string[] } }])
+        ]
       };
-      // Scope to current account only (switch-account aware)
-      if (currentAccountId) {
-        baseWhere.accountId = currentAccountId;
-      }
 
       // Use the reusable fetchTableData function with base filtering
       const result = await fetchTableData(locals, url, {
