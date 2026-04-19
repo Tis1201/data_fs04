@@ -93,9 +93,20 @@ function buildSensorDataQueryParts(params: SensorDataQueryParams): BuiltSensorDa
         queryParams.deviceId = params.deviceId;
     }
 
-    if (params.sensorId) {
+    const macTrimmed = params.macAddress?.trim() || undefined;
+
+    if (params.sensorId && macTrimmed) {
+        conditions.push(
+            '(sensor_id = {sensorId:String} OR mac_address = {macAddress:String})'
+        );
+        queryParams.sensorId = params.sensorId;
+        queryParams.macAddress = macTrimmed;
+    } else if (params.sensorId) {
         conditions.push('sensor_id = {sensorId:String}');
         queryParams.sensorId = params.sensorId;
+    } else if (macTrimmed) {
+        conditions.push('mac_address = {macAddress:String}');
+        queryParams.macAddress = macTrimmed;
     }
 
     if (params.targetId) {
@@ -110,7 +121,10 @@ function buildSensorDataQueryParts(params: SensorDataQueryParams): BuiltSensorDa
     queryParams.endTime = toClickHouseDateTime(endTime);
 
     if (params.search && mvConfig.searchFields.length > 0) {
-        const searchConditions = mvConfig.searchFields.map((field) => `${field} ILIKE {search:String}`);
+        const allowed = new Set(mvConfig.searchFields);
+        const requested = params.searchFields?.filter((f) => allowed.has(f)) ?? [];
+        const fields = requested.length > 0 ? requested : mvConfig.searchFields;
+        const searchConditions = fields.map((field) => `${field} ILIKE {search:String}`);
         conditions.push(`(${searchConditions.join(' OR ')})`);
         queryParams.search = `%${params.search}%`;
     }

@@ -2,7 +2,7 @@
   import { goto, invalidateAll } from "$app/navigation";
   import { page } from "$app/stores";
   import { browser } from "$app/environment";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { toast } from "$lib/stores/alertToast";
   import { initializeDeviceRealtime, deviceRealtimeStore, radarUsbRealtimeStore } from "$lib/stores/deviceRealtimeStore";
   import {
@@ -18,12 +18,13 @@
     Braces,
     Layers,
     Plus,
-    CalendarDays,
     Download,
     Route,
     ShieldAlert,
     BellRing,
     ScanSearch,
+    Search,
+    Filter,
     ClipboardList,
     Upload,
     RefreshCw,
@@ -40,6 +41,8 @@
     ActionMenu,
     ConfirmModal,
     InputField,
+    Modal,
+    type SortState,
   } from "$lib/design-system/components";
   import EditDeviceModal from "$lib/components/ui_components_sveltekit/radar/EditDeviceModal.svelte";
   import RadarTriggerRulesEditor from "$lib/components/ui_components_sveltekit/radar/RadarTriggerRulesEditor.svelte";
@@ -54,6 +57,7 @@
   import type { PageData } from "./$types";
   import { superForm } from "sveltekit-superforms/client";
   import { formatDuration, formatProximityM } from "$lib/utils/radarFormatting";
+  import { RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS } from "$lib/utils/radarExportLimits";
   import { formatTimezoneLabel } from "$lib/utils/timezoneOptions";
   export let data: PageData;
 
@@ -784,6 +788,10 @@
     }
   });
 
+  onDestroy(() => {
+    clearTimeout(analyticsSearchDebounceTimer);
+  });
+
   // Merge MQTT real-time store with server-loaded connected; prefer store when device is known
   $: isDeviceConnectedRealtime = (() => {
     const deviceId = data?.radarSensor?.controller?.device?.id;
@@ -863,26 +871,84 @@
     { id: "occurredTime", header: "Occurred Time", accessor: (r: { occurredTime: string }) => r.occurredTime, type: "text" as const, width: "25%" },
   ];
 
-  /** Session Logs: Target ID, Dwell (sec), Proximity (m), Sensor, Timezone. Data from API /api/sensor-data/radar_session. */
   const sessionLogsColumns = [
-    { id: "targetId", header: "Target ID", accessor: (r: { targetId: string }) => r.targetId, type: "text" as const, sortable: true, width: "20%" },
-    { id: "dwellSec", header: "Dwell (sec)", accessor: (r: { dwellSec: string | number }) => r.dwellSec, type: "text" as const, sortable: true, width: "15%" },
-    { id: "proximityM", header: "Proximity (m)", accessor: (r: { proximityM: string }) => r.proximityM, type: "text" as const, sortable: true, width: "15%" },
-    { id: "sensor", header: "Sensor", accessor: (r: { sensor: string }) => r.sensor, type: "text" as const, width: "25%" },
-    { id: "timezone", header: "Timezone", accessor: (r: { timezone: string }) => r.timezone, type: "text" as const, width: "25%" },
+    { id: "startOn", header: "Start On", accessor: (r: { startOn: string }) => r.startOn, type: "text" as const, sortable: true, width: "16%" },
+    { id: "targetId", header: "Target ID", accessor: (r: { targetId: string }) => r.targetId, type: "text" as const, sortable: true, width: "14%" },
+    { id: "dwellSec", header: "Dwell (sec)", accessor: (r: { dwellSec: string | number }) => r.dwellSec, type: "text" as const, sortable: true, width: "12%" },
+    { id: "proximityM", header: "Proximity (m)", accessor: (r: { proximityM: string }) => r.proximityM, type: "text" as const, sortable: true, width: "12%" },
+    { id: "sensor", header: "Sensor", accessor: (r: { sensor: string }) => r.sensor, type: "text" as const, sortable: true, width: "23%" },
+    { id: "timezone", header: "Timezone", accessor: (r: { timezone: string }) => r.timezone, type: "text" as const, sortable: true, width: "23%" },
   ];
-  /** Path Tracking: Date, Target ID, X (m), Y (m), Sensor, Timezone. Data from API /api/sensor-data/radar_path. */
   const pathTrackingColumns = [
     { id: "date", header: "Date", accessor: (r: { date: string }) => r.date, type: "text" as const, sortable: true, width: "18%" },
-    { id: "targetId", header: "Target ID", accessor: (r: { targetId: string }) => r.targetId, type: "text" as const, width: "18%" },
-    { id: "xM", header: "X (m)", accessor: (r: { xM: string }) => r.xM, type: "text" as const, width: "12%" },
-    { id: "yM", header: "Y (m)", accessor: (r: { yM: string }) => r.yM, type: "text" as const, width: "12%" },
-    { id: "sensor", header: "Sensor", accessor: (r: { sensor: string }) => r.sensor, type: "text" as const, width: "22%" },
-    { id: "timezone", header: "Timezone", accessor: (r: { timezone: string }) => r.timezone, type: "text" as const, width: "18%" },
+    { id: "targetId", header: "Target ID", accessor: (r: { targetId: string }) => r.targetId, type: "text" as const, sortable: true, width: "18%" },
+    { id: "xM", header: "X (m)", accessor: (r: { xM: string }) => r.xM, type: "text" as const, sortable: true, width: "12%" },
+    { id: "yM", header: "Y (m)", accessor: (r: { yM: string }) => r.yM, type: "text" as const, sortable: true, width: "12%" },
+    { id: "sensor", header: "Sensor", accessor: (r: { sensor: string }) => r.sensor, type: "text" as const, sortable: true, width: "22%" },
+    { id: "timezone", header: "Timezone", accessor: (r: { timezone: string }) => r.timezone, type: "text" as const, sortable: true, width: "18%" },
   ];
 
   const ANALYTICS_PAGE_SIZE = 10;
-  let sessionLogsData: Array<{ id: string; targetId: string; dwellSec: string; proximityM: string; sensor: string; timezone: string }> = [];
+  let sessionLogsSort: SortState = { field: "startOn", direction: "desc" };
+  let pathTrackingSort: SortState = { field: "date", direction: "desc" };
+  let analyticsSearchInput = "";
+  let analyticsSearchQuery = "";
+  const ANALYTICS_SEARCH_DEBOUNCE_MS = 500;
+  let analyticsSearchDebounceTimer: ReturnType<typeof setTimeout>;
+
+  // Some legacy MV rows are keyed by mac_address only (sensor_id was added later);
+  // include the device MAC so historical data still matches.
+  function analyticsMacParam(): string {
+    const d = data?.radarSensor?.controller?.device;
+    if (!d) return "";
+    const m = (d.macAddress || d.wifiMac || d.lanMac || "").trim();
+    return m;
+  }
+
+  function appendMacToSensorDataParams(params: URLSearchParams) {
+    const mac = analyticsMacParam();
+    if (mac) params.set("macAddress", mac);
+  }
+
+  function sessionLogsSortApiParams(s: SortState): { sort: string; order: "asc" | "desc" } {
+    const order = s.direction === "asc" || s.direction === "desc" ? s.direction : "desc";
+    const sort =
+      s.field === "startOn"
+        ? "log_creation_time"
+        : s.field === "targetId"
+        ? "target_id"
+        : s.field === "dwellSec"
+          ? "dwell_tracking_area_sec"
+          : s.field === "proximityM"
+            ? "proximity_m"
+            : s.field === "sensor"
+              ? "sensor_name"
+              : s.field === "timezone"
+                ? "timezone_label"
+                : "log_creation_time";
+    return { sort, order };
+  }
+
+  function pathTrackingSortApiParams(s: SortState): { sort: string; order: "asc" | "desc" } {
+    const order = s.direction === "asc" || s.direction === "desc" ? s.direction : "desc";
+    const sort =
+      s.field === "date"
+        ? "processed_at"
+        : s.field === "targetId"
+          ? "target_id"
+          : s.field === "xM"
+            ? "x_m"
+            : s.field === "yM"
+              ? "y_m"
+              : s.field === "sensor"
+                ? "sensor_name"
+                : s.field === "timezone"
+                  ? "timezone_label"
+                  : "processed_at";
+    return { sort, order };
+  }
+
+  let sessionLogsData: Array<{ id: string; startOn: string; targetId: string; dwellSec: string; proximityM: string; sensor: string; timezone: string }> = [];
   let pathTrackingData: Array<{ id: string; date: string; targetId: string; xM: string; yM: string; sensor: string; timezone: string }> = [];
   let sessionLogsPagination = { page: 1, pageSize: ANALYTICS_PAGE_SIZE, totalItems: 0, totalPages: 0 };
   let pathTrackingPagination = { page: 1, pageSize: ANALYTICS_PAGE_SIZE, totalItems: 0, totalPages: 0 };
@@ -891,48 +957,137 @@
   let sessionLogsExporting = false;
   let pathTrackingExporting = false;
 
-  /** Today in YYYY-MM-DD for default date and native input[type=date] */
-  function getTodayISO(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
-  function openDatePicker(inputId: string) {
-    const el = document.getElementById(inputId) as HTMLInputElement | null;
-    if (el?.showPicker) el.showPicker();
-  }
-  let sessionLogsDate = getTodayISO();
-  let pathTrackingDate = getTodayISO();
+  type AnalyticsRangeType = "week" | "month" | "custom";
+  let analyticsRangeType: AnalyticsRangeType = "week";
+  let analyticsCustomFrom = "";
+  let analyticsCustomTo = "";
+  let analyticsFilterModalOpen = false;
+  let filterRangeType: AnalyticsRangeType = "week";
+  let filterFrom = "";
+  let filterTo = "";
 
-  function formatAnalyticsDate(iso: string): string {
-    if (!iso) return "—";
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+  function getAnalyticsDateRangeForFetch(): { startTime: string; endTime: string } | null {
+    const now = new Date();
+    if (analyticsRangeType === "week") {
+      const start = new Date(now);
+      start.setDate(start.getDate() - start.getDay());
+      start.setHours(0, 0, 0, 0);
+      return { startTime: start.toISOString(), endTime: now.toISOString() };
+    }
+    if (analyticsRangeType === "month") {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      return { startTime: start.toISOString(), endTime: now.toISOString() };
+    }
+    if (analyticsRangeType === "custom") {
+      if (!analyticsCustomFrom || !analyticsCustomTo) return null;
+      return {
+        startTime: `${analyticsCustomFrom}T00:00:00.000Z`,
+        endTime: `${analyticsCustomTo}T23:59:59.999Z`,
+      };
+    }
+    return null;
   }
 
-  /** Display label for date picker button (YYYY-MM-DD -> "MMM DD, YYYY") */
-  function formatAnalyticsDateDisplay(yyyyMmDd: string): string {
-    if (!yyyyMmDd) return "MM DD, YYYY";
-    const d = new Date(yyyyMmDd + "T12:00:00Z");
-    return isNaN(d.getTime()) ? "MM DD, YYYY" : d.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+  $: analyticsRangeSummary = (() => {
+    if (analyticsRangeType === "week") return "Current week";
+    if (analyticsRangeType === "month") return "Current month";
+    if (analyticsCustomFrom && analyticsCustomTo) return `${analyticsCustomFrom} – ${analyticsCustomTo}`;
+    return "Custom";
+  })();
+
+  function openAnalyticsFilterModal() {
+    filterRangeType = analyticsRangeType;
+    filterFrom = analyticsCustomFrom;
+    filterTo = analyticsCustomTo;
+    analyticsFilterModalOpen = true;
+  }
+
+  async function applyAnalyticsFilter() {
+    if (filterRangeType === "custom") {
+      if (!filterFrom || !filterTo) {
+        toast.error("Please select both From and To dates for Custom range.");
+        return;
+      }
+      if (filterFrom > filterTo) {
+        toast.error("From date must be before or equal to To date.");
+        return;
+      }
+    }
+    analyticsRangeType = filterRangeType;
+    if (filterRangeType === "custom") {
+      analyticsCustomFrom = filterFrom;
+      analyticsCustomTo = filterTo;
+    } else {
+      analyticsCustomFrom = "";
+      analyticsCustomTo = "";
+    }
+    analyticsFilterModalOpen = false;
+    await fetchSessionLogs(1);
+    await fetchPathTracking(1);
+  }
+
+  async function clearAnalyticsFilter() {
+    filterRangeType = "week";
+    filterFrom = "";
+    filterTo = "";
+    analyticsRangeType = "week";
+    analyticsCustomFrom = "";
+    analyticsCustomTo = "";
+    await fetchSessionLogs(1);
+    await fetchPathTracking(1);
+  }
+
+  function parseChDateTime(value: unknown): Date | null {
+    if (value == null) return null;
+    const s = String(value).trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/.test(s)) {
+      const d = new Date(s.replace(" ", "T") + "Z");
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatPathRowDateTime(value: unknown): string {
+    const d = parseChDateTime(value);
+    if (!d) return "—";
+    return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
   }
 
   async function fetchSessionLogs(page: number) {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) return;
+    const range = getAnalyticsDateRangeForFetch();
+    if (!range) {
+      toast.error(
+        "Please select a date range in the filter (Current week, Current month, or Custom with From/To)."
+      );
+      return;
+    }
     sessionLogsLoading = true;
     try {
+      const { sort: sortField, order: sortOrder } = sessionLogsSortApiParams(sessionLogsSort);
       const params = new URLSearchParams({
         sensorId,
         page: String(page),
         per_page: String(ANALYTICS_PAGE_SIZE),
-        startTime: `${sessionLogsDate}T00:00:00.000Z`,
-        endTime: `${sessionLogsDate}T23:59:59.999Z`,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        sort: sortField,
+        order: sortOrder,
       });
+      if (analyticsSearchQuery.trim()) {
+        params.set("search", analyticsSearchQuery.trim());
+        params.set("searchFields", "target_id");
+      }
+      appendMacToSensorDataParams(params);
       const res = await fetch(`/api/sensor-data/radar_session?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch session logs");
-      const rows = (json.data || []).map((r: { target_id: string; log_creation_time?: string; dwell_tracking_area_sec: number; proximity_m: number | null; sensor_name: string; timezone_label: string }, i: number) => ({
+      const rows = (json.data || []).map((r: { target_id: string; log_creation_time?: string; processed_at?: string; dwell_tracking_area_sec: number; proximity_m: number | null; sensor_name: string; timezone_label: string }, i: number) => ({
         id: `${r.target_id ?? i}-${r.log_creation_time ?? i}`.replace(/\s/g, "_"),
+        startOn: formatPathRowDateTime(r.log_creation_time ?? r.processed_at ?? ""),
         targetId: r.target_id ?? "",
         dwellSec: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : "—",
         proximityM: formatProximityM(r.proximity_m),
@@ -958,22 +1113,37 @@
   async function fetchPathTracking(page: number) {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) return;
+    const range = getAnalyticsDateRangeForFetch();
+    if (!range) {
+      toast.error(
+        "Please select a date range in the filter (Current week, Current month, or Custom with From/To)."
+      );
+      return;
+    }
     pathTrackingLoading = true;
     try {
+      const { sort: sortField, order: sortOrder } = pathTrackingSortApiParams(pathTrackingSort);
       const params = new URLSearchParams({
         sensorId,
         page: String(page),
         per_page: String(ANALYTICS_PAGE_SIZE),
-        startTime: `${pathTrackingDate}T00:00:00.000Z`,
-        endTime: `${pathTrackingDate}T23:59:59.999Z`,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        sort: sortField,
+        order: sortOrder,
       });
+      if (analyticsSearchQuery.trim()) {
+        params.set("search", analyticsSearchQuery.trim());
+        params.set("searchFields", "target_id");
+      }
+      appendMacToSensorDataParams(params);
       const res = await fetch(`/api/sensor-data/radar_path?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch path tracking");
-      const rows = (json.data || []).map((r: { target_id: string; log_creation_time: string; x_m: number; y_m: number; sensor_name: string; timezone_label: string }, i: number) => ({
+      const rows = (json.data || []).map((r: { target_id: string; log_creation_time?: string; processed_at?: string; x_m: number; y_m: number; sensor_name: string; timezone_label: string }, i: number) => ({
         id: `pt-${i}`,
-        date: formatAnalyticsDate(r.log_creation_time),
-        targetId: r.target_id ? `${r.target_id.slice(0, 6)}...${r.target_id.slice(-4)}` : "—",
+        date: formatPathRowDateTime(r.processed_at ?? r.log_creation_time ?? ""),
+        targetId: r.target_id ?? "—",
         xM: r.x_m != null ? r.x_m.toFixed(2) : "—",
         yM: r.y_m != null ? r.y_m.toFixed(2) : "—",
         sensor: r.sensor_name ?? "—",
@@ -995,7 +1165,6 @@
     }
   }
 
-  /** Build CSV and trigger download. Columns: array of { header, key }. Rows: objects with those keys. */
   function downloadCsv(columns: Array<{ header: string; key: string }>, rows: Record<string, string>[], filename: string) {
     const headers = columns.map((c) => c.header);
     const keys = columns.map((c) => c.key);
@@ -1024,20 +1193,43 @@
   async function exportSessionLogsCsv() {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) return;
+    const range = getAnalyticsDateRangeForFetch();
+    if (!range) {
+      toast.error(
+        "Please select a date range in the filter (Current week, Current month, or Custom with From/To)."
+      );
+      return;
+    }
+    const exportSpanMs = new Date(range.endTime).getTime() - new Date(range.startTime).getTime();
+    if (exportSpanMs > RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS) {
+      toast.error(
+        "You can only export data within a 31-day window. Please narrow your date range in the filter."
+      );
+      return;
+    }
     sessionLogsExporting = true;
     try {
+      const { sort: sortField, order: sortOrder } = sessionLogsSortApiParams(sessionLogsSort);
       const params = new URLSearchParams({
         sensorId,
         page: "1",
         per_page: "10000",
-        startTime: `${sessionLogsDate}T00:00:00.000Z`,
-        endTime: `${sessionLogsDate}T23:59:59.999Z`,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        sort: sortField,
+        order: sortOrder,
       });
+      if (analyticsSearchQuery.trim()) {
+        params.set("search", analyticsSearchQuery.trim());
+        params.set("searchFields", "target_id");
+      }
+      appendMacToSensorDataParams(params);
       const res = await fetch(`/api/sensor-data/radar_session?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch session logs for export");
       const raw = json.data || [];
-      const rows = raw.map((r: { target_id?: string; log_creation_time?: string; dwell_tracking_area_sec?: number; proximity_m?: number | null; sensor_name?: string; timezone_label?: string }) => ({
+      const rows = raw.map((r: { target_id?: string; log_creation_time?: string; processed_at?: string; dwell_tracking_area_sec?: number; proximity_m?: number | null; sensor_name?: string; timezone_label?: string }) => ({
+        startOn: formatPathRowDateTime(r.log_creation_time ?? r.processed_at ?? ""),
         targetId: r.target_id ?? "",
         dwellSec: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : "",
         proximityM: r.proximity_m != null ? formatProximityM(r.proximity_m) : "",
@@ -1045,17 +1237,19 @@
         timezone: r.timezone_label ?? "",
       }));
       if (rows.length === 0) {
-        toast.error("No session logs to export for this date.");
+        toast.error("No session logs to export for the selected range.");
         return;
       }
       const columns = [
+        { header: "Start On", key: "startOn" },
         { header: "Target ID", key: "targetId" },
         { header: "Dwell (sec)", key: "dwellSec" },
         { header: "Proximity (m)", key: "proximityM" },
         { header: "Sensor", key: "sensor" },
         { header: "Timezone", key: "timezone" },
       ];
-      downloadCsv(columns, rows, `radar_session_export_${sessionLogsDate}.csv`);
+      const rangeTag = `${range.startTime.slice(0, 10)}_${range.endTime.slice(0, 10)}`;
+      downloadCsv(columns, rows, `radar_session_export_${rangeTag}.csv`);
       toast.success("Session logs exported.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed.");
@@ -1067,21 +1261,43 @@
   async function exportPathTrackingCsv() {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) return;
+    const range = getAnalyticsDateRangeForFetch();
+    if (!range) {
+      toast.error(
+        "Please select a date range in the filter (Current week, Current month, or Custom with From/To)."
+      );
+      return;
+    }
+    const exportSpanMs = new Date(range.endTime).getTime() - new Date(range.startTime).getTime();
+    if (exportSpanMs > RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS) {
+      toast.error(
+        "You can only export data within a 31-day window. Please narrow your date range in the filter."
+      );
+      return;
+    }
     pathTrackingExporting = true;
     try {
+      const { sort: sortField, order: sortOrder } = pathTrackingSortApiParams(pathTrackingSort);
       const params = new URLSearchParams({
         sensorId,
         page: "1",
         per_page: "10000",
-        startTime: `${pathTrackingDate}T00:00:00.000Z`,
-        endTime: `${pathTrackingDate}T23:59:59.999Z`,
+        startTime: range.startTime,
+        endTime: range.endTime,
+        sort: sortField,
+        order: sortOrder,
       });
+      if (analyticsSearchQuery.trim()) {
+        params.set("search", analyticsSearchQuery.trim());
+        params.set("searchFields", "target_id");
+      }
+      appendMacToSensorDataParams(params);
       const res = await fetch(`/api/sensor-data/radar_path?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch path tracking for export");
       const raw = json.data || [];
-      const rows = raw.map((r: { target_id?: string; log_creation_time?: string; x_m?: number; y_m?: number; sensor_name?: string; timezone_label?: string }) => ({
-        date: r.log_creation_time ? formatAnalyticsDate(r.log_creation_time) : "",
+      const rows = raw.map((r: { target_id?: string; log_creation_time?: string; processed_at?: string; x_m?: number; y_m?: number; sensor_name?: string; timezone_label?: string }) => ({
+        date: formatPathRowDateTime(r.processed_at ?? r.log_creation_time ?? ""),
         targetId: r.target_id ?? "",
         xM: r.x_m != null ? r.x_m.toFixed(2) : "",
         yM: r.y_m != null ? r.y_m.toFixed(2) : "",
@@ -1089,7 +1305,7 @@
         timezone: r.timezone_label ?? "",
       }));
       if (rows.length === 0) {
-        toast.error("No path tracking data to export for this date.");
+        toast.error("No path tracking data to export for the selected range.");
         return;
       }
       const columns = [
@@ -1100,7 +1316,8 @@
         { header: "Sensor", key: "sensor" },
         { header: "Timezone", key: "timezone" },
       ];
-      downloadCsv(columns, rows, `radar_path_export_${pathTrackingDate}.csv`);
+      const rangeTag = `${range.startTime.slice(0, 10)}_${range.endTime.slice(0, 10)}`;
+      downloadCsv(columns, rows, `radar_path_export_${rangeTag}.csv`);
       toast.success("Path tracking exported.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed.");
@@ -1114,8 +1331,51 @@
   $: analyticsSensorId = activeTab === "analytics" ? data?.radarSensor?.id : "";
   $: if (analyticsSensorId && prevAnalyticsSensorId !== analyticsSensorId) {
     prevAnalyticsSensorId = analyticsSensorId;
+    analyticsSearchInput = "";
+    analyticsSearchQuery = "";
+    analyticsRangeType = "week";
+    analyticsCustomFrom = "";
+    analyticsCustomTo = "";
+    filterRangeType = "week";
+    filterFrom = "";
+    filterTo = "";
     fetchSessionLogs(1);
     fetchPathTracking(1);
+  }
+
+  $: if (browser && activeTab === "analytics" && typeof analyticsSearchInput !== "undefined") {
+    clearTimeout(analyticsSearchDebounceTimer);
+    analyticsSearchDebounceTimer = setTimeout(() => {
+      const next = analyticsSearchInput.trim();
+      if (next === analyticsSearchQuery) return;
+      analyticsSearchQuery = next;
+      const sid = data?.radarSensor?.id;
+      if (!sid) return;
+      fetchSessionLogs(1);
+      fetchPathTracking(1);
+    }, ANALYTICS_SEARCH_DEBOUNCE_MS);
+  } else if (browser) {
+    clearTimeout(analyticsSearchDebounceTimer);
+  }
+
+  async function onSessionLogsSort(e: CustomEvent<SortState>) {
+    sessionLogsSort = e.detail;
+    await fetchSessionLogs(1);
+  }
+
+  async function onPathTrackingSort(e: CustomEvent<SortState>) {
+    pathTrackingSort = e.detail;
+    await fetchPathTracking(1);
+  }
+
+  async function applyAnalyticsSearch() {
+    clearTimeout(analyticsSearchDebounceTimer);
+    const next = analyticsSearchInput.trim();
+    analyticsSearchQuery = next;
+    const sid = data?.radarSensor?.id;
+    if (!sid) return;
+    await fetchSessionLogs(1);
+    await fetchPathTracking(1);
   }
 
   /** Summary tab: fetch last 24h radar_session and fill Real time Detection count, Zone Activity (from zone_dwell_times_json), and Recent Events (last 10). */
@@ -1136,6 +1396,7 @@
         startTime: start.toISOString(),
         endTime: end.toISOString(),
       });
+      appendMacToSensorDataParams(params);
       const res = await fetch(`/api/sensor-data/radar_session?${params}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to fetch summary data");
@@ -1872,6 +2133,24 @@
     </div>
   {:else if activeTab === "analytics"}
     <div class="analytics-tab-wrap">
+      <div class="analytics-toolbar-row">
+        <form class="analytics-toolbar-search" role="search" on:submit|preventDefault={applyAnalyticsSearch}>
+          <InputField
+            type="search"
+            bind:value={analyticsSearchInput}
+            label=""
+            placeholder="Search by target ID…"
+            prefixIcon={true}
+            aria-label="Filter session logs and path tracking by target ID"
+          >
+            <Search size={20} strokeWidth={2} slot="prefix-icon" aria-hidden="true" />
+          </InputField>
+        </form>
+        <div class="analytics-range-actions">
+          <span class="analytics-range-label" title="Date range for Session Logs and Path Tracking">{analyticsRangeSummary}</span>
+          <Button variant="outline" color="gray" size="md" icon={Filter} iconPosition="only" on:click={openAnalyticsFilterModal} aria-label="Date range filter" />
+        </div>
+      </div>
       <!-- Session Logs (Frame 34) -->
       <Card variant="default" radius="2xl" padding="md" fullWidth={true} class="analytics-card">
         <div class="analytics-card-header">
@@ -1885,22 +2164,6 @@
             </div>
           </div>
           <div class="analytics-card-actions">
-            <div class="analytics-date-picker-wrap">
-              <InputField
-                id="session-logs-date"
-                type="date"
-                value={sessionLogsDate}
-                label=""
-                placeholder=""
-                suffixIcon={true}
-                aria-label="Session logs date"
-                on:change={(e) => { sessionLogsDate = e.detail; fetchSessionLogs(1); }}
-              >
-                <span slot="suffix-icon" class="analytics-date-icon-wrap" role="button" tabindex="-1" on:click={() => openDatePicker('session-logs-date')} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDatePicker('session-logs-date'); } }}>
-                  <CalendarDays class="analytics-date-icon" size={20} strokeWidth={2} aria-hidden="true" />
-                </span>
-              </InputField>
-            </div>
             <Button variant="outline" color="primary" size="md" icon={Download} iconPosition="left" disabled={sessionLogsExporting} on:click={() => exportSessionLogsCsv()}>
               {sessionLogsExporting ? 'Exporting…' : 'Export Data'}
             </Button>
@@ -1912,6 +2175,8 @@
             data={sessionLogsData}
             keyField="id"
             sortable={true}
+            sort={sessionLogsSort}
+            on:sort={onSessionLogsSort}
             paginated={sessionLogsPagination.totalPages > 0}
             pagination={sessionLogsPagination}
             loading={sessionLogsLoading}
@@ -1935,22 +2200,6 @@
             </div>
           </div>
           <div class="analytics-card-actions">
-            <div class="analytics-date-picker-wrap">
-              <InputField
-                id="path-tracking-date"
-                type="date"
-                value={pathTrackingDate}
-                label=""
-                placeholder=""
-                suffixIcon={true}
-                aria-label="Path tracking date"
-                on:change={(e) => { pathTrackingDate = e.detail; fetchPathTracking(1); }}
-              >
-                <span slot="suffix-icon" class="analytics-date-icon-wrap" role="button" tabindex="-1" on:click={() => openDatePicker('path-tracking-date')} on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDatePicker('path-tracking-date'); } }}>
-                  <CalendarDays class="analytics-date-icon" size={20} strokeWidth={2} aria-hidden="true" />
-                </span>
-              </InputField>
-            </div>
             <Button variant="outline" color="primary" size="md" icon={Download} iconPosition="left" disabled={pathTrackingExporting} on:click={() => exportPathTrackingCsv()}>
               {pathTrackingExporting ? 'Exporting…' : 'Export Data'}
             </Button>
@@ -1962,6 +2211,8 @@
             data={pathTrackingData}
             keyField="id"
             sortable={true}
+            sort={pathTrackingSort}
+            on:sort={onPathTrackingSort}
             paginated={pathTrackingPagination.totalPages > 0}
             pagination={pathTrackingPagination}
             loading={pathTrackingLoading}
@@ -1972,6 +2223,49 @@
           />
         </div>
       </Card>
+
+      <Modal
+        open={analyticsFilterModalOpen}
+        title="Filter"
+        on:close={() => (analyticsFilterModalOpen = false)}
+        size="sm"
+        showFooter={false}
+      >
+        <div class="radar-analytics-filter-body">
+          <div class="radar-analytics-filter-field">
+            <label class="radar-analytics-filter-label">Date range</label>
+            <div class="radar-analytics-filter-range-options" role="radiogroup" aria-label="Date range">
+              <label class="radar-analytics-filter-radio">
+                <input type="radio" name="radar-analytics-range" value="week" bind:group={filterRangeType} />
+                <span>Current week</span>
+              </label>
+              <label class="radar-analytics-filter-radio">
+                <input type="radio" name="radar-analytics-range" value="month" bind:group={filterRangeType} />
+                <span>Current month</span>
+              </label>
+              <label class="radar-analytics-filter-radio">
+                <input type="radio" name="radar-analytics-range" value="custom" bind:group={filterRangeType} />
+                <span>Custom</span>
+              </label>
+            </div>
+          </div>
+          {#if filterRangeType === "custom"}
+            <div class="radar-analytics-filter-row">
+              <div class="radar-analytics-filter-field">
+                <InputField type="date" label="From" bind:value={filterFrom} />
+              </div>
+              <span class="radar-analytics-filter-sep" aria-hidden="true">–</span>
+              <div class="radar-analytics-filter-field">
+                <InputField type="date" label="To" bind:value={filterTo} />
+              </div>
+            </div>
+          {/if}
+          <div class="radar-analytics-filter-actions">
+            <Button variant="text" color="gray" size="md" on:click={clearAnalyticsFilter}>Clear All</Button>
+            <Button variant="filled" color="primary" size="md" on:click={applyAnalyticsFilter}>Apply</Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   {:else if activeTab === "alert"}
     <!-- Alert tab: data from config.alertSettings (edit and save via Edit Device modal). -->
@@ -2200,6 +2494,7 @@
   nextZoneNumber={nextZoneNumberForAdd}
   trackingAreaWidth={addZoneTrackingArea.width}
   trackingAreaHeight={addZoneTrackingArea.height}
+  trackingArena={editorArenaValue}
   onAdd={handleAddZoneFromModal}
   onClose={() => (showAddZoneModal = false)}
 />
@@ -2209,6 +2504,7 @@
   zone={zoneToEdit}
   trackingAreaWidth={addZoneTrackingArea.width}
   trackingAreaHeight={addZoneTrackingArea.height}
+  trackingArena={editorArenaValue}
   onSave={handleEditZoneSave}
   onClose={() => { showEditZoneModal = false; zoneToEdit = null; }}
 />
@@ -2623,6 +2919,86 @@
     gap: var(--ds-space-4);
     width: 100%;
   }
+  .analytics-toolbar-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--ds-space-3);
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .analytics-toolbar-search {
+    flex: 1;
+    min-width: 200px;
+    max-width: 500px;
+  }
+  .analytics-toolbar-search :global(.input-field-wrapper) {
+    width: 100%;
+  }
+  .analytics-range-actions {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--ds-space-2);
+    flex-shrink: 0;
+  }
+  .analytics-range-label {
+    font: var(--ds-font-family-primary);
+    font-weight: 400;
+    font-size: var(--ds-text-sm);
+    line-height: var(--ds-leading-sm);
+    color: var(--ds-text-tertiary);
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .radar-analytics-filter-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-4);
+  }
+  .radar-analytics-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-1);
+  }
+  .radar-analytics-filter-label {
+    font: var(--ds-text-sm-medium);
+    color: var(--ds-text-primary);
+  }
+  .radar-analytics-filter-range-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--ds-space-2);
+  }
+  .radar-analytics-filter-radio {
+    display: flex;
+    align-items: center;
+    gap: var(--ds-space-2);
+    font: var(--ds-text-sm-regular);
+    color: var(--ds-text-primary);
+    cursor: pointer;
+  }
+  .radar-analytics-filter-radio input {
+    margin: 0;
+  }
+  .radar-analytics-filter-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--ds-space-2);
+  }
+  .radar-analytics-filter-sep {
+    color: var(--ds-text-tertiary);
+    padding-bottom: var(--ds-space-2);
+  }
+  .radar-analytics-filter-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--ds-space-3);
+    margin-top: var(--ds-space-2);
+  }
   .analytics-card {
     width: 100%;
   }
@@ -2696,48 +3072,6 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
-  }
-  .analytics-date-picker-wrap {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    min-width: 140px;
-  }
-  .analytics-date-picker-wrap :global(.input-field-wrapper) {
-    width: 100%;
-    min-width: 140px;
-  }
-  .analytics-date-picker-wrap :global(.input-container) {
-    height: 40px;
-    min-height: 40px;
-    border-radius: var(--ds-radius-lg);
-    cursor: pointer;
-  }
-  .analytics-date-picker-wrap :global(input[type="date"]::-webkit-calendar-picker-indicator) {
-    cursor: pointer;
-    opacity: 0;
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-  }
-  .analytics-date-picker-wrap :global(input[type="date"]::-webkit-date-and-time-value) {
-    text-align: left;
-  }
-  .analytics-date-icon-wrap {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .analytics-date-picker-wrap .analytics-date-icon {
-    color: var(--ds-text-tertiary);
-    flex-shrink: 0;
-    cursor: pointer;
-    pointer-events: auto;
-  }
-  .analytics-date-btn {
-    min-width: 100px;
   }
   .analytics-table-wrap {
     display: flex;

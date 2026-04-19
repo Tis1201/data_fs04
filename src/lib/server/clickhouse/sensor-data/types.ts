@@ -70,8 +70,10 @@ export interface SensorDataQueryParams {
     accountId: string;             // REQUIRED - enforced at service layer
     deviceId?: string;
     sensorId?: string;
+    macAddress?: string;
     targetId?: string;
     search?: string;
+    searchFields?: string[];
     startTime?: string;            // ISO timestamp
     endTime?: string;              // ISO timestamp
     page?: number;

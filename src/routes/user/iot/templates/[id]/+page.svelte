@@ -1052,6 +1052,7 @@
     nextZoneNumber={nextZoneNumberForAdd}
     trackingAreaWidth={addZoneTrackingArea.width}
     trackingAreaHeight={addZoneTrackingArea.height}
+    trackingArena={editorArenaValue}
     onClose={() => (showAddZoneModal = false)}
     onAdd={handleAddZoneFromModal}
 />
@@ -1073,6 +1074,7 @@
         }}
         trackingAreaWidth={addZoneTrackingArea.width}
         trackingAreaHeight={addZoneTrackingArea.height}
+        trackingArena={editorArenaValue}
         onClose={() => { showEditZoneModal = false; zoneToEdit = null; }}
         onSave={handleEditZoneSave}
     />

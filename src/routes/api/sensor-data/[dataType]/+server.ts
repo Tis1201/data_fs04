@@ -50,8 +50,15 @@ export const GET: RequestHandler = restrict(async ({ url, params, auth }) => {
         accountId,
         deviceId: url.searchParams.get('deviceId') || undefined,
         sensorId: url.searchParams.get('sensorId') || undefined,
+        macAddress: url.searchParams.get('macAddress') || url.searchParams.get('mac') || undefined,
         targetId: url.searchParams.get('targetId') || undefined,
         search: url.searchParams.get('search') || undefined,
+        searchFields:
+            url.searchParams
+                .get('searchFields')
+                ?.split(',')
+                .map((s) => s.trim())
+                .filter(Boolean) || undefined,
         startTime: url.searchParams.get('startTime') || undefined,
         endTime: url.searchParams.get('endTime') || undefined,
         page: parseInt(url.searchParams.get('page') || '1', 10),
