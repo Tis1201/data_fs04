@@ -770,8 +770,8 @@
                                     <div class="schedule-detail">
                                         <span class="schedule-badge enabled">Enabled</span>
                                         <div class="schedule-items">
-                                            <span class="schedule-item"><span class="schedule-label">On:</span> {(getSettingValue('power_on_datetime') || '—').replace('T', ' ')}</span>
-                                            <span class="schedule-item"><span class="schedule-label">Off:</span> {(getSettingValue('power_off_datetime') || '—').replace('T', ' ')}</span>
+                                            <span class="schedule-item"><span class="schedule-label">On:</span> {(getSettingValue('power_on_time') || getSettingValue('power_on_datetime') || '—').replace('T', ' ')}</span>
+                                            <span class="schedule-item"><span class="schedule-label">Off:</span> {(getSettingValue('power_off_time') || getSettingValue('power_off_datetime') || '—').replace('T', ' ')}</span>
                                         </div>
                                     </div>
                                 {:else}

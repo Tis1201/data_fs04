@@ -2381,8 +2381,8 @@
                                 <div class="schedule-detail">
                                     <span class="schedule-badge enabled">Enabled</span>
                                     <div class="schedule-items">
-                                        <span class="schedule-item"><span class="schedule-label">On:</span> {getProfileSetting('power_on_datetime', '-').replace('T', ' ')}</span>
-                                        <span class="schedule-item"><span class="schedule-label">Off:</span> {getProfileSetting('power_off_datetime', '-').replace('T', ' ')}</span>
+                                        <span class="schedule-item"><span class="schedule-label">On:</span> {getProfileSetting('power_on_time', getProfileSetting('power_on_datetime', '-')).replace('T', ' ')}</span>
+                                        <span class="schedule-item"><span class="schedule-label">Off:</span> {getProfileSetting('power_off_time', getProfileSetting('power_off_datetime', '-')).replace('T', ' ')}</span>
                                     </div>
                                 </div>
                             {:else}

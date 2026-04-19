@@ -128,7 +128,7 @@ export const GET: RequestHandler = restrictModule(
                 }, {} as Record<string, any>);
                 hasOverrides = metadata.hasOverrides || false;
                 const scheduleKeys = [
-                    'power_management_schedule', 'power_on_datetime', 'power_off_datetime',
+                    'power_management_schedule', 'power_on_time', 'power_off_time',
                     'reboot_schedule_enabled', 'reboot_schedule_frequency', 'reboot_schedule_day', 'reboot_schedule_time',
                     'download_schedule_enabled', 'download_schedule_frequency', 'download_schedule_day', 'download_schedule_time'
                 ];
@@ -190,8 +190,16 @@ export const GET: RequestHandler = restrictModule(
                 timezone: effectiveConfig.timezone ?? null,
                 homeLauncher: effectiveConfig.home_launcher ?? effectiveConfig.homeLauncher ?? null,
                 powerManagementSchedule: (effectiveConfig.power_management_schedule ?? effectiveConfig.powerManagementSchedule) === 'enabled',
-                powerOnDatetime: effectiveConfig.power_on_datetime ?? effectiveConfig.powerOnDatetime ?? '',
-                powerOffDatetime: effectiveConfig.power_off_datetime ?? effectiveConfig.powerOffDatetime ?? '',
+                powerOnTime: effectiveConfig.power_on_time
+                    ?? effectiveConfig.powerOnTime
+                    ?? effectiveConfig.power_on_datetime
+                    ?? effectiveConfig.powerOnDatetime
+                    ?? '',
+                powerOffTime: effectiveConfig.power_off_time
+                    ?? effectiveConfig.powerOffTime
+                    ?? effectiveConfig.power_off_datetime
+                    ?? effectiveConfig.powerOffDatetime
+                    ?? '',
                 rebootSchedule: (effectiveConfig.reboot_schedule_enabled ?? effectiveConfig.rebootSchedule) === 'enabled',
                 rebootFrequency: effectiveConfig.reboot_schedule_frequency ?? effectiveConfig.rebootFrequency ?? 'daily',
                 rebootDay: effectiveConfig.reboot_schedule_day ?? effectiveConfig.rebootDay ?? 'monday',

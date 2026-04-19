@@ -83,18 +83,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
             order: 6
         },
         {
-            key: 'power_on_datetime',
-            value: '',
-            dataType: 'datetime',
-            label: 'Power-On Date & Time',
+            key: 'power_on_time',
+            value: '08:00',
+            dataType: 'time',
+            label: 'Power-On Time',
             category: 'Power',
             order: 7
         },
         {
-            key: 'power_off_datetime',
-            value: '',
-            dataType: 'datetime',
-            label: 'Power-Off Date & Time',
+            key: 'power_off_time',
+            value: '20:00',
+            dataType: 'time',
+            label: 'Power-Off Time',
             category: 'Power',
             order: 8
         },

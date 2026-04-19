@@ -14,8 +14,8 @@ const mappingKeys: Record<string, string[]> = {
     "reboot_schedule_time"
   ],
   power_management_schedule: [
-    "power_on_datetime",
-    "power_off_datetime"
+    "power_on_time",
+    "power_off_time"
   ]
 };
 

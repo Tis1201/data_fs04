@@ -59,8 +59,8 @@
     let timezone = 'Asia/Ho_Chi_Minh';
     let homeLauncher = '';
     let powerManagementSchedule = false;
-    let powerOnDatetime = '';
-    let powerOffDatetime = '';
+    let powerOnTime = '';
+    let powerOffTime = '';
     let rebootSchedule = false;
     let rebootFrequency = 'daily';
     let rebootDay = 'monday';
@@ -120,18 +120,39 @@
         loadAvailablePackages();
     }
 
-    // Get current datetime in local format for min attribute (prevent selecting past dates)
-    function getCurrentDateTimeLocal(): string {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const hours = String(now.getHours()).padStart(2, '0');
-        const minutes = String(now.getMinutes()).padStart(2, '0');
-        return `${year}-${month}-${day}T${hours}:${minutes}`;
-    }
+    /**
+     * Soft warning for the Power Management daily schedule: shown when both
+     * times are set, valid HH:MM, and Power-Off is at or before Power-On.
+     * Equality is treated as a hard error in handleSubmit(); here we only
+     * surface the "overnight" case as informational guidance.
+     */
+    $: powerScheduleOvernightWarning =
+        powerManagementSchedule &&
+        /^\d{2}:\d{2}$/.test(powerOnTime) &&
+        /^\d{2}:\d{2}$/.test(powerOffTime) &&
+        powerOffTime < powerOnTime
+            ? `Power-Off (${powerOffTime}) is before Power-On (${powerOnTime}). The device will stay on overnight and turn off the next morning. Is this intentional?`
+            : '';
 
-    $: minDatetime = getCurrentDateTimeLocal();
+    /**
+     * Coerce a stored power on/off value to "HH:MM" for the daily schedule.
+     * Accepts already-time strings ("08:00", "8:00", "08:00:00") and legacy
+     * datetime strings ("2026-01-30T23:36"); returns "" if unparseable.
+     */
+    function extractHHMM(raw: string): string {
+        const s = (raw ?? '').trim();
+        if (!s) return '';
+        const timeMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+        if (timeMatch) {
+            return `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+        }
+        const tIdx = s.indexOf('T');
+        if (tIdx >= 0 && s.length >= tIdx + 6) {
+            const t = s.slice(tIdx + 1, tIdx + 6);
+            if (/^\d{2}:\d{2}$/.test(t)) return t;
+        }
+        return '';
+    }
 
     // Schedule options from availableSettings (same as Edit Device modal)
     $: frequencyOptions = (() => {
@@ -260,8 +281,8 @@
                 label: 'Power Management Schedule',
                 category: 'Power'
             },
-            power_on_datetime: { value: powerOnDatetime || '', dataType: 'string', label: 'Power-On Date & Time', category: 'Power' },
-            power_off_datetime: { value: powerOffDatetime || '', dataType: 'string', label: 'Power-Off Date & Time', category: 'Power' },
+            power_on_time: { value: powerOnTime || '', dataType: 'time', label: 'Power-On Time', category: 'Power' },
+            power_off_time: { value: powerOffTime || '', dataType: 'time', label: 'Power-Off Time', category: 'Power' },
             reboot_schedule_enabled: {
                 value: rebootSchedule ? 'enabled' : 'disabled',
                 dataType: 'select',
@@ -333,8 +354,12 @@
             timezone = getSettingValue('timezone', settings) || 'Asia/Ho_Chi_Minh';
             homeLauncher = getSettingValue('home_launcher', settings) || '';
             powerManagementSchedule = getSettingValue('power_management_schedule', settings) === 'enabled';
-            powerOnDatetime = getSettingValue('power_on_datetime', settings) || '';
-            powerOffDatetime = getSettingValue('power_off_datetime', settings) || '';
+            powerOnTime = extractHHMM(
+                getSettingValue('power_on_time', settings) || getSettingValue('power_on_datetime', settings) || ''
+            );
+            powerOffTime = extractHHMM(
+                getSettingValue('power_off_time', settings) || getSettingValue('power_off_datetime', settings) || ''
+            );
             rebootSchedule = getSettingValue('reboot_schedule', settings) === 'enabled' || getSettingValue('reboot_schedule_enabled', settings) === 'enabled';
             rebootFrequency = getSettingValue('reboot_schedule_frequency', settings) || 'daily';
             rebootDay = getSettingValue('reboot_schedule_day', settings) || (rebootFrequency === 'monthly' ? '1' : 'monday');
@@ -364,8 +389,8 @@
         timezone = 'Asia/Ho_Chi_Minh';
         homeLauncher = '';
         powerManagementSchedule = false;
-        powerOnDatetime = '';
-        powerOffDatetime = '';
+        powerOnTime = '';
+        powerOffTime = '';
         rebootSchedule = false;
         rebootFrequency = 'daily';
         rebootDay = 'monday';
@@ -414,6 +439,16 @@
         if (description.length > MAX_DESCRIPTION_LENGTH) {
             errorMessage = PROFILE_DESCRIPTION_TOO_LONG_MSG;
             return;
+        }
+        if (powerManagementSchedule) {
+            if (!powerOnTime || !powerOffTime) {
+                errorMessage = 'Power Management Schedule is enabled. Please set both Power-On and Power-Off times.';
+                return;
+            }
+            if (powerOnTime === powerOffTime) {
+                errorMessage = 'Power-On and Power-Off times must be different.';
+                return;
+            }
         }
         submitting = true;
         try {
@@ -739,32 +774,35 @@
                 {#if powerManagementSchedule}
                 <div class="config-row config-sub-row">
                     <div>
-                        <p class="config-label config-sub-label">Power-On Date & Time</p>
-                        <p class="config-description">Scheduled time to turn on the device</p>
+                        <p class="config-label config-sub-label">Power-On Time</p>
+                        <p class="config-description">Daily time to turn on the device</p>
                     </div>
-                    <div class="config-input-wrap config-datetime-wrap">
+                    <div class="config-input-wrap config-time-wrap">
                         <InputField
-                            type="datetime-local"
-                            bind:value={powerOnDatetime}
-                            min={minDatetime}
+                            type="time"
+                            bind:value={powerOnTime}
                             placeholder=""
                         />
                     </div>
                 </div>
                 <div class="config-row config-sub-row">
                     <div>
-                        <p class="config-label config-sub-label">Power-Off Date & Time</p>
-                        <p class="config-description">Scheduled time to turn off the device</p>
+                        <p class="config-label config-sub-label">Power-Off Time</p>
+                        <p class="config-description">Daily time to turn off the device</p>
                     </div>
-                    <div class="config-input-wrap config-datetime-wrap">
+                    <div class="config-input-wrap config-time-wrap">
                         <InputField
-                            type="datetime-local"
-                            bind:value={powerOffDatetime}
-                            min={minDatetime}
+                            type="time"
+                            bind:value={powerOffTime}
                             placeholder=""
                         />
                     </div>
                 </div>
+                {#if powerScheduleOvernightWarning}
+                <div class="config-row config-sub-row schedule-warning-row">
+                    <p class="schedule-warning">{powerScheduleOvernightWarning}</p>
+                </div>
+                {/if}
                 {/if}
 
                 <!-- Reboot Schedule -->
@@ -977,13 +1015,30 @@
         min-width: 320px;
     }
 
-    .config-datetime-wrap {
-        width: 220px;
+    .config-time-wrap {
+        width: 140px;
     }
 
     .config-sub-row {
         padding-left: calc(var(--ds-space-5) + 16px);
         background: var(--ds-bg-primary);
+    }
+
+    .schedule-warning-row {
+        padding-top: 0;
+        padding-bottom: var(--ds-space-3);
+    }
+
+    .schedule-warning {
+        margin: 0;
+        font-family: var(--ds-font-family-primary);
+        font-size: var(--ds-text-sm);
+        line-height: var(--ds-leading-sm);
+        color: #b45309;
+        background: #fffbeb;
+        border-left: 3px solid #f59e0b;
+        padding: 8px 12px;
+        border-radius: 4px;
     }
 
     .config-sub-label {
