@@ -144,9 +144,30 @@ export const load = restrict(
             mac: s.serialNumber || ''
         }));
 
+        // Load ALL configuration templates with zones (unpaginated) for Alert template Dwell Time zone dropdown
+        const allConfigTemplates = await prisma.sensorTemplate.findMany({
+            where: { accountId, type: 'CONFIGURATION' },
+            select: { id: true, name: true, config: true },
+            orderBy: { name: 'asc' }
+        });
+        const configurationTemplates = allConfigTemplates
+            .map(t => {
+                const cfg = t.config as Record<string, unknown> | null;
+                const rawZones = Array.isArray(cfg?.zones) ? (cfg.zones as Array<Record<string, unknown>>) : [];
+                return {
+                    id: t.id,
+                    name: t.name,
+                    zones: rawZones
+                        .filter(z => z.id && z.name)
+                        .map(z => ({ id: z.id as string, name: z.name as string }))
+                };
+            })
+            .filter(t => t.zones.length > 0);
+
         return {
             templates,
             availableSensors,
+            configurationTemplates,
             meta: {
                 pagination: { page, per_page: perPage, total_records: totalRecords, total_pages: totalPages },
                 sort: { field: sortField, order: sortOrder },
@@ -225,27 +246,14 @@ export const actions: Actions = {
                         return { success: false, error: 'Some selected sensors do not belong to your account' };
                     }
 
-                    // Check for duplicate sensor assignment within same template type
+                    // Remove existing assignments of same template type for reassigned sensors
                     const dbType = parseTemplateType(type);
-                    const conflicting = await prisma.sensorTemplateAssignment.findMany({
+                    await prisma.sensorTemplateAssignment.deleteMany({
                         where: {
                             sensorId: { in: sensorIds },
                             template: { type: dbType, accountId }
-                        },
-                        include: {
-                            sensor: { select: { name: true, serialNumber: true } },
-                            template: { select: { name: true } }
                         }
                     });
-                    if (conflicting.length > 0) {
-                        const details = conflicting.map(c =>
-                            `${c.sensor.name || c.sensor.serialNumber} → ${c.template.name}`
-                        ).join(', ');
-                        return {
-                            success: false,
-                            error: `Some sensors are already assigned to another ${mapTemplateType(dbType)} template: ${details}`
-                        };
-                    }
                 }
 
                 // Create template in database
@@ -388,27 +396,14 @@ export const actions: Actions = {
                         return { success: false, error: 'Some selected sensors do not belong to your account' };
                     }
 
-                    // Check for duplicate sensor assignment within same template type (exclude current template)
-                    const conflicting = await prisma.sensorTemplateAssignment.findMany({
+                    // Remove existing assignments of same template type for reassigned sensors (exclude current template)
+                    await prisma.sensorTemplateAssignment.deleteMany({
                         where: {
                             sensorId: { in: sensorIds },
                             templateId: { not: id },
                             template: { type: template.type, accountId }
-                        },
-                        include: {
-                            sensor: { select: { name: true, serialNumber: true } },
-                            template: { select: { name: true } }
                         }
                     });
-                    if (conflicting.length > 0) {
-                        const details = conflicting.map(c =>
-                            `${c.sensor.name || c.sensor.serialNumber} → ${c.template.name}`
-                        ).join(', ');
-                        return {
-                            success: false,
-                            error: `Some sensors are already assigned to another ${mapTemplateType(template.type as SensorTemplateType)} template: ${details}`
-                        };
-                    }
                 }
 
                 // Update template (include accountId for defense-in-depth)
