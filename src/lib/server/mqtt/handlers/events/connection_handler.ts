@@ -114,6 +114,14 @@ export async function handleConnectionEvent(
             ? new Date(eventTimestampMs)
             : now;
 
+    /**
+     * For device disconnects only:
+     *   true  = this was the last MQTT session for the device → mark Device.connected=false
+     *   false = other MQTT sessions still tracked in Redis (e.g. RDM while radar restarts) → skip
+     * Stays `null` for connect events / non-device disconnects.
+     */
+    let markDeviceFullyOffline: boolean | null = null;
+
     // Update device presence in Redis for claimed devices (not factory devices)
     // When multiple apps share the same device ID (e.g. radar + RDM), we only mark offline when the *last* connection disconnects.
     if (deviceId && redis) {
@@ -137,6 +145,7 @@ export async function handleConnectionEvent(
                 pipeline.scard(presenceClientsKey);
                 const results = await pipeline.exec();
                 const remainingCount = (results?.[1]?.[1] as number) ?? 0;
+                markDeviceFullyOffline = remainingCount === 0;
                 if (remainingCount === 0) {
                     await redis
                         .multi()
@@ -153,7 +162,12 @@ export async function handleConnectionEvent(
             logger.error(`[MQTT Presence] Failed to update presence for device ${deviceId}:`, {
                 error: redisError instanceof Error ? redisError.message : String(redisError)
             });
+            if (!isConnectEvent) {
+                markDeviceFullyOffline = false;
+            }
         }
+    } else if (deviceId && !isConnectEvent && !redis) {
+        markDeviceFullyOffline = true;
     }
 
     // Single-row-per-clientId session style: track latest state per clientId
@@ -269,25 +283,33 @@ export async function handleConnectionEvent(
                 logger.warn('[MQTT Events] Failed to check for pending configs:', err);
             }
         } else {
-            await prisma.device.updateMany({
-                where: { id: deviceId },
-                data: { connected: false, disconnectedAt: eventDate }
-            });
-            logger.info('[MQTT Events] Device disconnected', { deviceId, username, clientId, reason });
-
-            // Publish MQTT notification for real-time UI updates
-            const deviceRecord = await prisma.device.findUnique({
-                where: { id: deviceId },
-                select: { id: true, name: true, accountId: true, createdBy: true }
-            });
-            if (deviceRecord) {
-                await publishDeviceStatusNotification({
-                    prisma,
-                    device: deviceRecord,
-                    connected: false,
-                    timestamp: eventDate.toISOString(),
+            if (markDeviceFullyOffline === false) {
+                logger.info('[MQTT Events] Device MQTT session ended; other session(s) still active — skipping Device.connected=false', {
+                    deviceId,
+                    username,
+                    clientId,
                     reason
                 });
+            } else {
+                await prisma.device.updateMany({
+                    where: { id: deviceId },
+                    data: { connected: false, disconnectedAt: eventDate }
+                });
+                logger.info('[MQTT Events] Device disconnected', { deviceId, username, clientId, reason });
+
+                const deviceRecord = await prisma.device.findUnique({
+                    where: { id: deviceId },
+                    select: { id: true, name: true, accountId: true, createdBy: true }
+                });
+                if (deviceRecord) {
+                    await publishDeviceStatusNotification({
+                        prisma,
+                        device: deviceRecord,
+                        connected: false,
+                        timestamp: eventDate.toISOString(),
+                        reason
+                    });
+                }
             }
         }
     }

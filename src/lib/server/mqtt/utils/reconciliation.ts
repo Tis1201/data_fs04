@@ -15,11 +15,160 @@ const EMQX_URL = process.env.EMQX_URL || 'http://localhost:18083';
 const EMQX_API_KEY = process.env.EMQX_API_KEY || '';
 const EMQX_API_SECRET = process.env.EMQX_API_SECRET || '';
 
-interface EmqxClient {
-    clientid: string;
-    username: string;
-    connected_at: number;
-    node: string;
+/** Parsed broker snapshot: unique device ids and full EMQX clientids per device (multi-app / multi-session). */
+export type BrokerDevicePresenceSnapshot = {
+    deviceIds: Set<string>;
+    /** deviceId -> connected clientids (e.g. device:CUID_abc123) */
+    clientIdsByDevice: Map<string, Set<string>>;
+};
+
+const PRESENCE_PIPELINE_CHUNK = 800;
+
+/**
+ * Extract Prisma device id from an MQTT principal.
+ * Prefers EMQX `username` (canonical: `device:<id>`).
+ * Falls back to clientid heuristic `device:<id>_<6charSuffix>` only when username is unusable.
+ */
+export function parseDeviceIdFromDeviceClientId(
+    clientId: string,
+    username?: string | null
+): string | null {
+    if (typeof username === 'string' && username.startsWith('device:')) {
+        const id = username.slice('device:'.length);
+        if (id.length > 0) {
+            return id;
+        }
+    }
+    if (typeof clientId !== 'string' || !clientId.startsWith('device:')) {
+        return null;
+    }
+    let rest = clientId.slice('device:'.length);
+    const underscoreIndex = rest.lastIndexOf('_');
+    if (underscoreIndex > 0 && rest.length - underscoreIndex <= 7) {
+        rest = rest.substring(0, underscoreIndex);
+    }
+    return rest.length > 0 ? rest : null;
+}
+
+/**
+ * Fetches all device-scoped MQTT clients from EMQX (paginated).
+ * Keeps every connected clientid so Redis `presence:device:{id}:clients` can match connection_handler.
+ */
+export async function fetchBrokerDevicePresenceSnapshot(): Promise<BrokerDevicePresenceSnapshot> {
+    if (!EMQX_API_KEY || !EMQX_API_SECRET) {
+        logger.warn(
+            '[MQTT Reconciliation] EMQX_API_KEY / EMQX_API_SECRET not set; broker snapshot will likely fail'
+        );
+    }
+    const auth = Buffer.from(`${EMQX_API_KEY}:${EMQX_API_SECRET}`).toString('base64');
+    const deviceIds = new Set<string>();
+    const clientIdsByDevice = new Map<string, Set<string>>();
+    let page = 1;
+    const limit = 10000;
+    const maxPages = 20;
+
+    while (page <= maxPages) {
+        const response = await fetch(`${EMQX_URL}/api/v5/clients?page=${page}&limit=${limit}`, {
+            headers: {
+                Authorization: `Basic ${auth}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`EMQX API returned ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const clients = data.data || [];
+
+        if (clients.length === 0) {
+            break;
+        }
+
+        for (const client of clients) {
+            const clientId = client.clientid as string;
+            const username = client.username as string | undefined;
+            const deviceId = parseDeviceIdFromDeviceClientId(clientId, username);
+            if (!deviceId) {
+                continue;
+            }
+            deviceIds.add(deviceId);
+            let set = clientIdsByDevice.get(deviceId);
+            if (!set) {
+                set = new Set();
+                clientIdsByDevice.set(deviceId, set);
+            }
+            set.add(clientId);
+        }
+
+        logger.debug(
+            `[MQTT Reconciliation] Fetched page ${page}: ${clients.length} clients, devices: ${deviceIds.size}`
+        );
+
+        if (clients.length < limit) {
+            break;
+        }
+        page++;
+    }
+
+    if (page > maxPages) {
+        logger.warn(
+            `[MQTT Reconciliation] Reached max pagination limit (${maxPages} pages, ${maxPages * limit} clients)`
+        );
+    }
+
+    logger.info(
+        `[MQTT Reconciliation] Broker presence snapshot: ${deviceIds.size} device(s), ${clientIdsByDevice.size} device bucket(s) with client id set(s)`
+    );
+    return { deviceIds, clientIdsByDevice };
+}
+
+/**
+ * Write Redis presence keys + per-device `:clients` sets from a broker snapshot.
+ *
+ * Race-safe: never DELs `:clients`. Only SADDs current broker clientids and refreshes TTL/presence.
+ * Stale clientids that the broker no longer reports drift out via the per-device TTL refresh
+ * cycle; they are also removed by EMQX disconnect events (`SREM` in connection_handler).
+ *
+ * When `rebuildOnlineSet` is true, replaces `presence:devices:online` (fast startup only).
+ */
+export async function applyBrokerPresenceToRedis(
+    snapshot: BrokerDevicePresenceSnapshot,
+    presenceTTL: number,
+    options: { rebuildOnlineSet: boolean }
+): Promise<void> {
+    if (!redis) {
+        return;
+    }
+    const { deviceIds, clientIdsByDevice } = snapshot;
+    const presenceSetKey = 'presence:devices:online';
+    const entries = Array.from(deviceIds).sort();
+    let didDelOnlineSet = false;
+
+    for (let i = 0; i < entries.length; i += PRESENCE_PIPELINE_CHUNK) {
+        const slice = entries.slice(i, i + PRESENCE_PIPELINE_CHUNK);
+        const pipeline = redis.pipeline();
+
+        if (options.rebuildOnlineSet && !didDelOnlineSet) {
+            pipeline.del(presenceSetKey);
+            didDelOnlineSet = true;
+        }
+
+        for (const deviceId of slice) {
+            const clientsKey = `presence:device:${deviceId}:clients`;
+            const clientSet = clientIdsByDevice.get(deviceId) ?? new Set<string>();
+
+            for (const cid of clientSet) {
+                pipeline.sadd(clientsKey, cid);
+            }
+            pipeline.expire(clientsKey, presenceTTL);
+            pipeline.setex(`presence:device:${deviceId}`, presenceTTL, '1');
+            pipeline.sadd(presenceSetKey, deviceId);
+        }
+
+        await pipeline.exec();
+    }
 }
 
 /**
@@ -31,10 +180,9 @@ export async function fastStartupSync(): Promise<void> {
     logger.info('[MQTT Fast Sync] Starting fast startup sync...');
 
     try {
-        // Get all connected devices from broker (source of truth)
-        const brokerDevices = await getConnectedClientsFromBroker();
+        const snapshot = await fetchBrokerDevicePresenceSnapshot();
 
-        if (brokerDevices.size === 0) {
+        if (snapshot.deviceIds.size === 0) {
             logger.info('[MQTT Fast Sync] No devices connected to broker');
             return;
         }
@@ -46,24 +194,11 @@ export async function fastStartupSync(): Promise<void> {
 
         const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10);
 
-        // Use Redis pipeline for bulk operations (much faster than individual commands)
-        const pipeline = redis.pipeline();
-        const presenceSetKey = 'presence:devices:online';
+        await applyBrokerPresenceToRedis(snapshot, presenceTTL, { rebuildOnlineSet: true });
 
-        // Clear the Set first (fast startup sync - rebuild from scratch)
-        pipeline.del(presenceSetKey);
-
-        for (const deviceId of brokerDevices) {
-            // Set presence key with TTL for each connected device
-            pipeline.setex(`presence:device:${deviceId}`, presenceTTL, '1');
-            // Add to Set for fast listing
-            pipeline.sadd(presenceSetKey, deviceId);
-        }
-
-        // Execute all commands at once
-        await pipeline.exec();
-
-        logger.info(`[MQTT Fast Sync] Completed - marked ${brokerDevices.size} devices online in Redis (TTL: ${presenceTTL}s)`);
+        logger.info(
+            `[MQTT Fast Sync] Completed - marked ${snapshot.deviceIds.size} devices online in Redis with per-client sets (TTL: ${presenceTTL}s)`
+        );
     } catch (error) {
         logger.error(`[MQTT Fast Sync] Failed: ${error instanceof Error ? error.message : String(error)}`);
         throw error;
@@ -120,74 +255,6 @@ async function sendDeviceStatusNotification(
 }
 
 /**
- * Fetches all currently connected clients from EMQX broker with pagination
- * Supports 100k+ devices by fetching in pages of 10k
- */
-async function getConnectedClientsFromBroker(): Promise<Set<string>> {
-    try {
-        const auth = Buffer.from(`${EMQX_API_KEY}:${EMQX_API_SECRET}`).toString('base64');
-        const deviceIds = new Set<string>();
-        let page = 1;
-        const limit = 10000;
-        const maxPages = 20; // Support up to 200k devices
-
-        while (page <= maxPages) {
-            const response = await fetch(`${EMQX_URL}/api/v5/clients?page=${page}&limit=${limit}`, {
-                headers: {
-                    'Authorization': `Basic ${auth}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error(`EMQX API returned ${response.status}: ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            const clients = data.data || [];
-
-            if (clients.length === 0) {
-                // No more clients to fetch
-                break;
-            }
-
-            // Extract device IDs from clientid (format: "device:DEVICE_ID_SUFFIX" where suffix is "_XXXXXX")
-            for (const client of clients) {
-                const clientId = client.clientid as string;
-                if (clientId && clientId.startsWith('device:')) {
-                    let deviceId = clientId.substring(7); // Remove "device:" prefix
-                    // Strip random suffix if present (format: "DEVICE_ID_XXXXXX" where suffix is _XXXXXX)
-                    const underscoreIndex = deviceId.lastIndexOf('_');
-                    if (underscoreIndex > 0 && deviceId.length - underscoreIndex <= 7) {
-                        deviceId = deviceId.substring(0, underscoreIndex);
-                    }
-                    deviceIds.add(deviceId);
-                }
-            }
-
-            logger.debug(`[MQTT Reconciliation] Fetched page ${page}: ${clients.length} clients, total devices: ${deviceIds.size}`);
-
-            // If we got less than limit, we've reached the end
-            if (clients.length < limit) {
-                break;
-            }
-
-            page++;
-        }
-
-        if (page > maxPages) {
-            logger.warn(`[MQTT Reconciliation] Reached max pagination limit (${maxPages} pages, ${maxPages * limit} clients)`);
-        }
-
-        logger.info(`[MQTT Reconciliation] Found ${deviceIds.size} devices connected to broker (fetched ${page} pages)`);
-        return deviceIds;
-    } catch (error) {
-        logger.error(`[MQTT Reconciliation] Failed to fetch clients from broker: ${error instanceof Error ? error.message : String(error)}`);
-        throw error;
-    }
-}
-
-/**
  * Gets all device IDs that Redis thinks are online
  * Uses Redis Set for O(1) performance (much faster than KEYS scan)
  */
@@ -216,6 +283,9 @@ async function getOnlineDevicesFromRedis(): Promise<Set<string>> {
         const deviceIds = new Set<string>();
 
         for (const key of keys) {
+            if (key.endsWith(':clients')) {
+                continue;
+            }
             const deviceId = key.replace('presence:device:', '');
             const isOnline = await redis.get(key);
             if (isOnline === '1') {
@@ -241,8 +311,10 @@ export async function reconcileDevicePresence(): Promise<void> {
     const adminPrisma = getAdminPrisma();
 
     try {
-        // Get actual state from MQTT broker
-        const brokerDevices = await getConnectedClientsFromBroker();
+        // Get actual state from MQTT broker (device ids + per-device clientids for Redis :clients)
+        const snapshot = await fetchBrokerDevicePresenceSnapshot();
+        const brokerDevices = snapshot.deviceIds;
+        const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10);
         logger.info(`[MQTT Reconciliation] Broker devices: ${Array.from(brokerDevices).join(', ') || 'none'}`);
 
         // Get Redis state
@@ -321,24 +393,16 @@ export async function reconcileDevicePresence(): Promise<void> {
                 }
             }
 
-            // Even if everything is synchronized, refresh TTLs for all connected devices
-            // This prevents Redis keys from expiring while device is still online
+            // Refresh TTLs and per-device :clients from broker (fixes drift when worker missed connect events)
             if (redis && brokerDevices.size > 0) {
                 try {
-                    const presenceKey = 'presence:devices:online';
-                    const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10);
+                    await applyBrokerPresenceToRedis(snapshot, presenceTTL, { rebuildOnlineSet: false });
                     const pipeline = redis.pipeline();
-
-                    for (const deviceId of brokerDevices) {
-                        const devicePresenceKey = `presence:device:${deviceId}`;
-                        pipeline.setex(devicePresenceKey, presenceTTL, '1');
-                    }
-
-                    // Also refresh the Set TTL
-                    pipeline.expire(presenceKey, presenceTTL);
-
+                    pipeline.expire('presence:devices:online', presenceTTL);
                     await pipeline.exec();
-                    logger.debug(`[MQTT Reconciliation] Refreshed TTLs for ${brokerDevices.size} online devices`);
+                    logger.debug(
+                        `[MQTT Reconciliation] Refreshed presence + client sets for ${brokerDevices.size} online devices`
+                    );
                 } catch (ttlError) {
                     logger.error(`[MQTT Reconciliation] Failed to refresh TTLs: ${ttlError instanceof Error ? ttlError.message : String(ttlError)}`);
                 }
@@ -361,6 +425,7 @@ export async function reconcileDevicePresence(): Promise<void> {
 
             for (const deviceId of staleDevices) {
                 pipeline.del(`presence:device:${deviceId}`);
+                pipeline.del(`presence:device:${deviceId}:clients`);
                 pipeline.srem(presenceSetKey, deviceId);
             }
             await pipeline.exec();
@@ -441,35 +506,16 @@ export async function reconcileDevicePresence(): Promise<void> {
             }
         }
 
-        // Refresh TTL for devices that are still connected (prevent expiration)
-        const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10); // 10 minutes default (increased for stability)
-        for (const deviceId of brokerDevices) {
+        // Align Redis presence + per-device :clients with broker (covers missing devices and multi-client drift)
+        if (redis && brokerDevices.size > 0) {
             try {
-                if (redis) {
-                    const presenceKey = `presence:device:${deviceId}`;
-                    const exists = await redis.exists(presenceKey);
-                    if (exists === 1) {
-                        // Refresh TTL for devices that are still connected
-                        await redis.expire(presenceKey, presenceTTL);
-                        logger.debug(`[MQTT Reconciliation] Refreshed TTL for device ${deviceId} (TTL: ${presenceTTL}s)`);
-                    }
-                }
+                await applyBrokerPresenceToRedis(snapshot, presenceTTL, { rebuildOnlineSet: false });
+                await redis.expire('presence:devices:online', presenceTTL);
             } catch (err) {
-                logger.error(`[MQTT Reconciliation] Failed to refresh TTL for device ${deviceId}: ${err instanceof Error ? err.message : String(err)}`);
+                logger.error(
+                    `[MQTT Reconciliation] Failed to sync Redis client sets from broker: ${err instanceof Error ? err.message : String(err)}`
+                );
             }
-        }
-
-        // Mark missing devices as online in Redis (batch operation)
-        if (missingDevices.length > 0 && redis) {
-            const pipeline = redis.pipeline();
-            const presenceSetKey = 'presence:devices:online';
-
-            for (const deviceId of missingDevices) {
-                pipeline.setex(`presence:device:${deviceId}`, presenceTTL, '1');
-                pipeline.sadd(presenceSetKey, deviceId);
-            }
-            await pipeline.exec();
-            logger.info(`[MQTT Reconciliation] Added ${missingDevices.length} missing devices to Redis (TTL: ${presenceTTL}s)`);
         }
 
         // Batch update database for missing devices
