@@ -1653,14 +1653,14 @@
       <div class="details-row">
         <div class="text-display">
           <span class="text-display-label">Configuration Template</span>
-          <span class="text-display-value">Custom</span>
+          <span class="text-display-value">{data.configTemplateName || '—'}</span>
         </div>
         <div class="text-display text-display-placeholder" aria-hidden="true">
           <!-- Col 2 row 2: empty -->
         </div>
         <div class="text-display">
           <span class="text-display-label">Alert Template</span>
-          <span class="text-display-value">—</span>
+          <span class="text-display-value">{data.alertTemplateName || '—'}</span>
         </div>
         <div class="text-display">
           <span class="text-display-label">MAC Address</span>
@@ -1878,11 +1878,11 @@
               </div>
               <div class="config-label-value-row">
                 <span class="config-label">Path Tracking</span>
-                <span class="config-value">Enable</span>
+                <span class="config-value">{config?.pathTracking ? 'Enabled' : 'Disabled'}</span>
               </div>
               <div class="config-label-value-row">
-                <span class="config-label">Data Reporting Interval</span>
-                <span class="config-value">100 ms</span>
+                <span class="config-label">Dwell Threshold</span>
+                <span class="config-value">{config?.dwellThreshold ? `${config.dwellThreshold} sec` : '—'}</span>
               </div>
             </div>
           </div>

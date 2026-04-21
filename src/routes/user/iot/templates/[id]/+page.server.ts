@@ -308,55 +308,58 @@ export const actions: Actions = {
                 });
 
                 // Update sensor assignments
-                // Determine which sensors are NEWLY assigned vs already assigned.
-                // Only newly assigned sensors get template config applied (a:1 → a:2).
-                // Already-assigned sensors keep their own config (a:3 stays a:3).
-                const existingAssignments = await prisma.sensorTemplateAssignment.findMany({
-                    where: { templateId: id },
-                    select: { sensorId: true }
-                });
-                const previouslyAssignedIds = new Set(existingAssignments.map(a => a.sensorId));
-                const newSensorIds = (parsedSelectedSensors as { id: string }[])
-                    .map(s => s.id)
-                    .filter(sid => !previouslyAssignedIds.has(sid));
-
                 // Remove all existing assignments, then recreate
                 await prisma.sensorTemplateAssignment.deleteMany({
                     where: { templateId: id }
                 });
 
-                if (parsedSelectedSensors.length > 0) {
+                const allSensorIds = (parsedSelectedSensors as { id: string }[]).map(s => s.id);
+
+                if (allSensorIds.length > 0) {
                     await prisma.sensorTemplateAssignment.createMany({
-                        data: parsedSelectedSensors.map((sensor: { id: string }) => ({
+                        data: allSensorIds.map((sensorId: string) => ({
                             templateId: id,
-                            sensorId: sensor.id,
+                            sensorId,
                             assignedBy: user?.id
                         }))
                     });
 
-                    // Apply template config only to NEWLY assigned sensors
-                    if (newSensorIds.length > 0) {
-                        const templateConfig = (config as Record<string, unknown>) || {};
-                        for (const sensorId of newSensorIds) {
-                            // Verify sensor belongs to current account before updating
-                            const sensor = await prisma.sensor.findFirst({
-                                where: { id: sensorId, accountId },
-                                select: { config: true, configVersion: true }
-                            });
-                            if (!sensor) continue;
-                            const merged = {
-                                ...(typeof sensor.config === 'object' && sensor.config !== null ? (sensor.config as Record<string, unknown>) : {}),
-                                ...templateConfig
-                            };
-                            await prisma.sensor.update({
-                                where: { id: sensorId, accountId },
-                                data: {
-                                    config: merged as Prisma.InputJsonValue,
-                                    configVersion: sensor.configVersion + 1,
-                                    syncStatus: 'PENDING'
-                                }
-                            });
+                    // Apply template config to ALL assigned sensors (propagate updates)
+                    const templateConfig = (config as Record<string, unknown>) || {};
+                    for (const sensorId of allSensorIds) {
+                        const sensor = await prisma.sensor.findFirst({
+                            where: { id: sensorId, accountId },
+                            select: { config: true, configVersion: true }
+                        });
+                        if (!sensor) continue;
+                        const existingConfig = typeof sensor.config === 'object' && sensor.config !== null
+                            ? (sensor.config as Record<string, unknown>)
+                            : {};
+
+                        // Flatten deviceSettings to top-level so sensor detail page can read them
+                        const ds = templateConfig.deviceSettings as Record<string, unknown> | undefined;
+                        const flatDeviceSettings: Record<string, unknown> = {};
+                        if (ds) {
+                            if (ds.deviceMode !== undefined) flatDeviceSettings.deviceMode = ds.deviceMode;
+                            if (ds.timezone !== undefined) flatDeviceSettings.timezone = ds.timezone;
+                            if (ds.pathTracking !== undefined) flatDeviceSettings.pathTracking = ds.pathTracking;
+                            if (ds.dwellThreshold !== undefined) flatDeviceSettings.dwellThreshold = ds.dwellThreshold;
                         }
+
+                        const merged = {
+                            ...existingConfig,
+                            ...templateConfig,
+                            ...flatDeviceSettings
+                        };
+
+                        await prisma.sensor.update({
+                            where: { id: sensorId, accountId },
+                            data: {
+                                config: merged as Prisma.InputJsonValue,
+                                configVersion: sensor.configVersion + 1,
+                                syncStatus: 'PENDING'
+                            }
+                        });
                     }
                 }
 
@@ -409,6 +412,42 @@ export const actions: Actions = {
                         config: newConfig
                     }
                 });
+
+                // Propagate config changes to all assigned sensors
+                const assignments = await prisma.sensorTemplateAssignment.findMany({
+                    where: { templateId: id },
+                    select: { sensorId: true }
+                });
+                if (assignments.length > 0) {
+                    const templateConfig = newConfig as Record<string, unknown>;
+                    const ds = templateConfig.deviceSettings as Record<string, unknown> | undefined;
+                    const flatDeviceSettings: Record<string, unknown> = {};
+                    if (ds) {
+                        if (ds.deviceMode !== undefined) flatDeviceSettings.deviceMode = ds.deviceMode;
+                        if (ds.timezone !== undefined) flatDeviceSettings.timezone = ds.timezone;
+                        if (ds.pathTracking !== undefined) flatDeviceSettings.pathTracking = ds.pathTracking;
+                        if (ds.dwellThreshold !== undefined) flatDeviceSettings.dwellThreshold = ds.dwellThreshold;
+                    }
+                    for (const a of assignments) {
+                        const sensor = await prisma.sensor.findFirst({
+                            where: { id: a.sensorId, accountId },
+                            select: { config: true, configVersion: true }
+                        });
+                        if (!sensor) continue;
+                        const sConfig = typeof sensor.config === 'object' && sensor.config !== null
+                            ? (sensor.config as Record<string, unknown>)
+                            : {};
+                        const merged = { ...sConfig, ...templateConfig, ...flatDeviceSettings };
+                        await prisma.sensor.update({
+                            where: { id: a.sensorId, accountId },
+                            data: {
+                                config: merged as Prisma.InputJsonValue,
+                                configVersion: sensor.configVersion + 1,
+                                syncStatus: 'PENDING'
+                            }
+                        });
+                    }
+                }
 
                 return { success: true };
             } catch (err) {

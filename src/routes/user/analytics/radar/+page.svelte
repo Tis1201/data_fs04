@@ -528,7 +528,7 @@
             <form role="search" on:submit|preventDefault={applySearch} style="height: 100%;">
                 <InputField
                     type="search"
-                    placeholder="Search by device name"
+                    placeholder="Search by device name, target ID, or session ID"
                     bind:value={searchValue}
                     label=""
                     prefixIcon={true}

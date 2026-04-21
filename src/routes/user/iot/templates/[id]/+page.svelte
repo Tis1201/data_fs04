@@ -1053,6 +1053,7 @@
     trackingAreaWidth={addZoneTrackingArea.width}
     trackingAreaHeight={addZoneTrackingArea.height}
     trackingArena={editorArenaValue}
+    existingZoneNames={editorZonesValue.map(z => z.name || '')}
     onClose={() => (showAddZoneModal = false)}
     onAdd={handleAddZoneFromModal}
 />
@@ -1061,6 +1062,7 @@
 {#if zoneToEdit}
     <EditZoneModal
         open={showEditZoneModal}
+        existingZoneNames={editorZonesValue.filter(z => (z.id ?? `zone-${z.zoneNumber}`) !== (zoneToEdit?.id ?? '')).map(z => z.name || '')}
         zone={{
             id: zoneToEdit.id,
             name: zoneToEdit.name,

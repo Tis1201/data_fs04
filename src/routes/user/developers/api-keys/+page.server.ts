@@ -50,7 +50,7 @@ export const load = restrict(
         const userId = locals.user?.id;
 
         const toClientField = (f: string | null) =>
-            f === null ? null : f === 'createdAt' ? 'createdOn' : f === 'lastUsedAt' ? 'lastUsedOn' : f;
+            f === null ? null : f === 'createdAt' ? 'createdOn' : f === 'lastUsedAt' ? 'lastUsedOn' : f === 'active' ? 'status' : f;
 
         if (!accountId || !userId) {
             return {
@@ -80,8 +80,11 @@ export const load = restrict(
         // Map sort field to database column (use createdAt when unsorted to keep stable order)
         const effectiveSortField = sortField ?? 'createdAt';
         const dbSortField =
-            effectiveSortField === 'createdOn' ? 'createdAt' : effectiveSortField === 'lastUsedOn' ? 'lastUsedAt' : effectiveSortField;
-        const validSortFields = ['name', 'createdAt', 'lastUsedAt'];
+            effectiveSortField === 'createdOn' ? 'createdAt'
+            : effectiveSortField === 'lastUsedOn' ? 'lastUsedAt'
+            : effectiveSortField === 'status' ? 'active'
+            : effectiveSortField;
+        const validSortFields = ['name', 'createdAt', 'lastUsedAt', 'permission', 'active'];
         const orderByField = validSortFields.includes(dbSortField) ? dbSortField : 'createdAt';
         const effectiveSortOrder = sortOrder ?? 'desc';
 
@@ -143,7 +146,7 @@ export const actions: Actions = {
             const permission = form.get('permission') as string | null;
 
             if (!name?.trim()) return fail(400, { error: 'Key name is required' });
-            if (name.length > 100) return fail(400, { error: 'Key name must be 100 characters or less' });
+            if (name.length > 50) return fail(400, { error: 'Key name must be 50 characters or less' });
             if (!permission) return fail(400, { error: 'Permission is required' });
 
             const accountId = getCurrentAccountId(cookies, locals);

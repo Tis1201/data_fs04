@@ -289,6 +289,16 @@ export const load = restrict(
                 } catch (e) { /* ignore */ }
             }
 
+            // Load template assignments for this sensor
+            const templateAssignments = await locals.prisma.sensorTemplateAssignment.findMany({
+                where: { sensorId: sensor.id },
+                include: {
+                    template: { select: { id: true, name: true, type: true } }
+                }
+            });
+            const configTemplate = templateAssignments.find(a => a.template.type === 'CONFIGURATION');
+            const alertTemplate = templateAssignments.find(a => a.template.type === 'ALERT');
+
             return {
                 trackingAreaForm,
                 zoneForm,
@@ -297,6 +307,8 @@ export const load = restrict(
                     ...sensorWithController,
                     config
                 },
+                configTemplateName: configTemplate?.template?.name ?? null,
+                alertTemplateName: alertTemplate?.template?.name ?? null,
                 modulePermissions,
                 user: locals.user
             };

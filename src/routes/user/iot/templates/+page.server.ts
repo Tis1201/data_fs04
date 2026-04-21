@@ -269,6 +269,41 @@ export const actions: Actions = {
                             assignedBy: user?.id
                         }))
                     });
+
+                    // Apply template config to assigned sensors
+                    const templateConfig = (config as Record<string, unknown>) || {};
+                    const ds = templateConfig.deviceSettings as Record<string, unknown> | undefined;
+                    const flatDeviceSettings: Record<string, unknown> = {};
+                    if (ds) {
+                        if (ds.deviceMode !== undefined) flatDeviceSettings.deviceMode = ds.deviceMode;
+                        if (ds.timezone !== undefined) flatDeviceSettings.timezone = ds.timezone;
+                        if (ds.pathTracking !== undefined) flatDeviceSettings.pathTracking = ds.pathTracking;
+                        if (ds.dwellThreshold !== undefined) flatDeviceSettings.dwellThreshold = ds.dwellThreshold;
+                    }
+
+                    for (const s of parsedSelectedSensors) {
+                        const sensor = await prisma.sensor.findFirst({
+                            where: { id: (s as { id: string }).id, accountId },
+                            select: { config: true, configVersion: true }
+                        });
+                        if (!sensor) continue;
+                        const existingConfig = typeof sensor.config === 'object' && sensor.config !== null
+                            ? (sensor.config as Record<string, unknown>)
+                            : {};
+                        const merged = {
+                            ...existingConfig,
+                            ...templateConfig,
+                            ...flatDeviceSettings
+                        };
+                        await prisma.sensor.update({
+                            where: { id: (s as { id: string }).id, accountId },
+                            data: {
+                                config: merged as Prisma.InputJsonValue,
+                                configVersion: sensor.configVersion + 1,
+                                syncStatus: 'PENDING'
+                            }
+                        });
+                    }
                 }
 
                 return { success: true, templateId: template.id };
@@ -387,19 +422,54 @@ export const actions: Actions = {
                 });
 
                 // Update sensor assignments
-                // First, delete existing assignments
                 await prisma.sensorTemplateAssignment.deleteMany({
                     where: { templateId: id }
                 });
 
-                // Then create new assignments
-                if (parsedSelectedSensors.length > 0) {
+                const allSensorIds = parsedSelectedSensors.map((s: { id: string }) => s.id);
+
+                if (allSensorIds.length > 0) {
                     await prisma.sensorTemplateAssignment.createMany({
-                        data: parsedSelectedSensors.map((sensor: { id: string }) => ({
+                        data: allSensorIds.map((sensorId: string) => ({
                             templateId: id,
-                            sensorId: sensor.id
+                            sensorId
                         }))
                     });
+
+                    // Apply template config to ALL assigned sensors
+                    const templateConfig = (config as Record<string, unknown>) || {};
+                    const ds = templateConfig.deviceSettings as Record<string, unknown> | undefined;
+                    const flatDeviceSettings: Record<string, unknown> = {};
+                    if (ds) {
+                        if (ds.deviceMode !== undefined) flatDeviceSettings.deviceMode = ds.deviceMode;
+                        if (ds.timezone !== undefined) flatDeviceSettings.timezone = ds.timezone;
+                        if (ds.pathTracking !== undefined) flatDeviceSettings.pathTracking = ds.pathTracking;
+                        if (ds.dwellThreshold !== undefined) flatDeviceSettings.dwellThreshold = ds.dwellThreshold;
+                    }
+
+                    for (const sensorId of allSensorIds) {
+                        const sensor = await prisma.sensor.findFirst({
+                            where: { id: sensorId, accountId },
+                            select: { config: true, configVersion: true }
+                        });
+                        if (!sensor) continue;
+                        const existingConfig = typeof sensor.config === 'object' && sensor.config !== null
+                            ? (sensor.config as Record<string, unknown>)
+                            : {};
+                        const merged = {
+                            ...existingConfig,
+                            ...templateConfig,
+                            ...flatDeviceSettings
+                        };
+                        await prisma.sensor.update({
+                            where: { id: sensorId, accountId },
+                            data: {
+                                config: merged as Prisma.InputJsonValue,
+                                configVersion: sensor.configVersion + 1,
+                                syncStatus: 'PENDING'
+                            }
+                        });
+                    }
                 }
 
                 return { success: true };

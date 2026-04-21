@@ -87,7 +87,7 @@
 
     const permissionOptions = API_KEY_PERMISSIONS.map(p => ({ id: p.id, label: p.label }));
 
-    const MAX_KEY_NAME_LENGTH = 100;
+    const MAX_KEY_NAME_LENGTH = 50;
 
     function handleSort(event: CustomEvent<SortState>) {
         const next = event.detail;
@@ -360,6 +360,7 @@ console.log(data);`;
             id: 'key',
             header: 'API Key',
             type: 'custom',
+            sortable: false,
             width: '20%',
             render: (_value, row) => {
                 return `<div class="api-key-cell">
@@ -378,6 +379,7 @@ console.log(data);`;
             header: 'Permission',
             accessor: (row) => row.permission || '—',
             type: 'text',
+            sortable: true,
             width: '12%'
         },
         {
@@ -387,6 +389,7 @@ console.log(data);`;
             type: 'badge',
             statusColor: (_value, row) => (row.active ? 'success' : 'error'),
             showDot: () => true,
+            sortable: true,
             width: '10%'
         },
         {
