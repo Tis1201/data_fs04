@@ -4,7 +4,12 @@
   import { browser } from "$app/environment";
   import { onMount, onDestroy } from "svelte";
   import { toast } from "$lib/stores/alertToast";
-  import { initializeDeviceRealtime, deviceRealtimeStore, radarUsbRealtimeStore } from "$lib/stores/deviceRealtimeStore";
+  import {
+    initializeDeviceRealtime,
+    deviceRealtimeStore,
+    radarUsbRealtimeStore,
+    controllerRealtimeStore,
+  } from "$lib/stores/deviceRealtimeStore";
   import {
     MapPin,
     Settings,
@@ -725,11 +730,17 @@
     | { status: "no_sensor" }
     | { status: "error"; message: string };
 
-  /** Push current DB sensor config to the physical radar via MQTT (`sensor.config.push`). */
+  /**
+   * Push current DB sensor config to the physical radar via MQTT (`sensor.config.push`).
+   *
+   * Gated on the *radar bridge* being online (Controller.connected), not the device-agent.
+   * The agent (RDM) being online doesn't help us deliver a config to a dead radar, and a
+   * radar restart shouldn't block legitimate pushes if it returns moments later.
+   */
   async function pushSensorConfigToRadarViaMqtt(): Promise<MqttSensorPushResult> {
     const sensorId = data?.radarSensor?.id;
     if (!sensorId) return { status: "no_sensor" };
-    if (!isDeviceConnectedRealtime) return { status: "offline" };
+    if (!isRadarBridgeConnectedRealtime) return { status: "offline" };
     try {
       const result = await callUserRpc<{
         result?: { synced?: boolean; syncStatus?: string; error?: string; appliedAt?: string };
@@ -765,7 +776,7 @@
         return;
       }
       if (r.status === "offline") {
-        toast.error("Device is offline. Push requires the device to be online.");
+        toast.error("Radar bridge is offline. Push requires the radar to be online.");
         return;
       }
       if (r.status === "no_sensor") {
@@ -792,7 +803,9 @@
     clearTimeout(analyticsSearchDebounceTimer);
   });
 
-  // Merge MQTT real-time store with server-loaded connected; prefer store when device is known
+  // Device-agent (RDM) presence — independent from the radar bridge.
+  // Kept so other parts of the page that still want to know if the *device* is online
+  // (e.g. analytics, admin info) can reference it.
   $: isDeviceConnectedRealtime = (() => {
     const deviceId = data?.radarSensor?.controller?.device?.id;
     const serverConnected = data?.radarSensor?.controller?.device?.connected === true;
@@ -803,8 +816,23 @@
     return known !== null ? store.isDeviceConnected(deviceId) : serverConnected;
   })();
 
-  $: connectionStatus = isDeviceConnectedRealtime ? "Online" : "Offline";
-  $: connectionBadgeColor = isDeviceConnectedRealtime ? "success" as const : "gray" as const;
+  // Radar bridge (controller) MQTT presence — drives the page's primary "Online/Offline"
+  // badge and `Push to device` gating. Server-side `controller.connected` already reflects
+  // Redis presence on first paint; the controllerRealtimeStore overrides it on live changes.
+  $: isRadarBridgeConnectedRealtime = (() => {
+    const controllerId = data?.radarSensor?.controller?.id;
+    const serverConnected = (data?.radarSensor?.controller as { connected?: boolean } | undefined)?.connected === true;
+    if (!controllerId) return serverConnected;
+    const store = $controllerRealtimeStore;
+    if (!store) return serverConnected;
+    const known = store.getController(controllerId);
+    return known !== null ? store.isControllerConnected(controllerId) : serverConnected;
+  })();
+
+  // "Connection Status" on this page = the radar bridge (what users actually care about
+  // when configuring/pushing to the radar). Device-agent has its own page/section.
+  $: connectionStatus = isRadarBridgeConnectedRealtime ? "Online" : "Offline";
+  $: connectionBadgeColor = isRadarBridgeConnectedRealtime ? "success" as const : "gray" as const;
 
   /** Radar USB host link — MQTT `radar:usb_status` from device (`device/{id}/events`). */
   $: radarUsbLive = (() => {
@@ -815,9 +843,10 @@
     return $radarUsbRealtimeStore.getForRadar(sid, did, cid);
   })();
 
-  $: usbRadarLabel = !data?.radarSensor?.controller?.device?.id
+  // USB status only makes sense when the bridge can report it — gate on bridge, not device.
+  $: usbRadarLabel = !data?.radarSensor?.controller?.id
     ? "—"
-    : !isDeviceConnectedRealtime
+    : !isRadarBridgeConnectedRealtime
       ? "Offline"
       : radarUsbLive
         ? radarUsbLive.usbConnected
@@ -825,9 +854,9 @@
           : "Disconnected"
         : "Waiting…";
 
-  $: usbRadarBadgeColor = !data?.radarSensor?.controller?.device?.id
+  $: usbRadarBadgeColor = !data?.radarSensor?.controller?.id
     ? ("gray" as const)
-    : !isDeviceConnectedRealtime
+    : !isRadarBridgeConnectedRealtime
       ? ("gray" as const)
       : radarUsbLive
         ? radarUsbLive.usbConnected
@@ -837,7 +866,7 @@
 
   async function syncUsbStatus(): Promise<void> {
     const sensorId = data?.radarSensor?.id;
-    if (!sensorId || !isDeviceConnectedRealtime || isSyncingUsbStatus) return;
+    if (!sensorId || !isRadarBridgeConnectedRealtime || isSyncingUsbStatus) return;
     isSyncingUsbStatus = true;
     try {
       await callUserRpc<{ requested?: boolean }>(
@@ -1632,7 +1661,7 @@
             <span class="text-display-label">USB Status</span>
             <div class="text-display-value usb-status-row">
               <Badge color={usbRadarBadgeColor} size="md" variant="filled" label={usbRadarLabel} />
-              {#if isDeviceConnectedRealtime}
+              {#if isRadarBridgeConnectedRealtime}
                 <button
                   class="usb-sync-btn"
                   title="Sync USB status"
@@ -1824,7 +1853,8 @@
                     size="sm"
                     icon={Upload}
                     iconPosition="left"
-                    disabled={isPushingToDevice}
+                    disabled={isPushingToDevice || !isRadarBridgeConnectedRealtime}
+                    title={!isRadarBridgeConnectedRealtime ? "Radar bridge is offline" : undefined}
                     on:click={handlePushToDevice}
                   >
                     {isPushingToDevice ? "Pushing…" : "Push to device"}

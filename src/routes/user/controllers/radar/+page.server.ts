@@ -13,6 +13,7 @@ import { radarSensorSchema } from '../../../admin/controllers/radar/new/radar-se
 import type { Prisma } from '@prisma/client';
 import { validateBounds, normalizeBounds } from '$lib/components/ui_components_sveltekit/radar/constraints';
 import { areDevicesOnline } from '$lib/server/device/devicePresence';
+import { areControllersOnline } from '$lib/server/device/controllerPresence';
 import { deviceHasActiveRadarSensor } from '$lib/server/device/radarRegistrationGuards';
 import { getRadarSensorDisplayNameForDevice, resolveDeviceIdByPinForRadar } from '$lib/server/device/radarPinClaim';
 import {
@@ -22,6 +23,8 @@ import {
 import { syncRadarSensorNameWithLinkedDevice } from '$lib/server/device/radarDeviceNameSync';
 import { getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
 import { computeDeviceListLastPingAt } from '$lib/utils/deviceDetailsUtils';
+
+const LIVE_BRIDGE_CONNECTION_FETCH_CAP = 10_000;
 
 /** Modal/detail load shape (no device ping fields). */
 type RadarEditSensorPayload = Prisma.SensorGetPayload<{
@@ -63,7 +66,11 @@ export const load = restrict(
             const effectiveSortField =
                 requestedSortField === 'updatedAt' ? 'lastDevicePing' : requestedSortField;
             const sortOrder = (url.searchParams.get('sort_order') || 'desc') as 'asc' | 'desc';
-            const statuses = url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
+            const connectionModes = url.searchParams.get('connection')?.split(',').filter(Boolean) || [];
+            const filterOnline = connectionModes.includes('online');
+            const filterOffline = connectionModes.includes('offline');
+            /** Only online or only offline — filter after `areControllersOnline`, like IoT devices + Redis. */
+            const liveBridgeExclusive = filterOnline !== filterOffline;
             const deviceMacs = url.searchParams.get('device_macs')?.split(',').filter(Boolean) || [];
 
             const skip = (page - 1) * perPage;
@@ -86,10 +93,6 @@ export const load = restrict(
                     { controller: { device: { wifiMac: { contains: search, mode: 'insensitive' } } } },
                     { controller: { device: { ipAddress: { contains: search, mode: 'insensitive' } } } }
                 ];
-            }
-
-            if (statuses.length > 0) {
-                where.status = { in: statuses };
             }
 
             if (deviceMacs.length > 0) {
@@ -118,7 +121,6 @@ export const load = restrict(
                 'id',
                 'name',
                 'serialNumber',
-                'status',
                 'description',
                 'location',
                 'firmware',
@@ -134,12 +136,14 @@ export const load = restrict(
                     ? { [effectiveSortField]: sortOrder }
                     : { createdAt: sortOrder };
 
-            const radarListWhere = {
+            const radarListWhere: Prisma.SensorWhereInput = {
                 ...where,
                 controller: {
-                    isDeleted: false as const // Only show sensors with non-deleted controllers
+                    isDeleted: false as const
                 }
             };
+
+            const fetchWideForLiveBridge = liveBridgeExclusive && !isLastPingSort;
 
             const radarListSelect = {
                 id: true,
@@ -162,6 +166,9 @@ export const load = restrict(
                     select: {
                         id: true,
                         name: true,
+                        connected: true,
+                        connectedAt: true,
+                        disconnectedAt: true,
                         device: {
                             select: {
                                 id: true,
@@ -186,15 +193,22 @@ export const load = restrict(
                           orderBy: sensorOrderBy,
                           select: radarListSelect
                       })
-                    : locals.prisma.sensor.findMany({
-                          where: radarListWhere,
-                          orderBy: sensorOrderBy,
-                          skip,
-                          take,
-                          select: radarListSelect
-                      }),
+                    : fetchWideForLiveBridge
+                      ? locals.prisma.sensor.findMany({
+                            where: radarListWhere,
+                            orderBy: sensorOrderBy,
+                            take: LIVE_BRIDGE_CONNECTION_FETCH_CAP,
+                            select: radarListSelect
+                        })
+                      : locals.prisma.sensor.findMany({
+                            where: radarListWhere,
+                            orderBy: sensorOrderBy,
+                            skip,
+                            take,
+                            select: radarListSelect
+                        }),
                 locals.prisma.sensor.count({
-                    where: { ...where, controller: { isDeleted: false } }
+                    where: radarListWhere
                 }),
                 locals.prisma.sensor.findMany({
                     where: baseWhere,
@@ -209,8 +223,6 @@ export const load = restrict(
                     }
                 })
             ]);
-
-            const totalPages = Math.ceil(totalSensors / perPage);
 
             const macSet = new Set<string>();
             for (const s of sensorsForMacList) {
@@ -313,41 +325,78 @@ export const load = restrict(
                     if (tb === 0) return -1;
                     return dir * (ta - tb);
                 });
-                rowsWithPing = rowsWithPing.slice(skip, skip + take);
+                if (!liveBridgeExclusive) {
+                    rowsWithPing = rowsWithPing.slice(skip, skip + take);
+                }
             }
 
+            // Agent vs bridge: two MQTT sessions on the same device username (`device:*` vs `controller:*` UI).
             const deviceIds = rowsWithPing
                 .map((s) => s.controller?.device?.id)
                 .filter((id): id is string => !!id);
+            const controllerIds = rowsWithPing
+                .map((s) => s.controller?.id)
+                .filter((id): id is string => !!id);
             let presenceMap = new Map<string, boolean>();
+            let controllerPresenceMap = new Map<string, boolean>();
             try {
                 presenceMap = await areDevicesOnline(deviceIds);
             } catch (e) {
                 logger.warn(`[Radar] Failed batch device presence check: ${e}`);
             }
+            try {
+                controllerPresenceMap = await areControllersOnline(controllerIds);
+            } catch (e) {
+                logger.warn(`[Radar] Failed batch controller (bridge) presence check: ${e}`);
+            }
             const radarSensorsEnriched = rowsWithPing.map((sensor) => {
                 const deviceId = sensor.controller?.device?.id;
-                const connected = deviceId ? (presenceMap.get(deviceId) ?? false) : false;
+                const controllerId = sensor.controller?.id;
+                const deviceAgentOnline = deviceId ? (presenceMap.get(deviceId) ?? false) : false;
+                const dbBridge = sensor.controller?.connected === true;
+                const bridgeOnline = controllerId
+                    ? (controllerPresenceMap.get(controllerId) ?? dbBridge)
+                    : false;
                 return {
                     ...sensor,
                     controller: sensor.controller
                         ? {
                               ...sensor.controller,
+                              connected: bridgeOnline,
                               device: sensor.controller.device
-                                  ? { ...sensor.controller.device, connected }
+                                  ? { ...sensor.controller.device, connected: deviceAgentOnline }
                                   : undefined
                           }
                         : undefined
                 };
             });
 
+            let radarSensorsOut = radarSensorsEnriched;
+            let listTotalItems = totalSensors;
+            let listTotalPages = Math.max(1, Math.ceil(listTotalItems / perPage));
+
+            if (liveBridgeExclusive) {
+                if (fetchWideForLiveBridge && sensors.length >= LIVE_BRIDGE_CONNECTION_FETCH_CAP) {
+                    logger.warn(
+                        `[Radar] Live bridge connection filter hit fetch cap (${LIVE_BRIDGE_CONNECTION_FETCH_CAP}); results may be incomplete`
+                    );
+                }
+                radarSensorsOut = radarSensorsEnriched.filter((r) =>
+                    filterOnline ? r.controller?.connected === true : r.controller?.connected === false
+                );
+                listTotalItems = radarSensorsOut.length;
+                const start = (page - 1) * perPage;
+                radarSensorsOut = radarSensorsOut.slice(start, start + perPage);
+                listTotalPages = Math.max(1, Math.ceil(listTotalItems / perPage));
+            }
+
             return {
-                radarSensors: radarSensorsEnriched,
+                radarSensors: radarSensorsOut,
                 currentAccountId,
                 meta: {
-                    totalItems: totalSensors,
+                    totalItems: listTotalItems,
                     itemsPerPage: perPage,
-                    totalPages,
+                    totalPages: listTotalPages,
                     currentPage: page
                 },
                 filters: {},

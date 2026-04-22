@@ -16,6 +16,7 @@ import prisma from '$lib/server/prisma';
 import { syncRadarSensorNameWithLinkedDevice } from '$lib/server/device/radarDeviceNameSync';
 import { getUserModulePermissions } from '$lib/server/security/modulePermissions';
 import { isDeviceOnline } from '$lib/server/device/devicePresence'; // single-device, only one sensor on this page
+import { isControllerOnline } from '$lib/server/device/controllerPresence';
 
 // Type definitions for JSON Config
 interface Zone {
@@ -243,7 +244,8 @@ export const load = restrict(
 
             const config = (sensor.config as unknown as RadarConfig) || {};
 
-            // Enrich device.connected with Redis presence (MQTT real-time) instead of raw DB value
+            // Enrich with Redis-backed presence so the UI shows real-time MQTT state on first paint.
+            // Device-agent and controller bridge are tracked independently — see clientIdentity.ts.
             let deviceWithPresence = controller.device;
             if (controller.device?.id) {
                 try {
@@ -254,11 +256,18 @@ export const load = restrict(
                 }
             }
 
-            // Add controller reference to sensor object for compatibility
+            let controllerBridgeOnline = (controller as { connected?: boolean }).connected ?? false;
+            try {
+                controllerBridgeOnline = await isControllerOnline(controller.id);
+            } catch (e) {
+                logger.warn(`[Radar] Failed to check controller presence for ${controller.id}: ${e}`);
+            }
+
             const sensorWithController = {
                 ...sensor,
                 controller: {
                     ...controller,
+                    connected: controllerBridgeOnline,
                     device: deviceWithPresence
                 }
             };

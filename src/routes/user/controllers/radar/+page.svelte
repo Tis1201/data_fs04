@@ -4,7 +4,11 @@
     import { page } from '$app/stores';
     import { onMount } from 'svelte';
     import { browser } from '$app/environment';
-    import { initializeDeviceRealtime, deviceRealtimeStore } from '$lib/stores/deviceRealtimeStore';
+    import {
+        initializeDeviceRealtime,
+        deviceRealtimeStore,
+        controllerRealtimeStore
+    } from '$lib/stores/deviceRealtimeStore';
     import { toast } from '$lib/stores/alertToast';
     import { claimDevice } from '$lib/client/mqtt/claimFlow';
     import { Alert, Button, InputField, TextareaField, DataTable, Modal, Dropdown, Toggle, Tooltip, ProgressBar, TabGroup } from '$lib/design-system/components';
@@ -22,9 +26,12 @@
         deviceLastPingAt?: string | null;
         controller?: {
             id: string;
+            /** Bridge session; see radar detail “Connection” and `controller:connection`. */
+            connected?: boolean;
             device?: {
                 id: string;
                 name?: string;
+                /** RDM agent session; `device:connection` / `device:disconnection`. */
                 connected?: boolean;
                 macAddress?: string | null;
                 lanMac?: string | null;
@@ -79,19 +86,18 @@
         }
     }
 
-    // Filter modal: Status (Connection Status) + MAC address – aligned with pin-rules pattern
+    // Filter modal: bridge online/offline (matches Connection column) + MAC address – aligned with pin-rules pattern
     let showFilterModal = false;
-    const STATUS_OPTIONS = [
-        { id: 'ACTIVE', label: 'Active' },
-        { id: 'INACTIVE', label: 'Inactive' },
-        { id: 'MAINTENANCE', label: 'Maintenance' }
+    const CONNECTION_FILTER_OPTIONS = [
+        { id: 'online', label: 'Online' },
+        { id: 'offline', label: 'Offline' }
     ] as const;
-    let filterStatuses: string[] = $page.url.searchParams.get('statuses')?.split(',').filter(Boolean) || [];
+    let filterConnections: string[] = $page.url.searchParams.get('connection')?.split(',').filter(Boolean) || [];
     let filterDeviceMacs: string[] = $page.url.searchParams.get('device_macs')?.split(',').filter(Boolean) || [];
 
-    $: statusDropdownOptions = [
+    $: connectionDropdownOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
-        ...STATUS_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
+        ...CONNECTION_FILTER_OPTIONS.map((o) => ({ id: o.id, label: o.label, type: 'checkbox' as const }))
     ];
     $: deviceMacDropdownOptions = [
         { id: '__all__', label: 'All', type: 'checkbox' as const },
@@ -99,22 +105,22 @@
     ];
 
     // All and specific options mutually exclusive – same as pin-rules
-    function handleStatusFilterChange(e: CustomEvent<string | string[]>) {
+    function handleConnectionFilterChange(e: CustomEvent<string | string[]>) {
         const val = e.detail;
         const arr = Array.isArray(val) ? val : (val ? [val] : []);
-        if (arr.includes('__all__') && !filterStatuses.includes('__all__')) {
-            filterStatuses = ['__all__'];
+        if (arr.includes('__all__') && !filterConnections.includes('__all__')) {
+            filterConnections = ['__all__'];
             return;
         }
-        if (!arr.includes('__all__') && filterStatuses.includes('__all__')) {
-            filterStatuses = arr.length > 0 ? arr : ['__all__'];
+        if (!arr.includes('__all__') && filterConnections.includes('__all__')) {
+            filterConnections = arr.length > 0 ? arr : ['__all__'];
             return;
         }
         if (arr.some((v) => v !== '__all__')) {
-            filterStatuses = arr.filter((v) => v !== '__all__');
+            filterConnections = arr.filter((v) => v !== '__all__');
             return;
         }
-        filterStatuses = arr.length > 0 ? arr : ['__all__'];
+        filterConnections = arr.length > 0 ? arr : ['__all__'];
     }
 
     function handleDeviceMacFilterChange(e: CustomEvent<string | string[]>) {
@@ -137,10 +143,11 @@
 
     function applyFilter() {
         const url = new URL($page.url);
-        const statuses = filterStatuses.filter((s) => s !== '__all__');
+        const modes = filterConnections.filter((s) => s !== '__all__');
         const macs = filterDeviceMacs.filter((m) => m !== '__all__');
-        if (statuses.length) url.searchParams.set('statuses', statuses.join(','));
-        else url.searchParams.delete('statuses');
+        url.searchParams.delete('statuses');
+        if (modes.length === 1) url.searchParams.set('connection', modes[0]);
+        else url.searchParams.delete('connection');
         if (macs.length) url.searchParams.set('device_macs', macs.join(','));
         else url.searchParams.delete('device_macs');
         url.searchParams.set('page', '1');
@@ -150,15 +157,15 @@
 
     function clearFilter() {
         // Only reset selection; user must click Apply to apply changes (modal stays open)
-        filterStatuses = ['__all__'];
+        filterConnections = ['__all__'];
         filterDeviceMacs = ['__all__'];
     }
 
     function openFilterModal() {
         // Include __all__ from URL so "All" selection is retained when reopening (same as pin-rules)
-        const statusesParam = $page.url.searchParams.get('statuses');
+        const connectionParam = $page.url.searchParams.get('connection');
         const macsParam = $page.url.searchParams.get('device_macs');
-        filterStatuses = statusesParam ? statusesParam.split(',').filter(Boolean) : ['__all__'];
+        filterConnections = connectionParam ? connectionParam.split(',').filter(Boolean) : ['__all__'];
         filterDeviceMacs = macsParam ? macsParam.split(',').filter(Boolean) : ['__all__'];
         showFilterModal = true;
     }
@@ -689,26 +696,41 @@
         direction: (data.sort?.order as 'asc' | 'desc') || 'desc'
     };
 
-    // Real-time device connection via MQTT
     onMount(() => {
         if (browser) initializeDeviceRealtime();
     });
 
-    // Table data: merge MQTT real-time connection into radar sensors
+    // Overlay server-hydrated Redis state with live user-notification payloads when present.
     $: tableDataRaw = (data.radarSensors || []) as unknown as SensorRow[];
     $: tableData = (() => {
-        const store = $deviceRealtimeStore;
-        if (!store) return tableDataRaw;
+        const devStore = $deviceRealtimeStore;
+        const ctrlStore = $controllerRealtimeStore;
         return tableDataRaw.map((row: SensorRow) => {
             const deviceId = row.controller?.device?.id;
-            const serverConnected = row.controller?.device?.connected === true;
-            const connected = deviceId && store.getDevice(deviceId) !== null
-                ? store.isDeviceConnected(deviceId)
-                : serverConnected;
+            const controllerId = row.controller?.id;
+            const serverDeviceConnected = row.controller?.device?.connected === true;
+            const serverBridgeConnected = row.controller?.connected === true;
+
+            const deviceConnected =
+                deviceId && devStore.getDevice(deviceId) !== null
+                    ? devStore.isDeviceConnected(deviceId)
+                    : serverDeviceConnected;
+
+            const bridgeConnected =
+                controllerId && ctrlStore.getController(controllerId) !== null
+                    ? ctrlStore.isControllerConnected(controllerId)
+                    : serverBridgeConnected;
+
             return {
                 ...row,
-                controller: row.controller?.device
-                    ? { ...row.controller, device: { ...row.controller.device, connected } }
+                controller: row.controller
+                    ? {
+                          ...row.controller,
+                          connected: bridgeConnected,
+                          device: row.controller.device
+                              ? { ...row.controller.device, connected: deviceConnected }
+                              : row.controller.device
+                      }
                     : row.controller
             };
         });
@@ -748,13 +770,13 @@
         return (row.controller?.id ?? row.id) as string;
     }
 
-    // Connection display: device MQTT online status (real-time)
+    /** “Connection” column: controller bridge only (matches radar `[id]` page). */
     function connectionLabel(row: SensorRow): string {
-        return row.controller?.device?.connected === true ? 'Online' : 'Offline';
+        return row.controller?.connected === true ? 'Online' : 'Offline';
     }
 
     function connectionColor(_value: string, row: SensorRow): BadgeColor {
-        return row.controller?.device?.connected === true ? 'success' : 'gray';
+        return row.controller?.connected === true ? 'success' : 'gray';
     }
 
     /** Linked device MAC for list: macAddress, else lanMac, else wifiMac. */
@@ -763,21 +785,6 @@
         if (!d) return 'N/A';
         const v = d.macAddress?.trim() || d.lanMac?.trim() || d.wifiMac?.trim();
         return v || 'N/A';
-    }
-
-    // Status display: ACTIVE/INACTIVE lifecycle (not connection)
-    function statusLabel(status: string): string {
-        if (status === 'ACTIVE') return 'Active';
-        if (status === 'INACTIVE') return 'Inactive';
-        return status === 'MAINTENANCE' ? 'Maintenance' : status;
-    }
-
-    function statusColor(_value: string, row: SensorRow): BadgeColor {
-        const s = row.status;
-        if (s === 'ACTIVE') return 'success';
-        if (s === 'INACTIVE') return 'gray';
-        if (s === 'MAINTENANCE') return 'warning';
-        return 'gray';
     }
 
     // Column widths: fixed px like Devices table for consistent look
@@ -812,15 +819,6 @@
             type: 'badge' as const,
             width: '120px',
             statusColor: connectionColor
-        },
-        {
-            id: 'status',
-            header: 'Status',
-            accessor: (row: SensorRow) => statusLabel(row.status),
-            type: 'badge' as const,
-            sortable: true,
-            statusColor,
-            width: '120px'
         },
         {
             id: 'lastDevicePing',
@@ -933,7 +931,7 @@
     </div>
 </div>
 
-<!-- Filter Modal: Connection Status + MAC address dropdowns per design -->
+<!-- Filter Modal: online/offline (radar bridge) + MAC address dropdowns per design -->
 <Modal
     open={showFilterModal}
     title="Filter"
@@ -943,15 +941,15 @@
 >
     <div class="flex flex-col gap-5 w-full min-w-0">
         <div class="flex flex-col gap-2 w-full min-w-0">
-            <span class="text-sm font-medium text-[var(--ds-text-primary)]">Connection Status</span>
+            <span class="text-sm font-medium text-[var(--ds-text-primary)]">Connection</span>
             <Dropdown
                 label=""
                 placeholder="Select"
-                options={statusDropdownOptions}
-                value={filterStatuses}
+                options={connectionDropdownOptions}
+                value={filterConnections}
                 multiple={true}
                 width="100%"
-                on:change={handleStatusFilterChange}
+                on:change={handleConnectionFilterChange}
             />
         </div>
         <div class="flex flex-col gap-2 w-full min-w-0">
