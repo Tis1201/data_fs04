@@ -1328,27 +1328,31 @@ model MqttConnection {
 }
 
 model Controller {
-  id           String   @id() @default(cuid())
-  name         String
-  type         String
-  serialNumber String   @unique()
-  status       String   @default("INACTIVE")
-  isDeleted    Boolean  @default(false)
-  deviceId     String
-  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  accountId    String
-  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt()
-  createdBy    String?
-  creator      User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
-  description  String?
-  sensors      Sensor[]
+  id             String    @id() @default(cuid())
+  name           String
+  type           String
+  serialNumber   String    @unique()
+  status         String    @default("INACTIVE")
+  isDeleted      Boolean   @default(false)
+  deviceId       String
+  device         Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt()
+  createdBy      String?
+  creator        User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  description    String?
+  connected      Boolean   @default(false)
+  connectedAt    DateTime?
+  disconnectedAt DateTime?
+  sensors        Sensor[]
 
   @@index([accountId])
   @@index([deviceId])
   @@index([type])
   @@index([status])
+  @@index([connected])
 }
 
 model Sensor {

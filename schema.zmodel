@@ -1994,6 +1994,10 @@ model Controller {
   creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   
   description   String?
+
+  connected       Boolean   @default(false)
+  connectedAt     DateTime?
+  disconnectedAt  DateTime?
   
   // Relationships - sensors managed by this controller
   sensors       Sensor[]
@@ -2009,6 +2013,7 @@ model Controller {
   @@index([deviceId])
   @@index([type])
   @@index([status])
+  @@index([connected])
 }
 
 // Sensor Model - Single Table Inheritance
