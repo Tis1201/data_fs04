@@ -6,6 +6,7 @@ import prisma from '$lib/server/prisma';
 import type { Prisma } from '@prisma/client';
 import { logger } from '$lib/server/logger';
 import { getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
+import { areControllersOnline } from '$lib/server/device/controllerPresence';
 import { computeDeviceListLastPingAt } from '$lib/utils/deviceDetailsUtils';
 
 // Define enum locally to avoid Vite ESM/CJS issues with @prisma/client
@@ -85,7 +86,8 @@ export interface AssignedSensorRow {
     name: string;
     serialNumber: string;
     macAddress: string;
-    status: string;
+    /** Bridge MQTT session: same rule as `/user/controllers/radar` Connection column (Redis + `Controller.connected`). */
+    connection: string;
     /** ISO timestamp; same “last ping” rule as `/user/iot/devices` and radar list. */
     deviceLastPingAt: string | null;
     /** Sensor row timestamps — radar list Last ping column falls back: deviceLastPingAt ?? updatedAt ?? createdAt. */
@@ -182,6 +184,7 @@ export const load = restrict(
                         controller: {
                             select: {
                                 id: true,
+                                connected: true,
                                 device: {
                                     select: {
                                         id: true,
@@ -216,6 +219,18 @@ export const load = restrict(
                   })
                 : new Map<string, { last_connected_at?: string | null; last_status_at?: string | null }>();
 
+        const controllerIds = [
+            ...new Set(
+                assignments.map((a) => a.sensor.controller?.id).filter((cid): cid is string => !!cid)
+            )
+        ];
+        let controllerPresenceMap = new Map<string, boolean>();
+        try {
+            controllerPresenceMap = await areControllersOnline(controllerIds);
+        } catch (e) {
+            logger.warn(`[Template ${id}] Batch controller (bridge) presence failed: ${e}`);
+        }
+
         const assignedSensors: AssignedSensorRow[] = assignments.map((a) => {
             const s = a.sensor;
             const d = s.controller?.device;
@@ -230,13 +245,16 @@ export const load = restrict(
                       ch
                   )
                 : undefined;
+            const cid = s.controller?.id;
+            const dbBridge = s.controller?.connected === true;
+            const bridgeOnline = cid ? (controllerPresenceMap.get(cid) ?? dbBridge) : false;
             return {
                 id: s.id,
                 controllerId: s.controller?.id ?? s.id,
                 name: s.name,
                 serialNumber: s.serialNumber,
                 macAddress: displayDeviceMac(d),
-                status: s.status === 'ACTIVE' ? 'Online' : 'Offline',
+                connection: bridgeOnline ? 'Online' : 'Offline',
                 deviceLastPingAt: lastPing ? lastPing.toISOString() : null,
                 updatedAt: s.updatedAt.toISOString(),
                 createdAt: s.createdAt.toISOString()

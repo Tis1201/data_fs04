@@ -4,6 +4,7 @@ import { checkDeviceAccess } from './shared/access_checker';
 import crypto from 'crypto';
 import type { Prisma } from '@prisma/client';
 import { ActionLogger } from '$lib/server/action-logger';
+import { isControllerOnline } from '$lib/server/device/controllerPresence';
 
 /**
  * Sensor Config Save Parameters
@@ -101,9 +102,9 @@ export async function handleSensorConfigSave(
 /**
  * Handle sensor.config.push RPC
  * 
- * Pushes sensor configuration to the device controller.
- * Requires device to be online. If device is offline, returns error.
- * Updates syncStatus to SYNCED on success, FAILED on error.
+ * Pushes sensor configuration to the radar controller over MQTT (`device:…/controller/…/notifications`).
+ * Requires the **radar bridge** session to be online (same as portal “Connection”), not the RDM agent row
+ * `Device.connected`. Updates syncStatus to SYNCED on success, FAILED on error.
  */
 export async function handleSensorConfigPush(
     params: SensorConfigPushParams,
@@ -132,23 +133,23 @@ export async function handleSensorConfigPush(
     // 2. Check device access
     const { deviceId } = await checkDeviceAccess({ prisma, sub, deviceId: sensor.controller.deviceId });
 
-    // 3. Device must be online (radar controller receives via MQTT)
-    const device = sensor.controller.device;
-    if (!device.connected) {
+    // 3. Radar bridge must be online (controller MQTT session — not Prisma Device.connected / RDM agent)
+    const controllerId = sensor.controller.id;
+    const bridgeOnline = await isControllerOnline(controllerId);
+    if (!bridgeOnline) {
         await prisma.sensor.update({
             where: { id: sensorId },
-            data: { syncStatus: 'FAILED', lastSyncError: 'Device is offline' }
+            data: { syncStatus: 'FAILED', lastSyncError: 'Radar bridge is offline' }
         });
         return {
             result: {
                 synced: false,
                 syncStatus: 'FAILED',
-                error: 'Device is offline'
+                error: 'Radar bridge is offline'
             }
         };
     }
 
-    const controllerId = sensor.controller.id;
     const controllerType = sensor.controller.type;
 
     logger.info(`[SensorConfig] Pushing config v${sensor.configVersion} to radar controller ${controllerType}:${controllerId} on device ${deviceId}`);

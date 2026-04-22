@@ -524,7 +524,7 @@
         name: string;
         serialNumber: string;
         macAddress: string;
-        status: string;
+        connection: string;
         deviceLastPingAt: string | null;
         updatedAt: string;
         createdAt: string;
@@ -596,9 +596,9 @@
             width: '170px'
         },
         {
-            id: 'status',
-            header: 'Status',
-            accessor: (r) => r.status,
+            id: 'connection',
+            header: 'Connection',
+            accessor: (r) => r.connection,
             type: 'badge',
             sortable: true,
             statusColor: (v) => (v === 'Online' ? 'success' : 'gray'),

@@ -1,6 +1,7 @@
 import type { RpcHandlerArgs, RpcResponse } from '$lib/server/mqtt/handlers/index';
 import { logger } from '$lib/server/logger';
 import { checkDeviceAccess } from './shared/access_checker';
+import { isControllerOnline } from '$lib/server/device/controllerPresence';
 
 type SensorUsbStatusRequestParams = {
     sensorId: string;
@@ -48,12 +49,13 @@ export async function handleSensorUsbStatusRequest(
 
     await checkDeviceAccess({ prisma, sub, deviceId: sensor.controller.deviceId });
 
-    const device = sensor.controller.device;
-    if (!device.connected) {
+    const controllerId = sensor.controller.id;
+    // Portal gates USB sync on radar bridge, not RDM agent (`Device.connected`).
+    if (!(await isControllerOnline(controllerId))) {
         return { result: { requested: false } };
     }
 
-    const controllerId = sensor.controller.id;
+    const device = sensor.controller.device;
     const controllerType = sensor.controller.type;
 
     const { createTicket } = await import('../../core/publish');
