@@ -876,7 +876,7 @@
         <div style="width: 500px; height: 48px;">
             <InputField
                 type="search"
-                placeholder="Search by device name, serial, MAC, IP…"
+                placeholder="Search by radar name, ID, or MAC address"
                 bind:value={searchValue}
                 prefixIcon={true}
             >

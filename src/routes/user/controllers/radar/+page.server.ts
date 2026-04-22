@@ -84,14 +84,10 @@ export const load = restrict(
             if (search) {
                 where.OR = [
                     { name: { contains: search, mode: 'insensitive' } },
-                    { serialNumber: { contains: search, mode: 'insensitive' } },
                     { id: { contains: search, mode: 'insensitive' } },
-                    { description: { contains: search, mode: 'insensitive' } },
-                    { controller: { device: { name: { contains: search, mode: 'insensitive' } } } },
                     { controller: { device: { macAddress: { contains: search, mode: 'insensitive' } } } },
                     { controller: { device: { lanMac: { contains: search, mode: 'insensitive' } } } },
-                    { controller: { device: { wifiMac: { contains: search, mode: 'insensitive' } } } },
-                    { controller: { device: { ipAddress: { contains: search, mode: 'insensitive' } } } }
+                    { controller: { device: { wifiMac: { contains: search, mode: 'insensitive' } } } }
                 ];
             }
 
