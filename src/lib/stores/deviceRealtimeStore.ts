@@ -69,9 +69,36 @@ export const radarUsbRealtimeStore = derived(
     })
 );
 
-// MQTT notification handlers for device connection updates
+/** Filled from `controller:connection` / `controller:disconnection` (bridge MQTT), not `device:*`. */
+export interface ControllerConnectionUpdate {
+    deviceId: string;
+    controllerId: string;
+    controllerType?: string;
+    connected: boolean;
+    connectedAt?: string;
+    disconnectedAt?: string;
+    timestamp: string;
+}
+
+const controllerStates = writable<Map<string, ControllerConnectionUpdate>>(new Map());
+
+export const controllerRealtimeStore = derived(controllerStates, ($states) => ({
+    getController: (controllerId: string): ControllerConnectionUpdate | null =>
+        $states.get(controllerId) ?? null,
+    isControllerConnected: (controllerId: string): boolean =>
+        $states.get(controllerId)?.connected ?? false,
+    getControllerConnectionTime: (controllerId: string): string | null => {
+        const s = $states.get(controllerId);
+        if (!s) return null;
+        return s.connected ? s.connectedAt ?? null : s.disconnectedAt ?? null;
+    },
+    getAllControllers: (): ControllerConnectionUpdate[] => Array.from($states.values())
+}));
+
+/** Subscriptions for `device:*`, `controller:*`, and `radar:usb_status` user notifications. */
 let mqttUnsubscribes: (() => void)[] = [];
 
+/** Call once in the browser (e.g. `onMount`) so list/detail pages receive live MQTT state. */
 export function initializeDeviceRealtime(): void {
     if (mqttUnsubscribes.length > 0) {
         if (browser) console.debug('[DeviceRealtimeStore] Already initialized');
@@ -182,7 +209,86 @@ export function initializeDeviceRealtime(): void {
         }
     });
 
-    mqttUnsubscribes = [unsubConnection, unsubDisconnection, unsubRadarUsb];
+    const upsertControllerState = (
+        controllerId: string,
+        connected: boolean,
+        payload: any
+    ): void => {
+        const update: ControllerConnectionUpdate = {
+            deviceId: payload?.deviceId,
+            controllerId,
+            controllerType:
+                typeof payload?.controllerType === 'string' ? payload.controllerType : undefined,
+            connected,
+            connectedAt: connected
+                ? payload?.connectedAt || payload?.timestamp || new Date().toISOString()
+                : undefined,
+            disconnectedAt: !connected
+                ? payload?.disconnectedAt || payload?.timestamp || new Date().toISOString()
+                : undefined,
+            timestamp:
+                typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString()
+        };
+        controllerStates.update((states) => {
+            const next = new Map(states);
+            next.set(controllerId, update);
+            return next;
+        });
+    };
+
+    const unsubControllerConnection = mqttClient.onNotification(
+        'controller:connection',
+        (payload: any) => {
+            try {
+                const controllerId = payload?.controllerId;
+                if (!controllerId) {
+                    if (browser)
+                        console.debug(
+                            '[DeviceRealtimeStore] controller:connection missing controllerId'
+                        );
+                    return;
+                }
+                upsertControllerState(controllerId, true, payload);
+            } catch (error) {
+                if (browser)
+                    console.error(
+                        '[DeviceRealtimeStore] controller:connection handler error:',
+                        error as any
+                    );
+            }
+        }
+    );
+
+    const unsubControllerDisconnection = mqttClient.onNotification(
+        'controller:disconnection',
+        (payload: any) => {
+            try {
+                const controllerId = payload?.controllerId;
+                if (!controllerId) {
+                    if (browser)
+                        console.debug(
+                            '[DeviceRealtimeStore] controller:disconnection missing controllerId'
+                        );
+                    return;
+                }
+                upsertControllerState(controllerId, false, payload);
+            } catch (error) {
+                if (browser)
+                    console.error(
+                        '[DeviceRealtimeStore] controller:disconnection handler error:',
+                        error as any
+                    );
+            }
+        }
+    );
+
+    mqttUnsubscribes = [
+        unsubConnection,
+        unsubDisconnection,
+        unsubRadarUsb,
+        unsubControllerConnection,
+        unsubControllerDisconnection
+    ];
 }
 
 export function cleanupDeviceRealtime(): void {
@@ -193,6 +299,7 @@ export function cleanupDeviceRealtime(): void {
     }
     radarUsbBySensorKey.set(new Map());
     radarUsbByDeviceControllerKey.set(new Map());
+    controllerStates.set(new Map());
 }
 
 // Utility function to get device connection state
