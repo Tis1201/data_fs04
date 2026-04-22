@@ -1,58 +1,66 @@
 /**
  * MQTT State Reconciliation
- * 
- * Reconciles Redis presence state with actual MQTT broker state.
- * Called on worker startup to handle cases where worker was down
- * and missed device disconnection events.
+ *
+ * Reconciles Redis presence + DB state with the actual MQTT broker state.
+ * Called on worker startup (and periodically) so we recover gracefully from
+ * missed connect/disconnect events while the worker was down.
+ *
+ * Tier-aware (Option A — typed clientids; see clientIdentity.ts):
+ *   - agent  → drives Device.connected + presence:device:<id>:agent:clients
+ *   - radar  → drives Controller.connected + presence:controller:<cid>:clients
+ *   - other  → ignored for presence
  */
 
 import { logger } from '$lib/server/logger';
 import redis from '$lib/server/redis';
 import { getAdminPrisma } from '$lib/server/prisma';
+import type { PrismaClient } from '@prisma/client';
 import { getMqttTransport } from '../core/transport';
+import { parseMqttClientId } from './clientIdentity';
+import { publishDeviceStatusNotification } from '../handlers/notifications/device_status_publisher';
+import { publishControllerStatusNotification } from '../handlers/notifications/controller_status_publisher';
 
 const EMQX_URL = process.env.EMQX_URL || 'http://localhost:18083';
 const EMQX_API_KEY = process.env.EMQX_API_KEY || '';
 const EMQX_API_SECRET = process.env.EMQX_API_SECRET || '';
 
-/** Parsed broker snapshot: unique device ids and full EMQX clientids per device (multi-app / multi-session). */
+/** Parsed broker snapshot, bucketed by tier. */
 export type BrokerDevicePresenceSnapshot = {
+    /** Device ids that have at least one *agent* session connected to the broker. */
     deviceIds: Set<string>;
-    /** deviceId -> connected clientids (e.g. device:CUID_abc123) */
+    /** deviceId -> connected agent clientids (`device:<id>::agent::<6hex>` or legacy). */
     clientIdsByDevice: Map<string, Set<string>>;
+    /** Controller ids that have at least one *radar* (controller) session connected. */
+    controllerIds: Set<string>;
+    /** controllerId -> connected radar clientids. */
+    clientIdsByController: Map<string, Set<string>>;
+    /** controllerId -> deviceId, so we can update DB rows safely (`{id, deviceId}`). */
+    deviceIdByController: Map<string, string>;
 };
 
 const PRESENCE_PIPELINE_CHUNK = 800;
 
 /**
- * Extract Prisma device id from an MQTT principal.
- * Prefers EMQX `username` (canonical: `device:<id>`).
- * Falls back to clientid heuristic `device:<id>_<6charSuffix>` only when username is unusable.
+ * Backwards-compatible parser kept for callers who only need a device id from a clientid/username.
+ * Internally delegates to the new typed parser.
  */
 export function parseDeviceIdFromDeviceClientId(
     clientId: string,
     username?: string | null
 ): string | null {
-    if (typeof username === 'string' && username.startsWith('device:')) {
-        const id = username.slice('device:'.length);
-        if (id.length > 0) {
-            return id;
-        }
+    const identity = parseMqttClientId(clientId, username);
+    switch (identity.kind) {
+        case 'agent':
+        case 'radar':
+            return identity.deviceId;
+        default:
+            return null;
     }
-    if (typeof clientId !== 'string' || !clientId.startsWith('device:')) {
-        return null;
-    }
-    let rest = clientId.slice('device:'.length);
-    const underscoreIndex = rest.lastIndexOf('_');
-    if (underscoreIndex > 0 && rest.length - underscoreIndex <= 7) {
-        rest = rest.substring(0, underscoreIndex);
-    }
-    return rest.length > 0 ? rest : null;
 }
 
 /**
- * Fetches all device-scoped MQTT clients from EMQX (paginated).
- * Keeps every connected clientid so Redis `presence:device:{id}:clients` can match connection_handler.
+ * Fetches all device-scoped MQTT sessions from EMQX (paginated) and buckets
+ * them by tier so device-vs-controller presence can be reconciled independently.
  */
 export async function fetchBrokerDevicePresenceSnapshot(): Promise<BrokerDevicePresenceSnapshot> {
     if (!EMQX_API_KEY || !EMQX_API_SECRET) {
@@ -63,6 +71,10 @@ export async function fetchBrokerDevicePresenceSnapshot(): Promise<BrokerDeviceP
     const auth = Buffer.from(`${EMQX_API_KEY}:${EMQX_API_SECRET}`).toString('base64');
     const deviceIds = new Set<string>();
     const clientIdsByDevice = new Map<string, Set<string>>();
+    const controllerIds = new Set<string>();
+    const clientIdsByController = new Map<string, Set<string>>();
+    const deviceIdByController = new Map<string, string>();
+
     let page = 1;
     const limit = 10000;
     const maxPages = 20;
@@ -89,21 +101,30 @@ export async function fetchBrokerDevicePresenceSnapshot(): Promise<BrokerDeviceP
         for (const client of clients) {
             const clientId = client.clientid as string;
             const username = client.username as string | undefined;
-            const deviceId = parseDeviceIdFromDeviceClientId(clientId, username);
-            if (!deviceId) {
-                continue;
+            const identity = parseMqttClientId(clientId, username);
+
+            if (identity.kind === 'agent') {
+                deviceIds.add(identity.deviceId);
+                let bucket = clientIdsByDevice.get(identity.deviceId);
+                if (!bucket) {
+                    bucket = new Set();
+                    clientIdsByDevice.set(identity.deviceId, bucket);
+                }
+                bucket.add(clientId);
+            } else if (identity.kind === 'radar') {
+                controllerIds.add(identity.controllerId);
+                let bucket = clientIdsByController.get(identity.controllerId);
+                if (!bucket) {
+                    bucket = new Set();
+                    clientIdsByController.set(identity.controllerId, bucket);
+                }
+                bucket.add(clientId);
+                deviceIdByController.set(identity.controllerId, identity.deviceId);
             }
-            deviceIds.add(deviceId);
-            let set = clientIdsByDevice.get(deviceId);
-            if (!set) {
-                set = new Set();
-                clientIdsByDevice.set(deviceId, set);
-            }
-            set.add(clientId);
         }
 
         logger.debug(
-            `[MQTT Reconciliation] Fetched page ${page}: ${clients.length} clients, devices: ${deviceIds.size}`
+            `[MQTT Reconciliation] Page ${page}: ${clients.length} client(s); agents=${deviceIds.size} controllers=${controllerIds.size}`
         );
 
         if (clients.length < limit) {
@@ -119,19 +140,25 @@ export async function fetchBrokerDevicePresenceSnapshot(): Promise<BrokerDeviceP
     }
 
     logger.info(
-        `[MQTT Reconciliation] Broker presence snapshot: ${deviceIds.size} device(s), ${clientIdsByDevice.size} device bucket(s) with client id set(s)`
+        `[MQTT Reconciliation] Broker snapshot: agents=${deviceIds.size}, controllers=${controllerIds.size}`
     );
-    return { deviceIds, clientIdsByDevice };
+    return {
+        deviceIds,
+        clientIdsByDevice,
+        controllerIds,
+        clientIdsByController,
+        deviceIdByController
+    };
 }
 
 /**
- * Write Redis presence keys + per-device `:clients` sets from a broker snapshot.
+ * Apply broker snapshot to Redis presence keys (agent + controller buckets).
  *
- * Race-safe: never DELs `:clients`. Only SADDs current broker clientids and refreshes TTL/presence.
- * Stale clientids that the broker no longer reports drift out via the per-device TTL refresh
- * cycle; they are also removed by EMQX disconnect events (`SREM` in connection_handler).
+ * Race-safe: never DELs `:clients`. Only SADDs current broker clientids and refreshes TTL.
+ * Stale clientids drift out via the per-key TTL refresh cycle and EMQX disconnect events.
  *
- * When `rebuildOnlineSet` is true, replaces `presence:devices:online` (fast startup only).
+ * When `rebuildOnlineSet` is true, replaces both `presence:devices:online` and
+ * `presence:controllers:online` (fast startup only).
  */
 export async function applyBrokerPresenceToRedis(
     snapshot: BrokerDevicePresenceSnapshot,
@@ -141,40 +168,74 @@ export async function applyBrokerPresenceToRedis(
     if (!redis) {
         return;
     }
-    const { deviceIds, clientIdsByDevice } = snapshot;
-    const presenceSetKey = 'presence:devices:online';
-    const entries = Array.from(deviceIds).sort();
-    let didDelOnlineSet = false;
 
-    for (let i = 0; i < entries.length; i += PRESENCE_PIPELINE_CHUNK) {
-        const slice = entries.slice(i, i + PRESENCE_PIPELINE_CHUNK);
+    // ── Agents ──────────────────────────────────────────────────────────────
+    const devicePresenceSetKey = 'presence:devices:online';
+    const deviceEntries = Array.from(snapshot.deviceIds).sort();
+    let didDelDeviceOnlineSet = false;
+    for (let i = 0; i < deviceEntries.length; i += PRESENCE_PIPELINE_CHUNK) {
+        const slice = deviceEntries.slice(i, i + PRESENCE_PIPELINE_CHUNK);
         const pipeline = redis.pipeline();
 
-        if (options.rebuildOnlineSet && !didDelOnlineSet) {
-            pipeline.del(presenceSetKey);
-            didDelOnlineSet = true;
+        if (options.rebuildOnlineSet && !didDelDeviceOnlineSet) {
+            pipeline.del(devicePresenceSetKey);
+            didDelDeviceOnlineSet = true;
         }
 
         for (const deviceId of slice) {
-            const clientsKey = `presence:device:${deviceId}:clients`;
-            const clientSet = clientIdsByDevice.get(deviceId) ?? new Set<string>();
-
+            const clientsKey = `presence:device:${deviceId}:agent:clients`;
+            const clientSet = snapshot.clientIdsByDevice.get(deviceId) ?? new Set<string>();
             for (const cid of clientSet) {
                 pipeline.sadd(clientsKey, cid);
             }
             pipeline.expire(clientsKey, presenceTTL);
             pipeline.setex(`presence:device:${deviceId}`, presenceTTL, '1');
-            pipeline.sadd(presenceSetKey, deviceId);
+            pipeline.sadd(devicePresenceSetKey, deviceId);
         }
 
         await pipeline.exec();
     }
+
+    // Edge-case: rebuild requested but no agent online → still clear the set.
+    if (options.rebuildOnlineSet && !didDelDeviceOnlineSet) {
+        await redis.del(devicePresenceSetKey);
+    }
+
+    // ── Controllers ─────────────────────────────────────────────────────────
+    const controllerPresenceSetKey = 'presence:controllers:online';
+    const controllerEntries = Array.from(snapshot.controllerIds).sort();
+    let didDelControllerOnlineSet = false;
+    for (let i = 0; i < controllerEntries.length; i += PRESENCE_PIPELINE_CHUNK) {
+        const slice = controllerEntries.slice(i, i + PRESENCE_PIPELINE_CHUNK);
+        const pipeline = redis.pipeline();
+
+        if (options.rebuildOnlineSet && !didDelControllerOnlineSet) {
+            pipeline.del(controllerPresenceSetKey);
+            didDelControllerOnlineSet = true;
+        }
+
+        for (const controllerId of slice) {
+            const clientsKey = `presence:controller:${controllerId}:clients`;
+            const clientSet = snapshot.clientIdsByController.get(controllerId) ?? new Set<string>();
+            for (const cid of clientSet) {
+                pipeline.sadd(clientsKey, cid);
+            }
+            pipeline.expire(clientsKey, presenceTTL);
+            pipeline.setex(`presence:controller:${controllerId}`, presenceTTL, '1');
+            pipeline.sadd(controllerPresenceSetKey, controllerId);
+        }
+
+        await pipeline.exec();
+    }
+
+    if (options.rebuildOnlineSet && !didDelControllerOnlineSet) {
+        await redis.del(controllerPresenceSetKey);
+    }
 }
 
 /**
- * Fast startup sync: Bulk-refresh Redis presence from MQTT broker
- * This is optimized for speed - only updates Redis, no DB or notifications
- * Use this on worker startup for immediate presence data
+ * Fast startup sync: bulk-refresh Redis presence from MQTT broker.
+ * Optimized for speed: only updates Redis (no DB writes, no notifications).
  */
 export async function fastStartupSync(): Promise<void> {
     logger.info('[MQTT Fast Sync] Starting fast startup sync...');
@@ -182,8 +243,8 @@ export async function fastStartupSync(): Promise<void> {
     try {
         const snapshot = await fetchBrokerDevicePresenceSnapshot();
 
-        if (snapshot.deviceIds.size === 0) {
-            logger.info('[MQTT Fast Sync] No devices connected to broker');
+        if (snapshot.deviceIds.size === 0 && snapshot.controllerIds.size === 0) {
+            logger.info('[MQTT Fast Sync] No agents or controllers connected to broker');
             return;
         }
 
@@ -193,409 +254,352 @@ export async function fastStartupSync(): Promise<void> {
         }
 
         const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10);
-
         await applyBrokerPresenceToRedis(snapshot, presenceTTL, { rebuildOnlineSet: true });
 
         logger.info(
-            `[MQTT Fast Sync] Completed - marked ${snapshot.deviceIds.size} devices online in Redis with per-client sets (TTL: ${presenceTTL}s)`
+            `[MQTT Fast Sync] Completed — agents=${snapshot.deviceIds.size}, controllers=${snapshot.controllerIds.size} (TTL=${presenceTTL}s)`
         );
     } catch (error) {
-        logger.error(`[MQTT Fast Sync] Failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(
+            `[MQTT Fast Sync] Failed: ${error instanceof Error ? error.message : String(error)}`
+        );
         throw error;
     }
 }
 
-/**
- * Send device status notification to users
- */
-async function sendDeviceStatusNotification(
-    device: { id: string; name: string; accountId: string | null },
-    connected: boolean,
-    prisma: any
-): Promise<void> {
-    const transport = getMqttTransport();
-    if (!transport) {
-        logger.warn('[MQTT Reconciliation] MQTT transport not available, skipping notifications');
-        return;
-    }
-
-    const notificationType = connected ? 'device:connection' : 'device:disconnection';
-    const payload = {
-        type: notificationType,
-        deviceId: device.id,
-        deviceName: device.name,
-        timestamp: new Date().toISOString(),
-        connected
-    };
-
-    // Get users to notify (account members)
-    const usersToNotify: string[] = [];
-    if (device.accountId) {
-        const accountMembers = await prisma.accountMembership.findMany({
-            where: { accountId: device.accountId },
-            select: { userId: true }
-        });
-        for (const member of accountMembers) {
-            usersToNotify.push(member.userId);
-        }
-    }
-
-    // Send notification to each user
-    for (const userId of usersToNotify) {
-        try {
-            // Construct MQTT username format: user:${userId}:${accountId}
-            const mqttUsername = `user:${userId}:${device.accountId}`;
-            const topic = `user/${mqttUsername}/notifications`;
-            await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
-            logger.debug(`[MQTT Reconciliation] Published ${notificationType} to ${topic}`);
-        } catch (err) {
-            logger.error(`[MQTT Reconciliation] Failed to publish to user ${userId}:`, err);
-        }
-    }
-}
-
-/**
- * Gets all device IDs that Redis thinks are online
- * Uses Redis Set for O(1) performance (much faster than KEYS scan)
- */
-async function getOnlineDevicesFromRedis(): Promise<Set<string>> {
+/** O(1) read of Redis online sets. Falls back to KEYS scan for legacy keys. */
+async function getOnlineFromRedis(setKey: string, legacyKeyPrefix: string): Promise<Set<string>> {
+    if (!redis) return new Set();
     try {
-        if (!redis) {
-            logger.warn('[MQTT Reconciliation] Redis not available, skipping Redis check');
-            return new Set();
+        const members = await redis.smembers(setKey);
+        if (members && members.length > 0) {
+            return new Set(members);
         }
-
-        const presenceSetKey = 'presence:devices:online';
-
-        // Try to use Set first (O(N) where N = number of devices, but single operation)
-        try {
-            const members = await redis.smembers(presenceSetKey);
-            if (members && members.length > 0) {
-                logger.info(`[MQTT Reconciliation] Found ${members.length} devices marked online in Redis (using Set)`);
-                return new Set(members);
-            }
-        } catch (setError) {
-            logger.warn('[MQTT Reconciliation] Failed to fetch from Set, falling back to KEYS scan');
-        }
-
-        // Fallback to KEYS scan (slower but works if Set doesn't exist yet)
-        const keys = await redis.keys('presence:device:*');
-        const deviceIds = new Set<string>();
-
-        for (const key of keys) {
-            if (key.endsWith(':clients')) {
-                continue;
-            }
-            const deviceId = key.replace('presence:device:', '');
-            const isOnline = await redis.get(key);
-            if (isOnline === '1') {
-                deviceIds.add(deviceId);
-            }
-        }
-
-        logger.info(`[MQTT Reconciliation] Found ${deviceIds.size} devices marked online in Redis (using KEYS scan)`);
-        return deviceIds;
-    } catch (error) {
-        logger.error(`[MQTT Reconciliation] Failed to fetch online devices from Redis: ${error instanceof Error ? error.message : String(error)}`);
-        throw error;
+    } catch (err) {
+        logger.warn(
+            `[MQTT Reconciliation] Failed to fetch ${setKey} as Set, falling back to KEYS scan`,
+            { error: err instanceof Error ? err.message : String(err) }
+        );
     }
+
+    // Fallback (rare). Returns ids of presence keys whose value is '1'.
+    const keys = await redis.keys(`${legacyKeyPrefix}*`);
+    const ids = new Set<string>();
+    for (const key of keys) {
+        if (key.endsWith(':clients') || key.endsWith(':agent:clients')) continue;
+        const id = key.replace(legacyKeyPrefix, '');
+        if (id.includes(':')) continue; // ignore namespaced sub-keys
+        const present = await redis.get(key);
+        if (present === '1') ids.add(id);
+    }
+    return ids;
 }
 
 /**
- * Reconciles Redis state with actual MQTT broker state
- * - Marks devices offline in Redis if they're not connected to broker
- * - Sends notifications to UI for state changes
+ * Reconcile Redis + DB with the actual MQTT broker state.
+ * Sends connect/disconnect notifications to the UI for any state changes.
  */
 export async function reconcileDevicePresence(): Promise<void> {
-    logger.info('[MQTT Reconciliation] Starting device presence reconciliation...')
+    logger.info('[MQTT Reconciliation] Starting presence reconciliation...');
     const adminPrisma = getAdminPrisma();
+    const transport = getMqttTransport();
+    if (!transport) {
+        logger.warn('[MQTT Reconciliation] MQTT transport not available; will skip notifications');
+    }
 
     try {
-        // Get actual state from MQTT broker (device ids + per-device clientids for Redis :clients)
         const snapshot = await fetchBrokerDevicePresenceSnapshot();
-        const brokerDevices = snapshot.deviceIds;
         const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10);
-        logger.info(`[MQTT Reconciliation] Broker devices: ${Array.from(brokerDevices).join(', ') || 'none'}`);
 
-        // Get Redis state
-        const redisDevices = await getOnlineDevicesFromRedis();
-        logger.info(`[MQTT Reconciliation] Redis devices: ${Array.from(redisDevices).join(', ') || 'none'}`);
+        // ── Devices (agent tier) ────────────────────────────────────────────
+        const brokerDevices = snapshot.deviceIds;
+        const redisDevices = await getOnlineFromRedis('presence:devices:online', 'presence:device:');
+        const staleDevices = Array.from(redisDevices).filter((id) => !brokerDevices.has(id));
+        const missingDevices = Array.from(brokerDevices).filter((id) => !redisDevices.has(id));
 
-        // Find devices that Redis thinks are online but aren't connected to broker (mark offline)
-        const staleDevices: string[] = [];
-        for (const deviceId of redisDevices) {
-            if (!brokerDevices.has(deviceId)) {
-                staleDevices.push(deviceId);
-            }
-        }
+        // ── Controllers (radar tier) ────────────────────────────────────────
+        const brokerControllers = snapshot.controllerIds;
+        const redisControllers = await getOnlineFromRedis(
+            'presence:controllers:online',
+            'presence:controller:'
+        );
+        const staleControllers = Array.from(redisControllers).filter(
+            (id) => !brokerControllers.has(id)
+        );
+        const missingControllers = Array.from(brokerControllers).filter(
+            (id) => !redisControllers.has(id)
+        );
 
-        // Find devices that are connected to broker but Redis doesn't know about (mark online)
-        const missingDevices: string[] = [];
-        for (const deviceId of brokerDevices) {
-            if (!redisDevices.has(deviceId)) {
-                missingDevices.push(deviceId);
-            }
-        }
+        logger.info(
+            `[MQTT Reconciliation] Diffs: devices stale=${staleDevices.length} missing=${missingDevices.length}; controllers stale=${staleControllers.length} missing=${missingControllers.length}`
+        );
 
-        if (staleDevices.length === 0 && missingDevices.length === 0) {
-            logger.info('[MQTT Reconciliation] Redis and Broker are synchronized.');
-
-            // Even if Redis/Broker match, database might be stale
-            // This can happen if device was connected before worker started
-            // Check and fix database state for connected devices
-            if (brokerDevices.size > 0) {
-                try {
-                    // Find devices that are online in broker/Redis but database shows offline
-                    const onlineDeviceIds = Array.from(brokerDevices);
-                    const devicesInDb = await adminPrisma.device.findMany({
-                        where: { id: { in: onlineDeviceIds } },
-                        select: { id: true, connected: true }
-                    });
-
-                    logger.info(`[MQTT Reconciliation] Database check: ${devicesInDb.map(d => `${d.id}:${d.connected ? 'online' : 'offline'}`).join(', ')}`);
-
-                    const dbNeedsUpdate = devicesInDb.filter(d => !d.connected).map(d => d.id);
-
-                    if (dbNeedsUpdate.length > 0) {
-                        logger.info(`[MQTT Reconciliation] Found ${dbNeedsUpdate.length} devices online but database shows offline, updating...`);
-
-                        const now = new Date();
-                        await adminPrisma.device.updateMany({
-                            where: { id: { in: dbNeedsUpdate } },
-                            data: {
-                                connected: true,
-                                connectedAt: now
-                            }
-                        });
-
-                        logger.info(`[MQTT Reconciliation] Updated ${dbNeedsUpdate.length} devices to online in database`);
-
-                        // Send notifications for these devices
-                        for (const deviceId of dbNeedsUpdate) {
-                            try {
-                                const device = await adminPrisma.device.findUnique({
-                                    where: { id: deviceId },
-                                    select: { id: true, name: true, accountId: true }
-                                });
-
-                                if (device) {
-                                    await sendDeviceStatusNotification(device, true, adminPrisma);
-                                }
-                            } catch (notifError) {
-                                logger.error(`[MQTT Reconciliation] Failed to send notification for ${deviceId}: ${notifError}`);
-                            }
-                        }
-                    } else {
-                        logger.info('[MQTT Reconciliation] All device states are synchronized (including database). No action needed.');
-                    }
-                } catch (dbCheckError) {
-                    logger.error(`[MQTT Reconciliation] Failed to check database state: ${dbCheckError instanceof Error ? dbCheckError.message : String(dbCheckError)}`);
-                }
-            }
-
-            // Refresh TTLs and per-device :clients from broker (fixes drift when worker missed connect events)
-            if (redis && brokerDevices.size > 0) {
-                try {
-                    await applyBrokerPresenceToRedis(snapshot, presenceTTL, { rebuildOnlineSet: false });
-                    const pipeline = redis.pipeline();
-                    pipeline.expire('presence:devices:online', presenceTTL);
-                    await pipeline.exec();
-                    logger.debug(
-                        `[MQTT Reconciliation] Refreshed presence + client sets for ${brokerDevices.size} online devices`
-                    );
-                } catch (ttlError) {
-                    logger.error(`[MQTT Reconciliation] Failed to refresh TTLs: ${ttlError instanceof Error ? ttlError.message : String(ttlError)}`);
-                }
-            }
-
-            return;
-        }
-
-        if (staleDevices.length > 0) {
-            logger.info(`[MQTT Reconciliation] Found ${staleDevices.length} stale devices (marked online but disconnected), marking offline...`);
-        }
-        if (missingDevices.length > 0) {
-            logger.info(`[MQTT Reconciliation] Found ${missingDevices.length} missing devices (connected but not in Redis), marking online...`);
-        }
-
-        // Mark stale devices as offline in Redis (batch operation)
-        if (staleDevices.length > 0 && redis) {
-            const pipeline = redis.pipeline();
-            const presenceSetKey = 'presence:devices:online';
-
-            for (const deviceId of staleDevices) {
-                pipeline.del(`presence:device:${deviceId}`);
-                pipeline.del(`presence:device:${deviceId}:clients`);
-                pipeline.srem(presenceSetKey, deviceId);
-            }
-            await pipeline.exec();
-            logger.info(`[MQTT Reconciliation] Removed ${staleDevices.length} stale devices from Redis`);
-        }
-
-        // Batch update database for stale devices
-        if (staleDevices.length > 0) {
-            const now = new Date();
-            await adminPrisma.device.updateMany({
-                where: { id: { in: staleDevices } },
-                data: {
-                    connected: false,
-                    disconnectedAt: now
-                }
-            });
-            logger.info(`[MQTT Reconciliation] Updated ${staleDevices.length} devices to offline in database`);
-        }
-
-        // Send notifications for stale devices
-        for (const deviceId of staleDevices) {
-            try {
-                // Fetch device info to send proper notifications
-                const device = await adminPrisma.device.findUnique({
-                    where: { id: deviceId },
-                    select: {
-                        id: true,
-                        name: true,
-                        accountId: true
-                    }
-                });
-
-                if (!device) {
-                    logger.warn(`[MQTT Reconciliation] Device ${deviceId} not found in database`);
-                    continue;
-                }
-
-                // Build notification payload (include type directly, not in ticket)
-                const payload = {
-                    type: 'device:disconnection',
-                    deviceId: device.id,
-                    deviceName: device.name,
-                    timestamp: new Date().toISOString(),
-                    reason: 'Reconciliation - device was offline while worker was down'
-                };
-
-                // Publish disconnection notification to UI
-                const transport = getMqttTransport();
-                if (!transport) {
-                    logger.warn('[MQTT Reconciliation] MQTT transport not available, skipping notifications');
-                    continue;
-                }
-
-                // Get users to notify (account members)
-                const usersToNotify: string[] = [];
-                if (device.accountId) {
-                    const accountMembers = await adminPrisma.accountMembership.findMany({
-                        where: { accountId: device.accountId },
-                        select: { userId: true }
-                    });
-                    for (const member of accountMembers) {
-                        usersToNotify.push(member.userId);
-                    }
-                }
-
-                // Send notification to each user
-                for (const userId of usersToNotify) {
-                    // Construct MQTT username format: user:${userId}:${accountId}
-                    const mqttUsername = `user:${userId}:${device.accountId}`;
-                    const topic = `user/${mqttUsername}/notifications`;
-                    await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
-                    logger.debug(`[MQTT Reconciliation] Sent disconnection notification for device ${deviceId} to user ${userId}`);
-                }
-
-                logger.info(`[MQTT Reconciliation] Reconciled device ${deviceId} (marked offline, notified ${usersToNotify.length} users)`);
-            } catch (err) {
-                logger.error(`[MQTT Reconciliation] Failed to reconcile device ${deviceId}: ${err instanceof Error ? err.message : String(err)}`);
-            }
-        }
-
-        // Align Redis presence + per-device :clients with broker (covers missing devices and multi-client drift)
-        if (redis && brokerDevices.size > 0) {
+        // 1. Sync Redis presence + per-key client sets from broker (covers missing buckets too).
+        if (redis) {
             try {
                 await applyBrokerPresenceToRedis(snapshot, presenceTTL, { rebuildOnlineSet: false });
-                await redis.expire('presence:devices:online', presenceTTL);
+                const pipeline = redis.pipeline();
+                pipeline.expire('presence:devices:online', presenceTTL);
+                pipeline.expire('presence:controllers:online', presenceTTL);
+                await pipeline.exec();
             } catch (err) {
                 logger.error(
-                    `[MQTT Reconciliation] Failed to sync Redis client sets from broker: ${err instanceof Error ? err.message : String(err)}`
+                    `[MQTT Reconciliation] Failed to refresh Redis presence: ${err instanceof Error ? err.message : String(err)}`
                 );
             }
         }
 
-        // Batch update database for missing devices
+        // 2. Devices: drop stale Redis entries + flip DB offline + notify.
+        if (staleDevices.length > 0) {
+            await dropStaleDevicePresence(staleDevices);
+            await markDevicesOfflineInDbAndNotify(adminPrisma, staleDevices);
+        }
         if (missingDevices.length > 0) {
-            const now = new Date();
-            await adminPrisma.device.updateMany({
-                where: { id: { in: missingDevices } },
-                data: {
-                    connected: true,
-                    connectedAt: now
-                }
-            });
-            logger.info(`[MQTT Reconciliation] Updated ${missingDevices.length} devices to online in database`);
+            await markDevicesOnlineInDbAndNotify(adminPrisma, missingDevices);
         }
 
-        // Send notifications for missing devices
-        for (const deviceId of missingDevices) {
-            try {
-                // Fetch device info to send proper notifications
-                const device = await adminPrisma.device.findUnique({
-                    where: { id: deviceId },
-                    select: {
-                        id: true,
-                        name: true,
-                        accountId: true
-                    }
-                });
-
-                if (!device) {
-                    logger.warn(`[MQTT Reconciliation] Device ${deviceId} not found in database`);
-                    continue;
-                }
-
-                // Build notification payload (include type directly, not in ticket)
-                const payload = {
-                    type: 'device:connection',
-                    deviceId: device.id,
-                    deviceName: device.name,
-                    timestamp: new Date().toISOString(),
-                    connected: true
-                };
-
-                // Publish connection notification to UI
-                const transport = getMqttTransport();
-                if (!transport) {
-                    logger.warn('[MQTT Reconciliation] MQTT transport not available, skipping notifications');
-                    continue;
-                }
-
-                // Get users to notify (account members)
-                const usersToNotify: string[] = [];
-                if (device.accountId) {
-                    const accountMembers = await adminPrisma.accountMembership.findMany({
-                        where: { accountId: device.accountId },
-                        select: { userId: true }
-                    });
-                    for (const member of accountMembers) {
-                        usersToNotify.push(member.userId);
-                    }
-                }
-
-                // Send notification to each user
-                for (const userId of usersToNotify) {
-                    // Construct MQTT username format: user:${userId}:${accountId}
-                    const mqttUsername = `user:${userId}:${device.accountId}`;
-                    const topic = `user/${mqttUsername}/notifications`;
-                    await transport.publish(topic, JSON.stringify(payload), { qos: 1 });
-                    logger.debug(`[MQTT Reconciliation] Sent connection notification for device ${deviceId} to user ${userId}`);
-                }
-
-                logger.info(`[MQTT Reconciliation] Reconciled device ${deviceId} (marked online, notified ${usersToNotify.length} users)`);
-            } catch (err) {
-                logger.error(`[MQTT Reconciliation] Failed to reconcile device ${deviceId}: ${err instanceof Error ? err.message : String(err)}`);
-            }
+        // 3. Make sure DB matches broker for *every* device the broker reports
+        //    (catches the case where Redis already had the key but DB drifted).
+        if (brokerDevices.size > 0) {
+            await reconcileDeviceDbSync(adminPrisma, brokerDevices, missingDevices);
         }
 
-        logger.info(`[MQTT Reconciliation] Completed reconciliation. Processed ${staleDevices.length} stale devices (marked offline) and ${missingDevices.length} missing devices (marked online).`);
+        // 4. Controllers: drop stale Redis entries + flip DB offline + notify.
+        if (staleControllers.length > 0) {
+            await dropStaleControllerPresence(staleControllers);
+            await markControllersOfflineInDbAndNotify(adminPrisma, staleControllers);
+        }
+        if (missingControllers.length > 0) {
+            await markControllersOnlineInDbAndNotify(
+                adminPrisma,
+                missingControllers,
+                snapshot.deviceIdByController
+            );
+        }
+        if (brokerControllers.size > 0) {
+            await reconcileControllerDbSync(
+                adminPrisma,
+                brokerControllers,
+                snapshot.deviceIdByController,
+                missingControllers
+            );
+        }
+
+        logger.info(
+            `[MQTT Reconciliation] Completed: device-changes (offline=${staleDevices.length}, online=${missingDevices.length}); controller-changes (offline=${staleControllers.length}, online=${missingControllers.length})`
+        );
     } catch (error) {
-        logger.error(`[MQTT Reconciliation] Reconciliation failed: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(
+            `[MQTT Reconciliation] Failed: ${error instanceof Error ? error.message : String(error)}`
+        );
         throw error;
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Device (agent) helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+async function dropStaleDevicePresence(deviceIds: string[]): Promise<void> {
+    if (!redis || deviceIds.length === 0) return;
+    const pipeline = redis.pipeline();
+    for (const deviceId of deviceIds) {
+        pipeline.del(`presence:device:${deviceId}`);
+        pipeline.del(`presence:device:${deviceId}:agent:clients`);
+        pipeline.del(`presence:device:${deviceId}:clients`); // legacy key cleanup
+        pipeline.srem('presence:devices:online', deviceId);
+    }
+    await pipeline.exec();
+    logger.info(`[MQTT Reconciliation] Removed ${deviceIds.length} stale device(s) from Redis`);
+}
+
+async function markDevicesOfflineInDbAndNotify(
+    prisma: PrismaClient,
+    deviceIds: string[]
+): Promise<void> {
+    const now = new Date();
+    await prisma.device.updateMany({
+        where: { id: { in: deviceIds } },
+        data: { connected: false, disconnectedAt: now }
+    });
+    logger.info(`[MQTT Reconciliation] DB: marked ${deviceIds.length} device(s) offline`);
+
+    for (const deviceId of deviceIds) {
+        try {
+            const device = await prisma.device.findUnique({
+                where: { id: deviceId },
+                select: { id: true, name: true, accountId: true, createdBy: true }
+            });
+            if (!device) continue;
+            await publishDeviceStatusNotification({
+                prisma,
+                device,
+                connected: false,
+                timestamp: now.toISOString(),
+                reason: 'Reconciliation - device was offline while worker was down'
+            });
+        } catch (err) {
+            logger.error(
+                `[MQTT Reconciliation] Notify (offline) failed for device ${deviceId}: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+    }
+}
+
+async function markDevicesOnlineInDbAndNotify(
+    prisma: PrismaClient,
+    deviceIds: string[]
+): Promise<void> {
+    const now = new Date();
+    await prisma.device.updateMany({
+        where: { id: { in: deviceIds } },
+        data: { connected: true, connectedAt: now }
+    });
+    logger.info(`[MQTT Reconciliation] DB: marked ${deviceIds.length} device(s) online`);
+
+    for (const deviceId of deviceIds) {
+        try {
+            const device = await prisma.device.findUnique({
+                where: { id: deviceId },
+                select: { id: true, name: true, accountId: true, createdBy: true }
+            });
+            if (!device) continue;
+            await publishDeviceStatusNotification({
+                prisma,
+                device,
+                connected: true,
+                timestamp: now.toISOString()
+            });
+        } catch (err) {
+            logger.error(
+                `[MQTT Reconciliation] Notify (online) failed for device ${deviceId}: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+    }
+}
+
+/** Catch DB drift: any device the broker reports online but DB still says offline. */
+async function reconcileDeviceDbSync(
+    prisma: PrismaClient,
+    brokerDevices: Set<string>,
+    alreadyHandled: string[]
+): Promise<void> {
+    const handledSet = new Set(alreadyHandled);
+    const candidates = Array.from(brokerDevices).filter((id) => !handledSet.has(id));
+    if (candidates.length === 0) return;
+
+    const dbRows = await prisma.device.findMany({
+        where: { id: { in: candidates } },
+        select: { id: true, connected: true }
+    });
+    const drift = dbRows.filter((d) => !d.connected).map((d) => d.id);
+    if (drift.length === 0) return;
+
+    await markDevicesOnlineInDbAndNotify(prisma, drift);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Controller (radar) helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+async function dropStaleControllerPresence(controllerIds: string[]): Promise<void> {
+    if (!redis || controllerIds.length === 0) return;
+    const pipeline = redis.pipeline();
+    for (const controllerId of controllerIds) {
+        pipeline.del(`presence:controller:${controllerId}`);
+        pipeline.del(`presence:controller:${controllerId}:clients`);
+        pipeline.srem('presence:controllers:online', controllerId);
+    }
+    await pipeline.exec();
+    logger.info(`[MQTT Reconciliation] Removed ${controllerIds.length} stale controller(s) from Redis`);
+}
+
+async function markControllersOfflineInDbAndNotify(
+    prisma: PrismaClient,
+    controllerIds: string[]
+): Promise<void> {
+    const now = new Date();
+    await prisma.controller.updateMany({
+        where: { id: { in: controllerIds } },
+        data: { connected: false, disconnectedAt: now }
+    });
+    logger.info(`[MQTT Reconciliation] DB: marked ${controllerIds.length} controller(s) offline`);
+
+    for (const controllerId of controllerIds) {
+        try {
+            const controller = await prisma.controller.findUnique({
+                where: { id: controllerId },
+                select: { id: true, type: true, deviceId: true }
+            });
+            if (!controller) continue;
+            await publishControllerStatusNotification({
+                prisma,
+                deviceId: controller.deviceId,
+                controllerId,
+                controllerType: controller.type ?? 'radar',
+                connected: false,
+                timestamp: now.toISOString(),
+                reason: 'Reconciliation - controller was offline while worker was down'
+            });
+        } catch (err) {
+            logger.error(
+                `[MQTT Reconciliation] Notify (offline) failed for controller ${controllerId}: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+    }
+}
+
+async function markControllersOnlineInDbAndNotify(
+    prisma: PrismaClient,
+    controllerIds: string[],
+    deviceIdByController: Map<string, string>
+): Promise<void> {
+    const now = new Date();
+    await prisma.controller.updateMany({
+        where: { id: { in: controllerIds } },
+        data: { connected: true, connectedAt: now }
+    });
+    logger.info(`[MQTT Reconciliation] DB: marked ${controllerIds.length} controller(s) online`);
+
+    for (const controllerId of controllerIds) {
+        try {
+            const controller = await prisma.controller.findUnique({
+                where: { id: controllerId },
+                select: { id: true, type: true, deviceId: true }
+            });
+            if (!controller) continue;
+            await publishControllerStatusNotification({
+                prisma,
+                deviceId: deviceIdByController.get(controllerId) ?? controller.deviceId,
+                controllerId,
+                controllerType: controller.type ?? 'radar',
+                connected: true,
+                timestamp: now.toISOString()
+            });
+        } catch (err) {
+            logger.error(
+                `[MQTT Reconciliation] Notify (online) failed for controller ${controllerId}: ${err instanceof Error ? err.message : String(err)}`
+            );
+        }
+    }
+}
+
+async function reconcileControllerDbSync(
+    prisma: PrismaClient,
+    brokerControllers: Set<string>,
+    deviceIdByController: Map<string, string>,
+    alreadyHandled: string[]
+): Promise<void> {
+    const handledSet = new Set(alreadyHandled);
+    const candidates = Array.from(brokerControllers).filter((id) => !handledSet.has(id));
+    if (candidates.length === 0) return;
+
+    const dbRows = await prisma.controller.findMany({
+        where: { id: { in: candidates } },
+        select: { id: true, connected: true }
+    });
+    const drift = dbRows.filter((c) => !c.connected).map((c) => c.id);
+    if (drift.length === 0) return;
+
+    await markControllersOnlineInDbAndNotify(prisma, drift, deviceIdByController);
+}

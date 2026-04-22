@@ -29,6 +29,7 @@ async function mintFactoryMqttCredentials(factoryDeviceId: string) {
     const username = `factory:${factoryDeviceId}`;
     const mintData = await mintIoTCoreCredentials({
         username,
+        tier: { kind: 'factory', bootstrapId: factoryDeviceId },
         pubTopics: [
             `device/${username}/replies`,
             `device/${username}/requests`,

@@ -178,6 +178,10 @@ export const POST: RequestHandler = restrictDevice(async ({ device, locals, requ
 
 		const mintData = await mintIoTCoreCredentials({
 			username: mqttUsername,
+			tier:
+				type === 'radar'
+					? { kind: 'radar', deviceId: device.id, controllerId: effectiveControllerId }
+					: { kind: 'agent', deviceId: device.id }, // non-radar controllers reuse the agent tier (no separate presence yet)
 			pubTopics: [`${topicPrefix}/replies`, `${topicPrefix}/requests`, `${topicPrefix}/data`, `${topicPrefix}/loopback`],
 			subTopics: [`${topicPrefix}/response`, `${topicPrefix}/notifications`, `${topicPrefix}/loopback`]
 		});

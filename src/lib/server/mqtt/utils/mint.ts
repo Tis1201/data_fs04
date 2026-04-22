@@ -1,13 +1,28 @@
 import jwt, { type Algorithm } from 'jsonwebtoken';
-import { randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { getAdminPrisma } from '$lib/server/prisma';
 import { logger } from '$lib/server/logger';
+import { buildMqttClientId } from './clientIdentity';
+
+/**
+ * Tier of the MQTT session being minted. Embedded in the EMQX `clientid` so the
+ * broker's `$events/client/{connected,disconnected}` payloads carry the routing
+ * tier without an extra round-trip. Required for all callers — pick the variant
+ * that matches the topic ACL you're handing out.
+ */
+export type IoTCoreMintTier =
+    | { kind: 'agent'; deviceId: string }
+    | { kind: 'radar'; deviceId: string; controllerId: string }
+    | { kind: 'factory'; bootstrapId: string }
+    | { kind: 'user'; userId: string; accountId: string | null }
+    | { kind: 'server'; role: string };
 
 export interface IoTCoreMintParams {
     username: string;
     pubTopics: string[];
     subTopics: string[];
+    /** Required for typed clientids (Option A presence). See {@link IoTCoreMintTier}. */
+    tier: IoTCoreMintTier;
 }
 
 export interface IoTCoreMintResult {
@@ -100,8 +115,7 @@ export async function mintIoTCoreCredentials(
             return null;
         }
 
-        const randomSuffix = randomBytes(3).toString('hex');
-        const clientId = `${params.username}_${randomSuffix}`;
+        const clientId = buildMqttClientId(params.tier);
 
         // JWT payload compatible with EMQX JWT + ACL (old ACL format)
         const payload = {

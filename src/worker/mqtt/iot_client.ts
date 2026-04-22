@@ -55,6 +55,10 @@ async function mintWorkerCredentials(): Promise<
     const data = await mintIoTCoreCredentials(
         {
             username: workerUsername,
+            tier: {
+                kind: 'server',
+                role: workerUsername.startsWith('server:') ? workerUsername.slice('server:'.length) : 'fs04-worker'
+            },
             pubTopics: ['#'],
             subTopics: ['#']
         },

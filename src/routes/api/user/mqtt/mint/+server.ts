@@ -34,6 +34,7 @@ export const POST: RequestHandler = restrict(async (event) => {
 
     const mintData = await mintIoTCoreCredentials({
       username: mqttUsername,
+      tier: { kind: 'user', userId: user.id, accountId: accountId ?? null },
       pubTopics: [
         `user/${mqttUsername}/requests`,
         `user/${mqttUsername}/replies`,

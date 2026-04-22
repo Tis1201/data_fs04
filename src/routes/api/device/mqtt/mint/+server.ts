@@ -24,6 +24,7 @@ export const POST: RequestHandler = restrictDevice(async ({ device }) => {
 
     const mintData = await mintIoTCoreCredentials({
       username: mqttUsername,
+      tier: { kind: 'agent', deviceId: device.id },
       pubTopics: [
         `device/${mqttUsername}/replies`,
         `device/${mqttUsername}/requests`,

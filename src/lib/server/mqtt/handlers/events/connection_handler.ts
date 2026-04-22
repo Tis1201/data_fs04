@@ -2,175 +2,407 @@ import { logger } from '$lib/server/logger';
 import type { PrismaClient } from '@prisma/client';
 import redis from '$lib/server/redis';
 import { publishDeviceStatusNotification } from '../notifications/device_status_publisher';
+import { publishControllerStatusNotification } from '../notifications/controller_status_publisher';
+import {
+    parseMqttClientId,
+    type MqttClientIdentity
+} from '$lib/server/mqtt/utils/clientIdentity';
 
-/********************************************************************************************
- * Handle MQTT connection/disconnection events
- * Processes EMQX connection events and updates device presence, database, and notifications
- ********************************************************************************************/
+/**
+ * EMQX `$events/client/connected` and `.../disconnected` handler.
+ *
+ * Routing uses typed `clientid`s ({@link parseMqttClientId}): `agent` updates the RDM
+ * device session (`Device`, `device:*` notifications); `radar` updates the controller bridge
+ * (`Controller`, `controller:*`). Other tiers only write `mqttConnection` audit rows.
+ */
 export async function handleConnectionEvent(
     topic: string,
     payload: Buffer,
     prisma: PrismaClient
 ): Promise<void> {
     const rawEvent = payload.toString('utf8');
-    let eventData: any = null;
-
-    // EMQX may emit event payloads as Erlang-style maps, e.g.:
-    // {
-    // clientid: "device:..._suffix",
-    // username: "device:...",
-    // reason: "remote",
-    // disconnected_at: "<epoch-ms>"
-    // }
-    // which is not valid JSON. Try JSON.parse first, then fall back to regex extraction.
-    try {
-        // eslint-disable-next-line no-console
-        console.log('rawEvent', rawEvent);
-        eventData = JSON.parse(rawEvent);
-    } catch {
-        // Swallow JSON errors; we'll try to extract fields from the raw string below.
-    }
-
-    let clientId = typeof eventData?.clientid === 'string' ? eventData.clientid : '';
-    let username = typeof eventData?.username === 'string' ? eventData.username : '';
-    let reason = typeof eventData?.reason === 'string' ? eventData.reason : '';
-    let connectedAtMs: number | null = null;
-    let disconnectedAtMs: number | null = null;
-    let node: string | null =
-        typeof eventData?.node === 'string' ? (eventData.node as string) : null;
+    const parsedEvent = parseEmqxEvent(rawEvent);
+    const {
+        clientId,
+        username,
+        reason,
+        node,
+        connectedAtMs,
+        disconnectedAtMs
+    } = parsedEvent;
 
     if (!clientId) {
-        const clientIdMatch = rawEvent.match(/clientid:\s*"([^\"]+)"/);
-        if (clientIdMatch) {
-            clientId = clientIdMatch[1];
-        }
+        logger.warn('[MQTT Events] Connection event missing clientid; ignoring', { topic });
+        return;
     }
 
-    if (!username) {
-        const usernameMatch = rawEvent.match(/username:\s*"([^\"]+)"/);
-        if (usernameMatch) {
-            username = usernameMatch[1];
-        }
-    }
-
-    if (!reason) {
-        const reasonMatch = rawEvent.match(/reason:\s*"([^\"]+)"/);
-        if (reasonMatch) {
-            reason = reasonMatch[1];
-        }
-    }
-
-    if (!node) {
-        const nodeMatch = rawEvent.match(/node:\s*"([^\"]+)"/);
-        if (nodeMatch) {
-            node = nodeMatch[1];
-        }
-    }
-
-    if (eventData?.connected_at != null) {
-        connectedAtMs = Number(eventData.connected_at);
-    } else {
-        const connectedMatch = rawEvent.match(/connected_at:\s*"?(\d+)"?/);
-        if (connectedMatch) {
-            connectedAtMs = Number(connectedMatch[1]);
-        }
-    }
-
-    if (eventData?.disconnected_at != null) {
-        disconnectedAtMs = Number(eventData.disconnected_at);
-    } else {
-        const disconnectedMatch = rawEvent.match(/disconnected_at:\s*"?(\d+)"?/);
-        if (disconnectedMatch) {
-            disconnectedAtMs = Number(disconnectedMatch[1]);
-        }
-    }
-
-    // Derive username from clientId if necessary: clientId is typically `${username}_${suffix}`.
-    if (!username && clientId.startsWith('device:')) {
-        username = clientId.split('_')[0];
-    }
-    if (!username && clientId.startsWith('user:')) {
-        username = clientId.split('_')[0];
-    }
-
-    const kind = username.startsWith('device:')
-        ? 'device'
-        : username.startsWith('user:')
-          ? 'user'
-          : username.startsWith('factory:')
-            ? 'factory'
-          : 'other';
-    // Only extract deviceId for claimed devices (not factory devices)
-    const deviceId = kind === 'device' ? username.slice('device:'.length) : null;
-
-    const now = new Date();
     const isConnectEvent =
         topic === '$events/client/connected' ||
         topic === '$events/client/connected/' ||
         topic === '$events/client_connected';
-    const eventTimestampMs = isConnectEvent ? connectedAtMs ?? disconnectedAtMs : disconnectedAtMs ?? connectedAtMs;
+
+    const eventTimestampMs = isConnectEvent
+        ? connectedAtMs ?? disconnectedAtMs
+        : disconnectedAtMs ?? connectedAtMs;
     const eventDate =
         typeof eventTimestampMs === 'number' && !Number.isNaN(eventTimestampMs)
             ? new Date(eventTimestampMs)
-            : now;
+            : new Date();
 
-    /**
-     * For device disconnects only:
-     *   true  = this was the last MQTT session for the device → mark Device.connected=false
-     *   false = other MQTT sessions still tracked in Redis (e.g. RDM while radar restarts) → skip
-     * Stays `null` for connect events / non-device disconnects.
-     */
-    let markDeviceFullyOffline: boolean | null = null;
+    const identity = parseMqttClientId(clientId, username);
+    const auditKind = identityToAuditKind(identity);
 
-    // Update device presence in Redis for claimed devices (not factory devices)
-    // When multiple apps share the same device ID (e.g. radar + RDM), we only mark offline when the *last* connection disconnects.
-    if (deviceId && redis) {
-        const presenceKey = `presence:device:${deviceId}`;
-        const presenceClientsKey = `presence:device:${deviceId}:clients`;
-        const presenceSetKey = 'presence:devices:online';
-        const presenceTTL = parseInt(process.env.PRESENCE_TTL || '600', 10); // 10 minutes default (increased for stability)
+    // 1. Audit row first — survives any downstream branch failure.
+    await upsertMqttConnectionRow({
+        prisma,
+        clientId,
+        username,
+        kind: auditKind,
+        isConnectEvent,
+        eventDate,
+        reason,
+        node
+    });
 
-        try {
-            if (isConnectEvent) {
-                const pipeline = redis.pipeline();
-                pipeline.sadd(presenceClientsKey, clientId);
-                pipeline.expire(presenceClientsKey, presenceTTL);
-                pipeline.setex(presenceKey, presenceTTL, '1');
-                pipeline.sadd(presenceSetKey, deviceId);
-                await pipeline.exec();
-                logger.debug(`[MQTT Presence] Device ${deviceId} marked online (clientId=${clientId}, TTL: ${presenceTTL}s)`);
-            } else {
-                const pipeline = redis.pipeline();
-                pipeline.srem(presenceClientsKey, clientId);
-                pipeline.scard(presenceClientsKey);
-                const results = await pipeline.exec();
-                const remainingCount = (results?.[1]?.[1] as number) ?? 0;
-                markDeviceFullyOffline = remainingCount === 0;
-                if (remainingCount === 0) {
-                    await redis
-                        .multi()
-                        .del(presenceKey)
-                        .srem(presenceSetKey, deviceId)
-                        .del(presenceClientsKey)
-                        .exec();
-                    logger.debug(`[MQTT Presence] Device ${deviceId} marked offline (last connection: ${clientId})`);
-                } else {
-                    logger.debug(`[MQTT Presence] Device ${deviceId} still has ${remainingCount} connection(s), staying online`);
-                }
-            }
-        } catch (redisError) {
-            logger.error(`[MQTT Presence] Failed to update presence for device ${deviceId}:`, {
-                error: redisError instanceof Error ? redisError.message : String(redisError)
+    // 2. Tier-specific presence + business state.
+    switch (identity.kind) {
+        case 'agent':
+            await handleAgentEvent({
+                prisma,
+                identity,
+                clientId,
+                username,
+                isConnectEvent,
+                eventDate,
+                reason
             });
-            if (!isConnectEvent) {
-                markDeviceFullyOffline = false;
-            }
+            break;
+        case 'radar':
+            await handleRadarEvent({
+                prisma,
+                identity,
+                clientId,
+                username,
+                isConnectEvent,
+                eventDate,
+                reason
+            });
+            break;
+        case 'user':
+        case 'factory':
+        case 'server':
+        case 'unknown':
+            // No presence keys / DB writes for these; the audit row above is sufficient.
+            break;
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Agent flow (RDM / Linux device agent)
+// ────────────────────────────────────────────────────────────────────────────
+
+const AGENT_PRESENCE_TTL_FALLBACK = 600;
+
+async function handleAgentEvent(args: {
+    prisma: PrismaClient;
+    identity: Extract<MqttClientIdentity, { kind: 'agent' }>;
+    clientId: string;
+    username: string;
+    isConnectEvent: boolean;
+    eventDate: Date;
+    reason: string;
+}): Promise<void> {
+    const { prisma, identity, clientId, username, isConnectEvent, eventDate, reason } = args;
+    const { deviceId } = identity;
+
+    const presence = await updateAgentPresence({
+        deviceId,
+        clientId,
+        isConnectEvent
+    });
+
+    if (isConnectEvent) {
+        await prisma.device.updateMany({
+            where: { id: deviceId },
+            data: { connected: true, connectedAt: eventDate }
+        });
+        logger.info('[MQTT Events] Agent connected', { deviceId, username, clientId, legacy: identity.legacy });
+
+        const deviceRecord = await prisma.device.findUnique({
+            where: { id: deviceId },
+            select: { id: true, name: true, accountId: true, createdBy: true }
+        });
+        if (deviceRecord) {
+            await publishDeviceStatusNotification({
+                prisma,
+                device: deviceRecord,
+                connected: true,
+                timestamp: eventDate.toISOString()
+            });
         }
-    } else if (deviceId && !isConnectEvent && !redis) {
-        markDeviceFullyOffline = true;
+
+        // Auto-sync: Push pending configs for this device's sensors (kept from previous behaviour).
+        await autoSyncPendingSensorConfigs(prisma, deviceId);
+        return;
     }
 
-    // Single-row-per-clientId session style: track latest state per clientId
+    if (presence === 'sessions-remain') {
+        logger.info(
+            '[MQTT Events] Agent MQTT session ended; other agent session(s) still active — skipping Device.connected=false',
+            { deviceId, username, clientId, reason }
+        );
+        return;
+    }
+
+    await prisma.device.updateMany({
+        where: { id: deviceId },
+        data: { connected: false, disconnectedAt: eventDate }
+    });
+    logger.info('[MQTT Events] Agent disconnected', { deviceId, username, clientId, reason });
+
+    const deviceRecord = await prisma.device.findUnique({
+        where: { id: deviceId },
+        select: { id: true, name: true, accountId: true, createdBy: true }
+    });
+    if (deviceRecord) {
+        await publishDeviceStatusNotification({
+            prisma,
+            device: deviceRecord,
+            connected: false,
+            timestamp: eventDate.toISOString(),
+            reason
+        });
+    }
+}
+
+/**
+ * Update the agent's per-device presence set and return whether any sessions remain.
+ *
+ * Returns:
+ *  - 'connect'         on connect events (no count meaning)
+ *  - 'sessions-remain' on disconnect when ≥1 agent sessions are still tracked
+ *  - 'last-session'    on disconnect when this was the last agent session
+ *  - 'redis-unavailable' when Redis is down (fail-safe: caller treats as last-session)
+ */
+async function updateAgentPresence(args: {
+    deviceId: string;
+    clientId: string;
+    isConnectEvent: boolean;
+}): Promise<'connect' | 'sessions-remain' | 'last-session' | 'redis-unavailable'> {
+    const { deviceId, clientId, isConnectEvent } = args;
+    if (!redis) {
+        return isConnectEvent ? 'connect' : 'redis-unavailable';
+    }
+
+    const presenceKey = `presence:device:${deviceId}`;
+    const agentClientsKey = `presence:device:${deviceId}:agent:clients`;
+    const presenceSetKey = 'presence:devices:online';
+    const presenceTTL = parseInt(process.env.PRESENCE_TTL || String(AGENT_PRESENCE_TTL_FALLBACK), 10);
+
+    try {
+        if (isConnectEvent) {
+            const pipeline = redis.pipeline();
+            pipeline.sadd(agentClientsKey, clientId);
+            pipeline.expire(agentClientsKey, presenceTTL);
+            pipeline.setex(presenceKey, presenceTTL, '1');
+            pipeline.sadd(presenceSetKey, deviceId);
+            await pipeline.exec();
+            logger.debug(
+                `[MQTT Presence] Agent for device ${deviceId} marked online (clientId=${clientId}, TTL: ${presenceTTL}s)`
+            );
+            return 'connect';
+        }
+
+        const pipeline = redis.pipeline();
+        pipeline.srem(agentClientsKey, clientId);
+        pipeline.scard(agentClientsKey);
+        const results = await pipeline.exec();
+        const remaining = (results?.[1]?.[1] as number) ?? 0;
+
+        if (remaining > 0) {
+            logger.debug(
+                `[MQTT Presence] Device ${deviceId} still has ${remaining} agent connection(s), staying online`
+            );
+            return 'sessions-remain';
+        }
+
+        await redis
+            .multi()
+            .del(presenceKey)
+            .srem(presenceSetKey, deviceId)
+            .del(agentClientsKey)
+            .exec();
+        logger.debug(`[MQTT Presence] Device ${deviceId} agent fully offline (last session: ${clientId})`);
+        return 'last-session';
+    } catch (err) {
+        logger.error(`[MQTT Presence] Failed to update agent presence for device ${deviceId}:`, {
+            error: err instanceof Error ? err.message : String(err)
+        });
+        return isConnectEvent ? 'connect' : 'redis-unavailable';
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Radar (controller) flow
+// ────────────────────────────────────────────────────────────────────────────
+
+async function handleRadarEvent(args: {
+    prisma: PrismaClient;
+    identity: Extract<MqttClientIdentity, { kind: 'radar' }>;
+    clientId: string;
+    username: string;
+    isConnectEvent: boolean;
+    eventDate: Date;
+    reason: string;
+}): Promise<void> {
+    const { prisma, identity, clientId, username, isConnectEvent, eventDate, reason } = args;
+    const { deviceId, controllerId } = identity;
+
+    const presence = await updateRadarPresence({
+        controllerId,
+        clientId,
+        isConnectEvent
+    });
+
+    if (isConnectEvent) {
+        // Mark the controller online; tolerate the case where the controller row is gone
+        // (e.g. soft-deleted) without aborting — presence is still tracked in Redis.
+        const updated = await prisma.controller.updateMany({
+            where: { id: controllerId, deviceId },
+            data: { connected: true, connectedAt: eventDate }
+        });
+        if (updated.count === 0) {
+            logger.warn(
+                `[MQTT Events] Radar connect for unknown/deleted controller ${controllerId} on device ${deviceId}; presence updated but DB skipped`
+            );
+            return;
+        }
+        logger.info('[MQTT Events] Radar bridge connected', {
+            deviceId,
+            controllerId,
+            clientId,
+            username
+        });
+        await publishControllerStatusNotification({
+            prisma,
+            deviceId,
+            controllerId,
+            controllerType: 'radar',
+            connected: true,
+            timestamp: eventDate.toISOString()
+        });
+        return;
+    }
+
+    if (presence === 'sessions-remain') {
+        logger.info(
+            '[MQTT Events] Radar MQTT session ended; other radar session(s) still active — skipping Controller.connected=false',
+            { deviceId, controllerId, clientId, reason }
+        );
+        return;
+    }
+
+    const updated = await prisma.controller.updateMany({
+        where: { id: controllerId, deviceId },
+        data: { connected: false, disconnectedAt: eventDate }
+    });
+    if (updated.count === 0) {
+        logger.warn(
+            `[MQTT Events] Radar disconnect for unknown/deleted controller ${controllerId} on device ${deviceId}; DB skipped`
+        );
+        return;
+    }
+    logger.info('[MQTT Events] Radar bridge disconnected', {
+        deviceId,
+        controllerId,
+        clientId,
+        reason
+    });
+    await publishControllerStatusNotification({
+        prisma,
+        deviceId,
+        controllerId,
+        controllerType: 'radar',
+        connected: false,
+        timestamp: eventDate.toISOString(),
+        reason
+    });
+}
+
+async function updateRadarPresence(args: {
+    controllerId: string;
+    clientId: string;
+    isConnectEvent: boolean;
+}): Promise<'connect' | 'sessions-remain' | 'last-session' | 'redis-unavailable'> {
+    const { controllerId, clientId, isConnectEvent } = args;
+    if (!redis) {
+        return isConnectEvent ? 'connect' : 'redis-unavailable';
+    }
+
+    const presenceKey = `presence:controller:${controllerId}`;
+    const clientsKey = `presence:controller:${controllerId}:clients`;
+    const onlineSetKey = 'presence:controllers:online';
+    const presenceTTL = parseInt(process.env.PRESENCE_TTL || String(AGENT_PRESENCE_TTL_FALLBACK), 10);
+
+    try {
+        if (isConnectEvent) {
+            const pipeline = redis.pipeline();
+            pipeline.sadd(clientsKey, clientId);
+            pipeline.expire(clientsKey, presenceTTL);
+            pipeline.setex(presenceKey, presenceTTL, '1');
+            pipeline.sadd(onlineSetKey, controllerId);
+            await pipeline.exec();
+            logger.debug(
+                `[MQTT Presence] Controller ${controllerId} marked online (clientId=${clientId}, TTL: ${presenceTTL}s)`
+            );
+            return 'connect';
+        }
+
+        const pipeline = redis.pipeline();
+        pipeline.srem(clientsKey, clientId);
+        pipeline.scard(clientsKey);
+        const results = await pipeline.exec();
+        const remaining = (results?.[1]?.[1] as number) ?? 0;
+
+        if (remaining > 0) {
+            logger.debug(
+                `[MQTT Presence] Controller ${controllerId} still has ${remaining} connection(s), staying online`
+            );
+            return 'sessions-remain';
+        }
+
+        await redis
+            .multi()
+            .del(presenceKey)
+            .srem(onlineSetKey, controllerId)
+            .del(clientsKey)
+            .exec();
+        logger.debug(`[MQTT Presence] Controller ${controllerId} fully offline (last session: ${clientId})`);
+        return 'last-session';
+    } catch (err) {
+        logger.error(`[MQTT Presence] Failed to update controller presence for ${controllerId}:`, {
+            error: err instanceof Error ? err.message : String(err)
+        });
+        return isConnectEvent ? 'connect' : 'redis-unavailable';
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Audit row (mqttConnection)
+// ────────────────────────────────────────────────────────────────────────────
+
+async function upsertMqttConnectionRow(args: {
+    prisma: PrismaClient;
+    clientId: string;
+    username: string;
+    kind: string;
+    isConnectEvent: boolean;
+    eventDate: Date;
+    reason: string;
+    node: string | null;
+}): Promise<void> {
+    const { prisma, clientId, username, kind, isConnectEvent, eventDate, reason, node } = args;
+
     if (isConnectEvent) {
         await prisma.mqttConnection.upsert({
             where: { clientId },
@@ -196,121 +428,149 @@ export async function handleConnectionEvent(
                 reason: null
             }
         });
-    } else {
-        await prisma.mqttConnection.upsert({
-            where: { clientId },
-            create: {
-                clientId,
-                username,
-                kind,
-                status: 'DISCONNECTED',
-                connectedAt: eventDate,
-                disconnectedAt: eventDate,
-                lastEventAt: eventDate,
-                node: node ?? undefined,
-                reason: reason || null
-            },
-            update: {
-                username,
-                kind,
-                status: 'DISCONNECTED',
-                disconnectedAt: eventDate,
-                lastEventAt: eventDate,
-                node: node ?? undefined,
-                reason: reason || null
-            }
-        });
+        return;
     }
 
-    // Maintain high-level Device.connected flags for device clients only
-    if (kind === 'device' && deviceId) {
-        if (isConnectEvent) {
-            await prisma.device.updateMany({
-                where: { id: deviceId },
-                data: { connected: true, connectedAt: eventDate }
-            });
-            logger.info('[MQTT Events] Device connected', { deviceId, username, clientId });
+    await prisma.mqttConnection.upsert({
+        where: { clientId },
+        create: {
+            clientId,
+            username,
+            kind,
+            status: 'DISCONNECTED',
+            connectedAt: eventDate,
+            disconnectedAt: eventDate,
+            lastEventAt: eventDate,
+            node: node ?? undefined,
+            reason: reason || null
+        },
+        update: {
+            username,
+            kind,
+            status: 'DISCONNECTED',
+            disconnectedAt: eventDate,
+            lastEventAt: eventDate,
+            node: node ?? undefined,
+            reason: reason || null
+        }
+    });
+}
 
-            // Publish MQTT notification for real-time UI updates
-            const deviceRecord = await prisma.device.findUnique({
-                where: { id: deviceId },
-                select: { id: true, name: true, accountId: true, createdBy: true }
-            });
-            if (deviceRecord) {
-                await publishDeviceStatusNotification({
-                    prisma,
-                    device: deviceRecord,
-                    connected: true,
-                    timestamp: eventDate.toISOString()
-                });
-            }
+function identityToAuditKind(identity: MqttClientIdentity): string {
+    switch (identity.kind) {
+        case 'agent':
+        case 'radar':
+            return 'device'; // both share the device:* MQTT username
+        case 'user':
+            return 'user';
+        case 'factory':
+            return 'factory';
+        case 'server':
+            return 'server';
+        case 'unknown':
+            return 'other';
+    }
+}
 
-            // Auto-sync: Push pending configs for this device's sensors
+// ────────────────────────────────────────────────────────────────────────────
+// Auto-sync: kept verbatim from previous handler (radar config push on agent connect)
+// ────────────────────────────────────────────────────────────────────────────
+
+async function autoSyncPendingSensorConfigs(prisma: PrismaClient, deviceId: string): Promise<void> {
+    try {
+        const pendingSensors = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
+            SELECT s.id, s.name
+            FROM "Sensor" s
+            JOIN "Controller" c ON s."controllerId" = c.id
+            WHERE c."deviceId" = ${deviceId}
+            AND s."syncStatus" = 'PENDING'
+        `;
+
+        if (pendingSensors.length === 0) return;
+
+        logger.info(
+            `[MQTT Events] Auto-syncing ${pendingSensors.length} pending configs for device ${deviceId}`
+        );
+
+        const { handleSensorConfigPush } = await import('../web/handle_sensor_config');
+
+        for (const sensor of pendingSensors) {
             try {
-                // Use raw query to avoid type issues with syncStatus field
-                const pendingSensors = await prisma.$queryRaw<Array<{ id: string; name: string }>>`
-                    SELECT s.id, s.name 
-                    FROM "Sensor" s
-                    JOIN "Controller" c ON s."controllerId" = c.id
-                    WHERE c."deviceId" = ${deviceId}
-                    AND s."syncStatus" = 'PENDING'
-                `;
-
-                if (pendingSensors.length > 0) {
-                    logger.info(`[MQTT Events] Auto-syncing ${pendingSensors.length} pending configs for device ${deviceId}`);
-
-                    const { handleSensorConfigPush } = await import('../web/handle_sensor_config');
-
-                    for (const sensor of pendingSensors) {
-                        try {
-                            // Create minimal RpcHandlerArgs for the handler
-                            const args = {
-                                prisma,
-                                sub: `device:${deviceId}`,
-                                topic: '$system/auto-sync',
-                                requestId: `auto-sync-${sensor.id}`,
-                                op: 'sensor.config.push',
-                                params: { sensorId: sensor.id }
-                            };
-                            await handleSensorConfigPush({ sensorId: sensor.id }, args);
-                            logger.info(`[MQTT Events] Auto-synced config for sensor ${sensor.name}`);
-                        } catch (err) {
-                            logger.warn(`[MQTT Events] Auto-sync failed for sensor ${sensor.name}:`, err);
-                        }
-                    }
-                }
+                const args = {
+                    prisma,
+                    sub: `device:${deviceId}`,
+                    topic: '$system/auto-sync',
+                    requestId: `auto-sync-${sensor.id}`,
+                    op: 'sensor.config.push',
+                    params: { sensorId: sensor.id }
+                };
+                await handleSensorConfigPush({ sensorId: sensor.id }, args);
+                logger.info(`[MQTT Events] Auto-synced config for sensor ${sensor.name}`);
             } catch (err) {
-                logger.warn('[MQTT Events] Failed to check for pending configs:', err);
-            }
-        } else {
-            if (markDeviceFullyOffline === false) {
-                logger.info('[MQTT Events] Device MQTT session ended; other session(s) still active — skipping Device.connected=false', {
-                    deviceId,
-                    username,
-                    clientId,
-                    reason
-                });
-            } else {
-                await prisma.device.updateMany({
-                    where: { id: deviceId },
-                    data: { connected: false, disconnectedAt: eventDate }
-                });
-                logger.info('[MQTT Events] Device disconnected', { deviceId, username, clientId, reason });
-
-                const deviceRecord = await prisma.device.findUnique({
-                    where: { id: deviceId },
-                    select: { id: true, name: true, accountId: true, createdBy: true }
-                });
-                if (deviceRecord) {
-                    await publishDeviceStatusNotification({
-                        prisma,
-                        device: deviceRecord,
-                        connected: false,
-                        timestamp: eventDate.toISOString(),
-                        reason
-                    });
-                }
+                logger.warn(`[MQTT Events] Auto-sync failed for sensor ${sensor.name}:`, err);
             }
         }
+    } catch (err) {
+        logger.warn('[MQTT Events] Failed to check for pending configs:', err);
     }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Raw EMQX event parsing (handles both JSON and Erlang-map style payloads)
+// ────────────────────────────────────────────────────────────────────────────
+
+type ParsedEmqxEvent = {
+    clientId: string;
+    username: string;
+    reason: string;
+    node: string | null;
+    connectedAtMs: number | null;
+    disconnectedAtMs: number | null;
+};
+
+function parseEmqxEvent(rawEvent: string): ParsedEmqxEvent {
+    let eventData: Record<string, unknown> | null = null;
+    try {
+        // EMQX Erlang-map style payloads aren't valid JSON; JSON.parse will throw and we fall through.
+        eventData = JSON.parse(rawEvent) as Record<string, unknown>;
+    } catch {
+        eventData = null;
+    }
+
+    const pickString = (key: string): string => {
+        const v = eventData?.[key];
+        if (typeof v === 'string') return v;
+        const m = rawEvent.match(new RegExp(`${key}:\\s*"([^\"]+)"`));
+        return m ? m[1] : '';
+    };
+
+    const pickNumber = (key: string): number | null => {
+        const v = eventData?.[key];
+        if (typeof v === 'number') return v;
+        if (typeof v === 'string' && v.length > 0 && !Number.isNaN(Number(v))) return Number(v);
+        const m = rawEvent.match(new RegExp(`${key}:\\s*"?(\\d+)"?`));
+        return m ? Number(m[1]) : null;
+    };
+
+    let clientId = pickString('clientid');
+    let username = pickString('username');
+    const reason = pickString('reason');
+    const nodeStr = pickString('node');
+
+    // Derive username from clientId if missing (legacy fallback).
+    if (!username && clientId.startsWith('device:')) {
+        username = clientId.split('_')[0]?.split('::')[0] ?? '';
+    }
+    if (!username && clientId.startsWith('user:')) {
+        username = clientId.split('_')[0]?.split('::')[0] ?? '';
+    }
+
+    return {
+        clientId,
+        username,
+        reason,
+        node: nodeStr || null,
+        connectedAtMs: pickNumber('connected_at'),
+        disconnectedAtMs: pickNumber('disconnected_at')
+    };
 }
