@@ -429,6 +429,8 @@ model ApiKey {
   accountId   String?
   account     Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
+  @@unique([accountId, name])
+
   // Authorization rules
   @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
   @@allow('read,update,delete', auth().id == userId)  // Users can manage their own API keys

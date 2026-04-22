@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { Prisma } from '@prisma/client';
 import { generateId } from 'lucia';
 import { restrict } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
@@ -88,6 +89,12 @@ export const POST = restrict(
 
             const userId = auth.user.id;
             const { name, description = '' } = data;
+            const trimmedName = String(name).trim();
+            if (!trimmedName) {
+                return json(createErrorResponse(new Error('Name is required'), {
+                    code: 'VALIDATION_ERROR'
+                }), { status: 400 });
+            }
 
             const currentAccountId =
                 locals.currentAccount?.account?.id ?? cookies.get('current_account_id');
@@ -102,11 +109,36 @@ export const POST = restrict(
                 }), { status: 400 });
             }
 
+            const dupWhere = currentAccountId
+                ? {
+                      accountId: currentAccountId,
+                      name: { equals: trimmedName, mode: 'insensitive' as const }
+                  }
+                : {
+                      userId,
+                      accountId: null,
+                      name: { equals: trimmedName, mode: 'insensitive' as const }
+                  };
+
+            const nameTaken = await locals.prisma.apiKey.findFirst({
+                where: dupWhere,
+                select: { id: true }
+            });
+            if (nameTaken) {
+                return json(
+                    createErrorResponse(
+                        new Error('An API key with this name already exists for this account.'),
+                        { code: 'DUPLICATE_API_KEY_NAME' }
+                    ),
+                    { status: 400 }
+                );
+            }
+
             const apiKey = generateId(32);
 
             const newKey = await locals.prisma.apiKey.create({
                 data: {
-                    name,
+                    name: trimmedName,
                     description,
                     key: apiKey,
                     userId,
@@ -137,6 +169,15 @@ export const POST = restrict(
                 message: 'API key created successfully'
             }));
         } catch (error: any) {
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+                return json(
+                    createErrorResponse(
+                        new Error('An API key with this name already exists for this account.'),
+                        { code: 'DUPLICATE_API_KEY_NAME' }
+                    ),
+                    { status: 400 }
+                );
+            }
             return handleApiError({
                 error,
                 prisma: locals.prisma,

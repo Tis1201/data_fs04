@@ -309,6 +309,7 @@ model ApiKey {
   accountId   String?
   account     Account?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
+  @@unique([accountId, name])
   @@index([userId])
   @@index([key])
   @@index([accountId])

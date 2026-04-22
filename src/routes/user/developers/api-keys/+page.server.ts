@@ -3,6 +3,7 @@ import { fail } from '@sveltejs/kit';
 import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '$lib/server/security/guards';
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma';
+import { Prisma } from '@prisma/client';
 import { generateId } from 'lucia';
 import { AuditActionType } from '$lib/constants/system';
 import { logAudit } from '$lib/server/audit-logger';
@@ -166,11 +167,25 @@ export const actions: Actions = {
                     });
                 }
 
+                const trimmedName = name.trim();
+                const nameTaken = await prisma.apiKey.findFirst({
+                    where: {
+                        accountId,
+                        name: { equals: trimmedName, mode: 'insensitive' }
+                    },
+                    select: { id: true }
+                });
+                if (nameTaken) {
+                    return fail(400, {
+                        error: 'This name is already used for an API key in your account. Choose a different name.'
+                    });
+                }
+
                 // Generate a new API key
                 const newKey = generateId(32);
                 const apiKey = await prisma.apiKey.create({
                     data: {
-                        name: name.trim(),
+                        name: trimmedName,
                         description: permission, // Store permission in description field
                         key: newKey,
                         active: true,
@@ -197,6 +212,11 @@ export const actions: Actions = {
                     apiKey: newKey // Return full key only once at creation
                 };
             } catch (err) {
+                if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+                    return fail(400, {
+                        error: 'This name is already used for an API key in your account. Choose a different name.'
+                    });
+                }
                 logger.error('Error creating API key:', { error: err });
                 return fail(500, { error: 'Failed to create API key' });
             }

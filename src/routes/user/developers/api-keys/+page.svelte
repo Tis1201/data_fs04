@@ -1,5 +1,6 @@
 <script lang="ts">
     import { goto } from '$app/navigation';
+    import { deserialize } from '$app/forms';
     import { page } from '$app/stores';
     import { browser } from '$app/environment';
     import {
@@ -8,11 +9,10 @@
         DataTable,
         Modal,
         Dropdown,
-        ConfirmModal,
-        TabGroup
+        ConfirmModal
     } from '$lib/design-system/components';
     import type { SortState, ColumnDef, PaginationState } from '$lib/design-system/components';
-    import { Search, Plus, SquareMousePointer, Copy } from 'lucide-svelte';
+    import { Search, Plus, Copy } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
 
@@ -62,10 +62,6 @@
     let showRegenerateModal = false;
     let regenerateLoading = false;
 
-    // Usage Example modal
-    let showUsageModal = false;
-    let usageActiveTab = 'curl';
-
     // Newly created API key (shown once after creation/regeneration)
     let newlyCreatedKey: string | null = null;
     let showNewKeyModal = false;
@@ -88,6 +84,19 @@
     const permissionOptions = API_KEY_PERMISSIONS.map(p => ({ id: p.id, label: p.label }));
 
     const MAX_KEY_NAME_LENGTH = 50;
+
+    /** SvelteKit form actions return `data` as devalue-encoded JSON; `deserialize` restores plain objects. */
+    async function postFormAction(res: Response) {
+        return deserialize(await res.text());
+    }
+
+    function failToastMessage(data: unknown, fallback: string): string {
+        if (data != null && typeof data === 'object' && 'error' in data) {
+            const msg = (data as { error: unknown }).error;
+            if (typeof msg === 'string' && msg.trim()) return msg;
+        }
+        return fallback;
+    }
 
     function handleSort(event: CustomEvent<SortState>) {
         const next = event.detail;
@@ -183,15 +192,19 @@
             fd.set('name', newKeyName.trim());
             fd.set('permission', newKeyPermission);
             const res = await fetch('?/create', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = await postFormAction(res);
 
-            if (result?.type === 'failure' || result?.success === false) {
-                toast.error(result?.data?.error || result?.error || 'Unable to add API Key. Please try again!');
+            if (result.type === 'failure') {
+                toast.error(failToastMessage(result.data, 'Unable to add API Key. Please try again!'));
+                return;
+            }
+            if (result.type === 'error') {
+                toast.error('Unable to add API Key. Please try again!');
                 return;
             }
 
             // Show the new key in a modal
-            if (result?.data?.apiKey) {
+            if (result.type === 'success' && result.data?.apiKey) {
                 newlyCreatedKey = result.data.apiKey;
                 showNewKeyModal = true;
             }
@@ -224,10 +237,14 @@
             const fd = new FormData();
             fd.set('id', deleteTarget.id);
             const res = await fetch('?/delete', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = await postFormAction(res);
 
-            if (result?.type === 'failure' || result?.success === false) {
-                toast.error(result?.data?.error || result?.error || 'Unable to delete API Key. Please try again!');
+            if (result.type === 'failure') {
+                toast.error(failToastMessage(result.data, 'Unable to delete API Key. Please try again!'));
+                return;
+            }
+            if (result.type === 'error') {
+                toast.error('Unable to delete API Key. Please try again!');
                 return;
             }
 
@@ -259,15 +276,19 @@
             const fd = new FormData();
             fd.set('id', regenerateTarget.id);
             const res = await fetch('?/regenerate', { method: 'POST', body: fd });
-            const result = await res.json().catch(() => ({}));
+            const result = await postFormAction(res);
 
-            if (result?.type === 'failure' || result?.success === false) {
-                toast.error(result?.data?.error || result?.error || 'Unable to regenerate API Key. Please try again!');
+            if (result.type === 'failure') {
+                toast.error(failToastMessage(result.data, 'Unable to regenerate API Key. Please try again!'));
+                return;
+            }
+            if (result.type === 'error') {
+                toast.error('Unable to regenerate API Key. Please try again!');
                 return;
             }
 
             // Show the new key in a modal
-            if (result?.data?.apiKey) {
+            if (result.type === 'success' && result.data?.apiKey) {
                 newlyCreatedKey = result.data.apiKey;
                 showNewKeyModal = true;
             }
@@ -280,63 +301,6 @@
         } finally {
             regenerateLoading = false;
         }
-    }
-
-    // Usage Example handlers
-    function openUsageModal() {
-        usageActiveTab = 'curl';
-        showUsageModal = true;
-    }
-
-    function closeUsageModal() {
-        showUsageModal = false;
-    }
-
-    function handleUsageTabChange(e: CustomEvent<string>) {
-        usageActiveTab = e.detail;
-    }
-
-    const USAGE_TABS = [
-        { id: 'curl', label: 'cURL' },
-        { id: 'python', label: 'Python' },
-        { id: 'javascript', label: 'JavaScript' }
-    ];
-
-    const curlCode = `curl -X GET "https://api.radarsensor.com/v2/sensors" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json"`;
-
-    const pythonCode = `import requests
-
-headers = {
-    "Authorization": "Bearer YOUR_API_KEY",
-    "Content-Type": "application/json"
-}
-
-response = requests.get(
-    "https://api.radarsensor.com/v2/sensors",
-    headers=headers
-)
-
-print(response.json())`;
-
-    const javascriptCode = `const response = await fetch(
-    "https://api.radarsensor.com/v2/sensors",
-    {
-        headers: {
-            "Authorization": "Bearer YOUR_API_KEY",
-            "Content-Type": "application/json"
-        }
-    }
-);
-
-const data = await response.json();
-console.log(data);`;
-
-    function getCurrentCode(): string {
-        if (usageActiveTab === 'curl') return curlCode;
-        if (usageActiveTab === 'python') return pythonCode;
-        return javascriptCode;
     }
 
     // Table columns
@@ -464,16 +428,6 @@ console.log(data);`;
             </InputField>
         </div>
         <div class="action-buttons">
-            <Button
-                variant="outline"
-                color="gray"
-                size="lg"
-                icon={SquareMousePointer}
-                iconPosition="left"
-                on:click={openUsageModal}
-            >
-                Usage Example
-            </Button>
             <Button
                 variant="filled"
                 color="primary"
@@ -609,38 +563,6 @@ console.log(data);`;
     </svelte:fragment>
 </Modal>
 
-<!-- Usage Example Modal -->
-<Modal
-    open={showUsageModal}
-    title="Usage Example"
-    size="md"
-    on:close={closeUsageModal}
->
-    <div class="usage-modal-body">
-        <TabGroup
-            tabs={USAGE_TABS}
-            activeTab={usageActiveTab}
-            type="underline"
-            size="sm"
-            on:change={handleUsageTabChange}
-        />
-        <div class="usage-content-wrap">
-            <div class="usage-header">
-                <p class="usage-description">Sample code to authenticate with your API key</p>
-                <button class="usage-copy-btn" on:click={() => copyToClipboard(getCurrentCode())}>
-                    <Copy size={16} />
-                </button>
-            </div>
-            <pre class="usage-code">{getCurrentCode()}</pre>
-        </div>
-    </div>
-    <svelte:fragment slot="footer">
-        <Button variant="filled" color="primary" size="lg" on:click={closeUsageModal}>
-            Close
-        </Button>
-    </svelte:fragment>
-</Modal>
-
 <style>
     .api-keys-page {
         width: 100%;
@@ -766,62 +688,5 @@ console.log(data);`;
 
     .new-key-copy:hover {
         color: var(--ds-color-neutral-true-700);
-    }
-
-    /* Usage Modal */
-    .usage-modal-body {
-        display: flex;
-        flex-direction: column;
-        gap: var(--ds-space-4);
-    }
-
-    .usage-content-wrap {
-        display: flex;
-        flex-direction: column;
-        background: #FAFAFA;
-        border-radius: var(--ds-radius-lg);
-        padding: var(--ds-space-4);
-    }
-
-    .usage-header {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: var(--ds-space-3);
-    }
-
-    .usage-description {
-        font: var(--ds-text-sm-medium);
-        color: var(--ds-text-primary);
-        margin: 0;
-    }
-
-    .usage-copy-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        padding: 0;
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        color: var(--ds-color-neutral-true-500);
-        transition: color 0.15s ease;
-    }
-
-    .usage-copy-btn:hover {
-        color: var(--ds-color-neutral-true-700);
-    }
-
-    .usage-code {
-        font-family: 'B612 Mono', monospace;
-        font-size: 13px;
-        line-height: 1.6;
-        color: var(--ds-text-primary);
-        white-space: pre-wrap;
-        word-break: break-all;
-        margin: 0;
     }
 </style>
