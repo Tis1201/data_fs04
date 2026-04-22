@@ -16,12 +16,15 @@
     import { Search, Filter, Download } from 'lucide-svelte';
     import type { PageData } from './$types';
     import { toast } from '$lib/stores/alertToast';
-    import { formatDuration, formatZoneDwellJson, formatProximityM } from '$lib/utils/radarFormatting';
+    import { formatDuration, formatProximityM } from '$lib/utils/radarFormatting';
     import { RADAR_ANALYTICS_EXPORT_MAX_RANGE_MS } from '$lib/utils/radarExportLimits';
 
     export let data: PageData;
 
     const PAGE_SIZE = 10;
+    /** Text search only on radar name, sensor id, and MAC (not session target id / timezone). */
+    const RADAR_ANALYTICS_SEARCH_FIELDS = 'sensor_name,sensor_id,mac_address';
+
     const TABS = [
         { id: 'session-logs', label: 'Session Logs' },
         // { id: 'summary-logs', label: 'Summary Logs' }, // Hidden for now, maybe use later
@@ -31,6 +34,7 @@
     type RangeType = 'week' | 'month' | 'custom';
 
     $: sensors = data?.sensors ?? []; // First 10 from page server
+    $: sensorNameById = (data?.sensorNameById ?? {}) as Record<string, string>;
     $: filterDeviceDropdownOptions = [
         { id: '', label: 'All' },
         ...deviceOptionsList.map((s) => ({ id: s.id, label: s.name }))
@@ -54,6 +58,8 @@
     let filterTo = endTimeParam ? endTimeParam.slice(0, 10) : '';
     let deviceOptionsList: { id: string; name: string }[] = [];
     let deviceSearchLoading = false;
+    /** Inline validation under Custom From/To in the filter modal */
+    let filterCustomDateError = '';
 
     /** Compute start/end for API from current range choice. Returns null only for custom when dates not set. */
     function getDateRangeForFilter(): { startTime: string; endTime: string } | null {
@@ -135,13 +141,20 @@
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
-    /** MV row: show device/sensor label — name first, then MAC, then sensor id (matches search/filter semantics). */
+    /** MV row: prefer ClickHouse name, else Prisma sensor name for id, then MAC, then id. */
     function displayDeviceNameFromRow(r: Record<string, unknown>): string {
         const name = r.sensor_name;
         if (name != null && String(name).trim() !== '') return String(name);
+        const sid = r.sensor_id;
+        if (sid != null) {
+            const key = String(sid).trim();
+            if (key) {
+                const fromDb = sensorNameById[key];
+                if (fromDb != null && String(fromDb).trim() !== '') return String(fromDb);
+            }
+        }
         const mac = r.mac_address;
         if (mac != null && String(mac).trim() !== '') return String(mac);
-        const sid = r.sensor_id;
         if (sid != null && String(sid).trim() !== '') return String(sid);
         return '—';
     }
@@ -166,12 +179,16 @@
                 : sessionLogsSort.field === 'sensor' ? 'sensor_name'
                 : sessionLogsSort.field === 'startOn' ? 'log_creation_time'
                 : sessionLogsSort.field === 'duration' ? 'dwell_tracking_area_sec'
+                : sessionLogsSort.field === 'macAddress' ? 'mac_address'
                 : sessionLogsSort.field === 'timezone' ? 'timezone_label'
                 : sessionLogsSort.field === 'proximityM' ? 'proximity_m'
                 : 'log_creation_time';
             params.set('sort', sessionSortField);
             params.set('order', sessionLogsSort.direction || 'desc');
-            if (searchValue?.trim()) params.set('search', searchValue.trim());
+            if (searchValue?.trim()) {
+                params.set('search', searchValue.trim());
+                params.set('searchFields', RADAR_ANALYTICS_SEARCH_FIELDS);
+            }
             if (filterDeviceId) params.set('sensorId', filterDeviceId);
             const res = await fetch(`/api/sensor-data/radar_session?${params}`);
             const json = await res.json();
@@ -182,7 +199,10 @@
                 sensor: displayDeviceNameFromRow(r),
                 startOn: r.log_creation_time,
                 duration: r.dwell_tracking_area_sec != null ? formatDuration(Number(r.dwell_tracking_area_sec)) : '—',
-                zone: formatZoneDwellJson(r.zone_dwell_times_json),
+                macAddress:
+                    r.mac_address != null && String(r.mac_address).trim() !== ''
+                        ? String(r.mac_address).trim()
+                        : '—',
                 timezone: r.timezone_label ?? '—',
                 proximityM: formatProximityM(r.proximity_m),
                 _raw: r
@@ -225,11 +245,15 @@
                 : pathTrackingSort.field === 'xM' ? 'x_m'
                 : pathTrackingSort.field === 'yM' ? 'y_m'
                 : pathTrackingSort.field === 'sensor' ? 'sensor_name'
+                : pathTrackingSort.field === 'macAddress' ? 'mac_address'
                 : pathTrackingSort.field === 'timezone' ? 'timezone_label'
                 : 'processed_at';
             params.set('sort', pathSortField);
             params.set('order', pathTrackingSort.direction || 'desc');
-            if (searchValue?.trim()) params.set('search', searchValue.trim());
+            if (searchValue?.trim()) {
+                params.set('search', searchValue.trim());
+                params.set('searchFields', RADAR_ANALYTICS_SEARCH_FIELDS);
+            }
             if (filterDeviceId) params.set('sensorId', filterDeviceId);
             const res = await fetch(`/api/sensor-data/radar_path?${params}`);
             const json = await res.json();
@@ -241,6 +265,10 @@
                 xM: r.x_m != null ? Number(r.x_m).toFixed(2) : '—',
                 yM: r.y_m != null ? Number(r.y_m).toFixed(2) : '—',
                 deviceName: displayDeviceNameFromRow(r),
+                macAddress:
+                    r.mac_address != null && String(r.mac_address).trim() !== ''
+                        ? String(r.mac_address).trim()
+                        : '—',
                 timezone: r.timezone_label ?? '—',
                 _raw: r
             }));
@@ -325,7 +353,14 @@
 
     onDestroy(() => clearTimeout(searchDebounceTimeout));
 
+    $: if (!filterModalOpen || filterRangeType !== 'custom') {
+        filterCustomDateError = '';
+    } else if (filterFrom && filterTo && filterFrom <= filterTo) {
+        filterCustomDateError = '';
+    }
+
     function openFilterModal() {
+        filterCustomDateError = '';
         filterRangeType = effectiveRange;
         filterFrom = startTimeParam ? startTimeParam.slice(0, 10) : '';
         filterTo = endTimeParam ? endTimeParam.slice(0, 10) : '';
@@ -357,9 +392,15 @@
     async function applyFilter() {
         if (filterRangeType === 'custom') {
             if (!filterFrom || !filterTo) {
-                toast.error('Please select both From and To dates for Custom range.');
+                filterCustomDateError = 'Please select both From and To dates.';
                 return;
             }
+            // Date inputs use YYYY-MM-DD; lexicographic compare matches calendar order.
+            if (filterFrom > filterTo) {
+                filterCustomDateError = 'From date must be on or before To date.';
+                return;
+            }
+            filterCustomDateError = '';
             await setUrlParams({
                 range: 'custom',
                 startTime: `${filterFrom}T00:00:00.000Z`,
@@ -383,16 +424,14 @@
         else if (activeTab === 'path-tracking') await fetchPathTracking(1);
     }
 
-    async function clearFilter() {
-        // Only reset selection; user must click Apply to apply changes (modal stays open)
+    function clearFilter() {
+        // Draft-only reset: URL and table update only after Apply (same as other Data pages).
+        filterCustomDateError = '';
         filterDeviceId = '';
         filterFrom = '';
         filterTo = '';
         filterRangeType = 'week';
         deviceOptionsList = [...sensors];
-        await setUrlParams({ range: 'week', sensorId: null, startTime: null, endTime: null, page: null, path_page: null });
-        if (activeTab === 'session-logs') await fetchSessionLogs(1);
-        else if (activeTab === 'path-tracking') await fetchPathTracking(1);
     }
 
     async function exportData() {
@@ -420,13 +459,17 @@
             params.set('startTime', range.startTime);
             params.set('endTime', range.endTime);
             if (deviceParam) params.set('sensorId', deviceParam);
-            if (searchValue?.trim()) params.set('search', searchValue.trim());
+            if (searchValue?.trim()) {
+                params.set('search', searchValue.trim());
+                params.set('searchFields', RADAR_ANALYTICS_SEARCH_FIELDS);
+            }
             if (dataType === 'radar_session') {
                 const sessionSortField =
                     sessionLogsSort.field === 'sessionId' ? 'target_id'
                     : sessionLogsSort.field === 'sensor' ? 'sensor_name'
                     : sessionLogsSort.field === 'startOn' ? 'log_creation_time'
                     : sessionLogsSort.field === 'duration' ? 'dwell_tracking_area_sec'
+                    : sessionLogsSort.field === 'macAddress' ? 'mac_address'
                     : sessionLogsSort.field === 'timezone' ? 'timezone_label'
                     : sessionLogsSort.field === 'proximityM' ? 'proximity_m'
                     : 'log_creation_time';
@@ -439,6 +482,7 @@
                     : pathTrackingSort.field === 'xM' ? 'x_m'
                     : pathTrackingSort.field === 'yM' ? 'y_m'
                     : pathTrackingSort.field === 'sensor' ? 'sensor_name'
+                    : pathTrackingSort.field === 'macAddress' ? 'mac_address'
                     : pathTrackingSort.field === 'timezone' ? 'timezone_label'
                     : 'processed_at';
                 params.set('sort', pathSortField);
@@ -475,13 +519,13 @@
     }
 
     const sessionLogsColumns: ColumnDef[] = [
-        { id: 'sessionId', header: 'Session ID', accessor: (r) => r.sessionId, type: 'text', sortable: true, width: '14%' },
-        { id: 'sensor', header: 'Device name', accessor: (r) => r.sensor, type: 'text', sortable: true, width: '14%' },
-        { id: 'startOn', header: 'Start On', accessor: (r) => formatDateTime(r.startOn ?? ''), type: 'text', sortable: true, width: '14%' },
-        { id: 'duration', header: 'Duration', accessor: (r) => r.duration, type: 'text', sortable: true, width: '12%' },
-        { id: 'zone', header: 'Zone', accessor: (r) => r.zone ?? '—', type: 'text', width: '18%' },
-        { id: 'timezone', header: 'Timezone', accessor: (r) => r.timezone ?? '—', type: 'text', sortable: true, width: '14%' },
-        { id: 'proximityM', header: 'Proximity (m)', accessor: (r) => r.proximityM ?? '—', type: 'text', width: '14%' }
+        { id: 'sessionId', header: 'Session ID', accessor: (r) => r.sessionId, type: 'text', sortable: true, width: '13%' },
+        { id: 'sensor', header: 'Device name', accessor: (r) => r.sensor, type: 'text', sortable: true, width: '13%' },
+        { id: 'startOn', header: 'Start On', accessor: (r) => formatDateTime(r.startOn ?? ''), type: 'text', sortable: true, width: '13%' },
+        { id: 'duration', header: 'Duration', accessor: (r) => r.duration, type: 'text', sortable: true, width: '11%' },
+        { id: 'macAddress', header: 'MAC address', accessor: (r) => r.macAddress ?? '—', type: 'text', sortable: true, width: '15%' },
+        { id: 'timezone', header: 'Timezone', accessor: (r) => r.timezone ?? '—', type: 'text', sortable: true, width: '13%' },
+        { id: 'proximityM', header: 'Proximity (m)', accessor: (r) => r.proximityM ?? '—', type: 'text', width: '12%' }
     ];
 
     // Summary Logs tab hidden for now, maybe use later
@@ -495,12 +539,13 @@
     // ];
 
     const pathTrackingColumns: ColumnDef[] = [
-        { id: 'date', header: 'Date', accessor: (r) => r.date, type: 'text', sortable: true, width: '18%' },
-        { id: 'targetId', header: 'Target ID', accessor: (r) => r.targetId, type: 'text', width: '16%' },
-        { id: 'xM', header: 'X (m)', accessor: (r) => r.xM, type: 'text', width: '12%' },
-        { id: 'yM', header: 'Y (m)', accessor: (r) => r.yM, type: 'text', width: '12%' },
-        { id: 'sensor', header: 'Device name', accessor: (r) => r.deviceName, type: 'text', width: '22%' },
-        { id: 'timezone', header: 'Timezone', accessor: (r) => r.timezone ?? '—', type: 'text', width: '20%' }
+        { id: 'date', header: 'Date', accessor: (r) => r.date, type: 'text', sortable: true, width: '16%' },
+        { id: 'targetId', header: 'Target ID', accessor: (r) => r.targetId, type: 'text', width: '14%' },
+        { id: 'xM', header: 'X (m)', accessor: (r) => r.xM, type: 'text', width: '10%' },
+        { id: 'yM', header: 'Y (m)', accessor: (r) => r.yM, type: 'text', width: '10%' },
+        { id: 'sensor', header: 'Device name', accessor: (r) => r.deviceName, type: 'text', width: '18%' },
+        { id: 'macAddress', header: 'MAC address', accessor: (r) => r.macAddress ?? '—', type: 'text', sortable: true, width: '14%' },
+        { id: 'timezone', header: 'Timezone', accessor: (r) => r.timezone ?? '—', type: 'text', width: '18%' }
     ];
 
     /** DataTable dispatches `rowClick` with `{ row, index }`, not the row alone. */
@@ -528,7 +573,7 @@
             <form role="search" on:submit|preventDefault={applySearch} style="height: 100%;">
                 <InputField
                     type="search"
-                    placeholder="Search by device name, target ID, or session ID"
+                    placeholder="Search by radar name, ID, or MAC address"
                     bind:value={searchValue}
                     label=""
                     prefixIcon={true}
@@ -607,7 +652,10 @@
 <Modal
     open={filterModalOpen}
     title="Filter"
-    on:close={() => (filterModalOpen = false)}
+    on:close={() => {
+        filterModalOpen = false;
+        filterCustomDateError = '';
+    }}
     size="sm"
     showFooter={false}
 >
@@ -632,13 +680,26 @@
         {#if filterRangeType === 'custom'}
             <div class="filter-row">
                 <div class="filter-field">
-                    <InputField type="date" label="From" bind:value={filterFrom} />
+                    <InputField
+                        type="date"
+                        label="From"
+                        bind:value={filterFrom}
+                        state={filterCustomDateError ? 'error' : 'default'}
+                    />
                 </div>
                 <span class="filter-sep" aria-hidden="true">–</span>
                 <div class="filter-field">
-                    <InputField type="date" label="To" bind:value={filterTo} />
+                    <InputField
+                        type="date"
+                        label="To"
+                        bind:value={filterTo}
+                        state={filterCustomDateError ? 'error' : 'default'}
+                    />
                 </div>
             </div>
+            {#if filterCustomDateError}
+                <p class="filter-custom-date-error" role="alert">{filterCustomDateError}</p>
+            {/if}
         {/if}
         <div class="filter-field">
             <Dropdown
@@ -761,6 +822,11 @@
     .filter-sep {
         color: var(--ds-text-tertiary);
         padding-bottom: var(--ds-space-2);
+    }
+    .filter-custom-date-error {
+        margin: calc(var(--ds-space-2) * -1) 0 0;
+        font: var(--ds-text-sm-regular);
+        color: var(--ds-color-error-600);
     }
     .filter-actions {
         display: flex;

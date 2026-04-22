@@ -21,17 +21,18 @@ export interface DataPageSensor {
 export const load = restrict(
     async ({ cookies, locals }: AuthenticatedLoadEvent) => {
         const accountId = getCurrentAccountId(cookies, locals);
-        const sensors: DataPageSensor[] = accountId
-            ? (
-                  await prisma.sensor.findMany({
-                      where: { accountId },
-                      select: { id: true, name: true },
-                      orderBy: { name: 'asc' },
-                      take: 10
-                  })
-              ).map((s) => ({ id: s.id, name: s.name }))
+        const allForAccount = accountId
+            ? await prisma.sensor.findMany({
+                  where: { accountId },
+                  select: { id: true, name: true },
+                  orderBy: { name: 'asc' }
+              })
             : [];
-        return { sensors };
+        const sensors: DataPageSensor[] = allForAccount.slice(0, 10).map((s) => ({ id: s.id, name: s.name }));
+        const sensorNameById: Record<string, string> = Object.fromEntries(
+            allForAccount.map((s) => [s.id, s.name])
+        );
+        return { sensors, sensorNameById };
     },
     [SystemRole.USER]
 ) satisfies PageServerLoad;
