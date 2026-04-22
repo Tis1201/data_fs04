@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { goto } from '$app/navigation';
     import { page } from '$app/stores';
     import {
         Button,
@@ -188,10 +187,10 @@
                 type: template.type as 'Alert' | 'Configuration',
                 description: template.description,
                 config: config,
-                assignedSensors: assignedSensors.map(s => ({
+                assignedSensors: assignedSensors.map((s) => ({
                     id: s.id,
                     name: s.name,
-                    mac: undefined
+                    mac: s.macAddress !== '—' ? s.macAddress : undefined
                 }))
             };
         } else {
@@ -521,10 +520,14 @@
     // Assigned sensors from server (placeholder until API exists)
     interface AssignedSensorRow {
         id: string;
+        controllerId: string;
         name: string;
-        location: string;
+        serialNumber: string;
+        macAddress: string;
         status: string;
-        lastSeen: string;
+        deviceLastPingAt: string | null;
+        updatedAt: string;
+        createdAt: string;
     }
     $: assignedSensors = (data.assignedSensors ?? []) as AssignedSensorRow[];
     $: serverAssignedMeta = data.assignedPagination ?? {};
@@ -539,6 +542,11 @@
     function openRemoveSensorModal(row: AssignedSensorRow) {
         sensorToRemove = { id: row.id, name: row.name };
         showRemoveSensorModal = true;
+    }
+
+    function openRadarSensorInNewTab(row: AssignedSensorRow): void {
+        if (typeof window === 'undefined') return;
+        window.open(`/user/controllers/radar/${row.controllerId}`, '_blank', 'noopener,noreferrer');
     }
 
     function closeRemoveSensorModal() {
@@ -570,8 +578,23 @@
     }
 
     const assignedSensorColumns: ColumnDef<AssignedSensorRow>[] = [
+        {
+            id: 'id',
+            header: 'ID',
+            accessor: (r) => r.id,
+            type: 'text',
+            sortable: true,
+            width: '200px'
+        },
         { id: 'name', header: 'Device Name', accessor: (r) => r.name, type: 'text', sortable: true, width: '200px' },
-        { id: 'location', header: 'Location', accessor: (r) => r.location, type: 'text', width: '200px' },
+        {
+            id: 'macAddress',
+            header: 'MAC address',
+            accessor: (r) => r.macAddress,
+            type: 'text',
+            sortable: true,
+            width: '170px'
+        },
         {
             id: 'status',
             header: 'Status',
@@ -582,13 +605,22 @@
             showDot: () => true,
             width: '120px'
         },
-        { id: 'lastSeen', header: 'Last ping', accessor: (r) => r.lastSeen, type: 'text', sortable: true, width: '140px' },
+        {
+            id: 'lastDevicePing',
+            header: 'Last ping',
+            /** Same as `/user/controllers/radar` list column (device activity + sensor row fallbacks). */
+            accessor: (r) => r.deviceLastPingAt ?? r.updatedAt ?? r.createdAt,
+            type: 'relativeTime',
+            sortable: true,
+            width: '150px'
+        },
         {
             id: 'actions',
             header: 'Actions',
             type: 'moreMenu',
-            width: '80px',
+            width: '100px',
             getMenuActions: (row) => [
+                { id: 'view', label: 'View sensor', onClick: () => openRadarSensorInNewTab(row) },
                 { id: 'remove', label: 'Remove', color: 'danger', onClick: () => openRemoveSensorModal(row) }
             ]
         }

@@ -4,6 +4,9 @@ import { restrict, type AuthenticatedLoadEvent, type AuthenticatedEvent } from '
 import { SystemRole } from '$lib/types/roles';
 import prisma from '$lib/server/prisma';
 import type { Prisma } from '@prisma/client';
+import { logger } from '$lib/server/logger';
+import { getBulkDeviceInformationByDeviceIds } from '$lib/server/clickhouse/client';
+import { computeDeviceListLastPingAt } from '$lib/utils/deviceDetailsUtils';
 
 // Define enum locally to avoid Vite ESM/CJS issues with @prisma/client
 const SensorTemplateType = {
@@ -77,11 +80,17 @@ export interface TemplateDetail {
 /** Row for Assigned Sensor table. */
 export interface AssignedSensorRow {
     id: string;
+    /** Radar detail URL uses controller id when present (same as radar list). */
+    controllerId: string;
     name: string;
     serialNumber: string;
-    location: string;
+    macAddress: string;
     status: string;
-    lastSeen: string;
+    /** ISO timestamp; same “last ping” rule as `/user/iot/devices` and radar list. */
+    deviceLastPingAt: string | null;
+    /** Sensor row timestamps — radar list Last ping column falls back: deviceLastPingAt ?? updatedAt ?? createdAt. */
+    updatedAt: string;
+    createdAt: string;
 }
 
 // Helper to get current account ID from cookies or locals
@@ -94,19 +103,14 @@ function mapTemplateType(type: SensorTemplateType): 'Alert' | 'Configuration' {
     return type === SensorTemplateType.ALERT ? 'Alert' : 'Configuration';
 }
 
-// Helper to format relative time
-function formatRelativeTime(date: Date | null): string {
-    if (!date) return '—';
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+function displayDeviceMac(device: {
+    macAddress: string | null;
+    lanMac: string | null;
+    wifiMac: string | null;
+} | null | undefined): string {
+    if (!device) return '—';
+    const v = device.macAddress?.trim() || device.lanMac?.trim() || device.wifiMac?.trim();
+    return v || '—';
 }
 
 export const load = restrict(
@@ -172,24 +176,72 @@ export const load = restrict(
                         id: true,
                         name: true,
                         serialNumber: true,
-                        location: true,
                         status: true,
-                        updatedAt: true
+                        updatedAt: true,
+                        createdAt: true,
+                        controller: {
+                            select: {
+                                id: true,
+                                device: {
+                                    select: {
+                                        id: true,
+                                        macAddress: true,
+                                        lanMac: true,
+                                        wifiMac: true,
+                                        lastUsedAt: true,
+                                        connectedAt: true,
+                                        disconnectedAt: true
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
             orderBy: { assignedAt: 'desc' }
         });
 
-        // Map to AssignedSensorRow
-        const assignedSensors: AssignedSensorRow[] = assignments.map(a => ({
-            id: a.sensor.id,
-            name: a.sensor.name,
-            serialNumber: a.sensor.serialNumber,
-            location: a.sensor.location || '—',
-            status: a.sensor.status === 'ACTIVE' ? 'Online' : 'Offline',
-            lastSeen: formatRelativeTime(a.sensor.updatedAt)
-        }));
+        const deviceIds = [
+            ...new Set(
+                assignments
+                    .map((a) => a.sensor.controller?.device?.id)
+                    .filter((id): id is string => !!id)
+            )
+        ];
+        const chByDeviceId =
+            deviceIds.length > 0
+                ? await getBulkDeviceInformationByDeviceIds(deviceIds).catch((err) => {
+                      logger.warn(`[Template ${id}] ClickHouse bulk device info failed: ${err}`);
+                      return new Map<string, { last_connected_at?: string | null; last_status_at?: string | null }>();
+                  })
+                : new Map<string, { last_connected_at?: string | null; last_status_at?: string | null }>();
+
+        const assignedSensors: AssignedSensorRow[] = assignments.map((a) => {
+            const s = a.sensor;
+            const d = s.controller?.device;
+            const ch = d?.id ? chByDeviceId.get(d.id) : undefined;
+            const lastPing = d
+                ? computeDeviceListLastPingAt(
+                      {
+                          lastUsedAt: d.lastUsedAt,
+                          connectedAt: d.connectedAt,
+                          disconnectedAt: d.disconnectedAt
+                      },
+                      ch
+                  )
+                : undefined;
+            return {
+                id: s.id,
+                controllerId: s.controller?.id ?? s.id,
+                name: s.name,
+                serialNumber: s.serialNumber,
+                macAddress: displayDeviceMac(d),
+                status: s.status === 'ACTIVE' ? 'Online' : 'Offline',
+                deviceLastPingAt: lastPing ? lastPing.toISOString() : null,
+                updatedAt: s.updatedAt.toISOString(),
+                createdAt: s.createdAt.toISOString()
+            };
+        });
 
         // Fetch all sensors for the account (for edit modal)
         const allSensors = await prisma.sensor.findMany({
