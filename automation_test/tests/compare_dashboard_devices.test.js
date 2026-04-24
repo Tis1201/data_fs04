@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const DashboardPage = require('../pages/dashboards/dashboard-page');
-const DevicePage = require('../pages/iot/device-page');
+const DevicePage = require('../pages/devices/device-listing-page');
 const path = require('path');
 
 const authFile = path.join(__dirname, '..', 'user.json');

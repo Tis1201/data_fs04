@@ -1,6 +1,6 @@
 const base = require('@playwright/test');
 const DeviceProfilePage = require('../../pages/iot/device-profile-page');
-const DeviceDetailPage = require('../../pages/iot/device-detail-page');
+const DeviceDetailPage = require('../../pages/devices/device-detail/device-detail-page');
 const { compare, isNotEmpty } = require('../../utils/terminal-helpers');
 const {
     authFile,

@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const DeviceProfilePage = require('../../pages/iot/device-profile-page');
-const DeviceDetailPage = require('../../pages/iot/device-detail-page');
-const DevicePage = require('../../pages/iot/device-page');
+const DeviceDetailPage = require('../../pages/devices/device-detail/device-detail-page');
+const DevicePage = require('../../pages/devices/device-listing-page');
 const {
     getErrorMessage,
     cleanupProfile,
