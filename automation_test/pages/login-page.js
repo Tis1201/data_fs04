@@ -16,12 +16,10 @@ class LoginPage {
 
     // Define multiple possible selectors for flexibility
     this.usernameSelectors = [
-      '#email',
       'input[name="email"]'
     ];
 
     this.passwordSelectors = [
-      '#password',
       'input[name="password"]'
     ];
 
@@ -97,7 +95,8 @@ class LoginPage {
       await passwordField.fill(password);
       await loginButton.click();
 
-      this.dashboardLocator = this.page.getByText('Dashboard', { exact: false });
+      this.dashboardLocator = this.page.getByText('Dashboard').first();
+      await this.dashboardLocator.waitFor({ state: 'visible' });
 
       await this.page.context().storageState({ path: authFile });
       console.log("Login successful");

@@ -25,6 +25,10 @@ const headless = process.env.HEADLESS !== '0';
  */
 module.exports = defineConfig({
   testDir: './tests',
+  testMatch: [
+    /.*(\.|-)(test|spec)\.[cm]?[jt]sx?$/,
+    /.*[\\/]actions[\\/][^\\/]+[\\/]index\.js$/,
+  ],
   timeout: 180 * 1000, // Increase timeout for auth processes
   expect: {
     timeout: 10000  // Increase assertion timeout
@@ -38,12 +42,13 @@ module.exports = defineConfig({
   /* Opt out of parallel tests on CI. */
   workers: 1, // Use a single worker to avoid auth conflicts
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: [
-    ['list']
-  ],
+reporter: [
+  ['list'],
+  ['./reporters/usecase-reporter.js'],
+],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    headless: false,
+    headless,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
     video: 'on-first-retry',
