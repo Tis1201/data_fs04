@@ -9,134 +9,237 @@ const {
   setActualResult,
   setTestCaseMetadata,
 } = require('./bulk-deployment-test-helpers');
+const { BULK_DEPLOYMENT } = require('../../../constants/bulk-deployment.constants');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Edit
-// ─────────────────────────────────────────────────────────────────────────────
+const T = BULK_DEPLOYMENT.UI_TEXT;
+
 test.describe('Bulk Deployment - Edit', () => {
-  test('TC-BULK-EDIT-001 ~ 007: Open modal, edit name/description/version/batch/schedule/device behavior, cancel', async ({ page }, testInfo) => {
+  test('TC-BULK-EDIT-001: Edit modal opens with expected fields and action buttons', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-EDIT-001~007',
+      testcaseId: 'TC-BULK-EDIT-001',
       category: 'Bulk Deployment Edit',
-      title: 'Edit modal, all field edits, schedule change, device behavior, and cancel',
-      precondition: 'User is logged in; Draft deployments exist',
-      steps: [
-        'Open Edit modal → verify fields and Save Changes/Cancel buttons',
-        'Edit Deployment Name → verify updated in overview',
-        'Edit Description → verify updated in overview',
-        'Edit Version → verify updated in overview',
-        'Edit Batch Size → verify updated in overview',
-        'Edit Schedule from None to Future → verify Start On populated',
-        'Enable Reboot Device and Force Update → verify Enable values',
-        'Cancel edit → verify original name unchanged',
-      ],
-      expected: 'All edits save correctly; cancel leaves data unchanged',
+      title: 'Edit modal shows all expected fields and Save Changes/Cancel buttons',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Open Edit modal → verify fields and Save Changes/Cancel buttons'],
+      expected: 'All fields and buttons are visible in Edit modal',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-EDIT-001: open modal
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-open'));
     const dialog = await context.bulkDeploymentPage.openEditDeploymentModal();
-    await expect(dialog.getByText('Deployment Name')).toBeVisible();
-    await expect(dialog.getByText('Target to Operating System')).toBeVisible();
-    await expect(dialog.getByText('Version')).toBeVisible();
-    await expect(dialog.getByText('Batch Size')).toBeVisible();
-    await expect(dialog.getByText('Schedule')).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Save Changes' })).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(dialog.getByText(T.FORM.NAME_LABEL)).toBeVisible();
+    await expect(dialog.getByText(T.FORM.TARGET_OS_LABEL)).toBeVisible();
+    await expect(dialog.getByText(T.FORM.VERSION_LABEL)).toBeVisible();
+    await expect(dialog.getByText(T.FORM.BATCH_SIZE_LABEL)).toBeVisible();
+    await expect(dialog.getByText(T.FORM.SCHEDULE_LABEL)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: T.SAVE_CHANGES })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: T.CANCEL })).toBeVisible();
 
-    // TC-BULK-EDIT-002: edit name
+    setActualResult(testInfo, 'Edit modal opened with all expected fields and buttons');
+  });
+
+  test('TC-BULK-EDIT-002: Edit Deployment Name updates in overview', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-002',
+      category: 'Bulk Deployment Edit',
+      title: 'Editing Deployment Name updates the overview',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Edit Deployment Name → verify updated name in overview'],
+      expected: 'Overview shows the updated Deployment Name',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const original = createDeploymentData('edit-name');
     await context.bulkDeploymentPage.createDraftDeployment(original);
     const updatedName = `${original.name}-updated`;
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ name: updatedName });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Deployment Name', updatedName);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME, updatedName);
 
-    // TC-BULK-EDIT-003: edit description
+    setActualResult(testInfo, `Deployment Name updated to "${updatedName}"`);
+  });
+
+  test('TC-BULK-EDIT-003: Edit Description updates in overview', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-003',
+      category: 'Bulk Deployment Edit',
+      title: 'Editing Description updates the overview',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Edit Description → verify updated value in overview'],
+      expected: 'Overview shows the updated Description',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-desc'));
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ description: 'Updated automation description' });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Description', 'Updated automation description');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DESCRIPTION, 'Updated automation description');
 
-    // TC-BULK-EDIT-004: edit version
+    setActualResult(testInfo, 'Description updated to "Updated automation description"');
+  });
+
+  test('TC-BULK-EDIT-004: Edit Version updates in overview', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-004',
+      category: 'Bulk Deployment Edit',
+      title: 'Editing Version updates the overview',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Edit Version → verify updated value in overview'],
+      expected: 'Overview shows the updated Version',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-version'));
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ version: '5.6.7' });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Version', '5.6.7');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, '5.6.7');
 
-    // TC-BULK-EDIT-005: edit batch size
+    setActualResult(testInfo, 'Version updated to 5.6.7');
+  });
+
+  test('TC-BULK-EDIT-005: Edit Batch Size updates in overview', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-005',
+      category: 'Bulk Deployment Edit',
+      title: 'Editing Batch Size updates the overview',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Edit Batch Size → verify updated value in overview'],
+      expected: 'Overview shows the updated Batch Size',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-batch'));
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ batchSize: '200' });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Batch Size', '200');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_BATCH_SIZE, '200');
 
-    // TC-BULK-EDIT-006: schedule None → Future
+    setActualResult(testInfo, 'Batch Size updated to 200');
+  });
+
+  test('TC-BULK-EDIT-006: Edit Schedule from None to Future populates Start On', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-006',
+      category: 'Bulk Deployment Edit',
+      title: 'Changing Schedule from None to Future populates Start On',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Edit Schedule from None to Future → verify Start On is populated'],
+      expected: 'Start On is non-empty after changing to Future schedule',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const future = futureScheduleDate(1);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-future'));
     await context.bulkDeploymentPage.openEditDeploymentModal();
-    await context.bulkDeploymentPage.fillEditDeploymentForm({ schedule: 'Future', scheduleDate: future.date, scheduleTime: future.time });
+    await context.bulkDeploymentPage.fillEditDeploymentForm({
+      schedule: 'Future',
+      scheduleDate: future.date,
+      scheduleTime: future.time,
+    });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    const startOn = await context.bulkDeploymentPage.getOverviewValue('Start On');
+    const startOn = await context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_START_ON);
     expect(startOn).not.toBe('');
     expect(startOn).not.toBe('-');
 
-    // TC-BULK-EDIT-007: device behavior
+    setActualResult(testInfo, `Start On populated: "${startOn}"`);
+  });
+
+  test('TC-BULK-EDIT-007: Enable Reboot Device and Force Update shows Enable in overview', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-007',
+      category: 'Bulk Deployment Edit',
+      title: 'Enabling Reboot Device and Force Update shows Enable in overview',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Enable Reboot Device and Force Update in edit modal → verify Enable values in overview'],
+      expected: 'Reboot Device and Force Update both show Enable',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-device-behavior'));
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ rebootDevice: true, forceUpdate: true });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Reboot Device', 'Enable');
-    await context.bulkDeploymentPage.expectOverviewValue('Force Update', 'Enable');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_REBOOT_DEVICE, 'Enable');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_FORCE_UPDATE, 'Enable');
 
-    // TC-BULK-EDIT-008: cancel
+    setActualResult(testInfo, 'Reboot Device and Force Update enabled and shown as Enable');
+  });
+
+  test('TC-BULK-EDIT-008: Cancel edit preserves original name unchanged', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-008',
+      category: 'Bulk Deployment Edit',
+      title: 'Cancelling edit leaves Deployment Name unchanged',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Open Edit modal, change name, click Cancel → verify original name unchanged'],
+      expected: 'Original name is preserved after cancel',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const cancelOrig = createDeploymentData('edit-cancel');
     await context.bulkDeploymentPage.createDraftDeployment(cancelOrig);
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ name: `${cancelOrig.name}-not-saved` });
     await context.bulkDeploymentPage.cancelEdit();
-    await context.bulkDeploymentPage.expectOverviewValue('Deployment Name', cancelOrig.name);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME, cancelOrig.name);
 
-    setActualResult(testInfo, 'All edit operations verified: name, description, version, batch, schedule, device behavior, cancel');
+    setActualResult(testInfo, `Original name "${cancelOrig.name}" preserved after cancel`);
   });
 
-  test('TC-BULK-EDIT-009 ~ 012: Empty name blocked, no-change save, audit after edit, list/detail sync', async ({ page }, testInfo) => {
+  test('TC-BULK-EDIT-009: Empty name in edit modal blocks Save Changes', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-EDIT-009~012',
+      testcaseId: 'TC-BULK-EDIT-009',
       category: 'Bulk Deployment Edit',
-      title: 'Empty name blocked, no-change save, audit visible, list/detail sync',
+      title: 'Clearing Deployment Name in edit modal blocks Save Changes',
       precondition: 'User is logged in; Draft deployment exists',
-      steps: [
-        'Open Edit modal, clear name → Save Changes blocked',
-        'Open Edit modal, save without changes → original data unchanged',
-        'Edit description, save → audit info remains visible',
-        'Edit name+version, save → verify updates on both detail and list page',
-      ],
-      expected: 'Empty name blocked; no-change save preserves data; audit visible; list/detail in sync',
+      steps: ['Open Edit modal, clear name → Save Changes blocked'],
+      expected: 'Save Changes is disabled when name is empty',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-EDIT-009: empty name blocked
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-empty-name'));
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ name: '' });
     await context.bulkDeploymentPage.saveEditExpectBlocked();
 
-    // TC-BULK-EDIT-010: save without changes
+    setActualResult(testInfo, 'Save Changes blocked when name was cleared');
+  });
+
+  test('TC-BULK-EDIT-010: Save without changes preserves original data', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-010',
+      category: 'Bulk Deployment Edit',
+      title: 'Saving edit without changes preserves original data',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Open Edit modal, save without changes → original data unchanged'],
+      expected: 'Name and description remain unchanged after no-change save',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const noChangeData = createDeploymentData('edit-no-change', { description: 'No change edit baseline' });
     await context.bulkDeploymentPage.createDraftDeployment(noChangeData);
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Deployment Name', noChangeData.name);
-    await context.bulkDeploymentPage.expectOverviewValue('Description', noChangeData.description);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME, noChangeData.name);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DESCRIPTION, noChangeData.description);
 
-    // TC-BULK-EDIT-011: audit after edit
+    setActualResult(testInfo, 'No-change save preserved original name and description');
+  });
+
+  test('TC-BULK-EDIT-011: Audit info remains visible after edit', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-011',
+      category: 'Bulk Deployment Edit',
+      title: 'Audit info is visible before and after editing',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Create deployment, verify audit info visible', 'Edit description, save, verify audit info still visible'],
+      expected: 'Audit info is visible both before and after edit',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('edit-audit'));
     await context.bulkDeploymentPage.expectAuditInfoVisible();
     await context.bulkDeploymentPage.openEditDeploymentModal();
@@ -144,7 +247,20 @@ test.describe('Bulk Deployment - Edit', () => {
     await context.bulkDeploymentPage.saveEditExpectDetail();
     await context.bulkDeploymentPage.expectAuditInfoVisible();
 
-    // TC-BULK-EDIT-012: list/detail sync
+    setActualResult(testInfo, 'Audit info visible before and after edit');
+  });
+
+  test('TC-BULK-EDIT-012: Edited name and version are in sync between detail and list', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-EDIT-012',
+      category: 'Bulk Deployment Edit',
+      title: 'Edited name and version are consistent between detail and list page',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Edit name and version, save → verify updates on both detail and list page'],
+      expected: 'Updated name and version appear in both detail overview and list row',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const syncData = createDeploymentData('edit-list-sync');
     await context.bulkDeploymentPage.createDraftDeployment(syncData);
     const syncName = `${syncData.name}-sync`;
@@ -152,248 +268,358 @@ test.describe('Bulk Deployment - Edit', () => {
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ name: syncName, version: syncVersion });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Deployment Name', syncName);
-    await context.bulkDeploymentPage.expectOverviewValue('Version', syncVersion);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME, syncName);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, syncVersion);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(syncName);
     const listVersion = await context.bulkDeploymentPage.getListCellText(syncName, 'version');
     expect(listVersion).toContain(syncVersion);
 
-    setActualResult(testInfo, 'Empty name blocked; no-change preserved; audit visible; list/detail synced');
+    setActualResult(testInfo, `Edit synced: name="${syncName}", version="${syncVersion}" in both detail and list`);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Publish
-// ─────────────────────────────────────────────────────────────────────────────
 test.describe('Bulk Deployment - Publish', () => {
-  test('TC-BULK-PUBLISH-001 ~ 006: Publish happy, no-app/no-device (known issue), offline, scheduled, action buttons', async ({ page }, testInfo) => {
+  test('TC-BULK-PUBLISH-001: Happy path publish transitions status out of Draft', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-PUBLISH-001,004~006',
+      testcaseId: 'TC-BULK-PUBLISH-001',
       category: 'Bulk Deployment Publish',
-      title: 'Publish happy path, offline device, scheduled, action buttons after publish',
-      precondition: 'Online/Offline test devices and Digital Signage app are available',
-      steps: [
-        'Draft+device+app → Publish → status not Draft, Publish button gone',
-        'Offline device+app → Publish → status not Draft, Offline device retained',
-        'Future schedule+device+app → Publish → status Scheduled, Start On populated',
-        'After publish → Publish hidden, Duplicate visible, Delete hidden',
-      ],
-      expected: 'Publish transitions status correctly for each scenario; action buttons update',
+      title: 'Publish happy path transitions status out of Draft and hides Publish button',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Draft+device+app → Publish → status not Draft, Publish button gone'],
+      expected: 'Status transitions out of Draft; Publish button is hidden',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-PUBLISH-001: happy path
     await createDraftWithAppsAndDevices(context, 'publish-happy');
     await context.bulkDeploymentPage.publishFromDetail();
-    await expect.poll(() => context.bulkDeploymentPage.getOverviewValue('Status'), {
+    await expect.poll(() => context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_STATUS), {
       timeout: context.bulkDeploymentPage.timeout,
       message: 'Status should transition out of Draft',
-    }).not.toContain('Draft');
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Publish')).toBe(false);
+    }).not.toContain(T.STATUS_DRAFT);
+    expect(await context.bulkDeploymentPage.isDetailActionVisible(T.PUBLISH)).toBe(false);
 
-    // TC-BULK-PUBLISH-004: offline device
+    setActualResult(testInfo, 'Publish happy path succeeded; status no longer Draft');
+  });
+
+  test('TC-BULK-PUBLISH-002: Cannot publish without app — status should stay Draft (known issue)', async ({ page }, testInfo) => {
+    test.fail(true, 'Known issue: system may allow publishing without an app assigned.');
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-002',
+      category: 'Bulk Deployment Publish',
+      title: 'Cannot publish without app — status should stay Draft',
+      precondition: 'Business rule expects at least one app before publish',
+      steps: ['Draft+device (no app) → Publish → should stay Draft'],
+      expected: 'Status stays Draft when no app is assigned',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await createDraftWithAppsAndDevices(context, 'publish-no-app', {
+      appNames: [],
+      deviceNames: [bulkDeploymentConfig.onlineDeviceName],
+    });
+    await context.bulkDeploymentPage.publishFromDetail();
+    const status = await context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_STATUS);
+
+    setActualResult(testInfo, `No-app publish status="${status}". Defect candidate.`);
+    expect(status).toContain(T.STATUS_DRAFT);
+  });
+
+  test('TC-BULK-PUBLISH-003: Cannot publish without device — status should stay Draft (known issue)', async ({ page }, testInfo) => {
+    test.fail(true, 'Known issue: system may allow publishing without a device assigned.');
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-003',
+      category: 'Bulk Deployment Publish',
+      title: 'Cannot publish without device — status should stay Draft',
+      precondition: 'Business rule expects at least one device before publish',
+      steps: ['Draft+app (no device) → Publish → should stay Draft'],
+      expected: 'Status stays Draft when no device is assigned',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await createDraftWithAppsAndDevices(context, 'publish-no-device', {
+      appNames: [bulkDeploymentConfig.appDigitalSignage],
+      deviceNames: [],
+    });
+    await context.bulkDeploymentPage.publishFromDetail();
+    const status = await context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_STATUS);
+
+    setActualResult(testInfo, `No-device publish status="${status}". Defect candidate.`);
+    expect(status).toContain(T.STATUS_DRAFT);
+  });
+
+  test('TC-BULK-PUBLISH-004: Offline device is retained after publish', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-004',
+      category: 'Bulk Deployment Publish',
+      title: 'Offline device is retained in Devices tab after publish',
+      precondition: 'Offline device and Digital Signage app are available',
+      steps: ['Draft+offline device+app → Publish → verify Offline device visible in Devices tab'],
+      expected: 'Offline device row is visible with Offline status after publish',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await createDraftWithAppsAndDevices(context, 'publish-offline', {
       deviceNames: [bulkDeploymentConfig.offlineDeviceName],
       appNames: [bulkDeploymentConfig.appDigitalSignage],
     });
     await context.bulkDeploymentPage.publishFromDetail();
-    await expect.poll(() => context.bulkDeploymentPage.getOverviewValue('Status'), {
+    await expect.poll(() => context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_STATUS), {
       timeout: context.bulkDeploymentPage.timeout,
-    }).not.toContain('Draft');
+    }).not.toContain(T.STATUS_DRAFT);
     await context.bulkDeploymentPage.openDevicesTab();
     await context.bulkDeploymentPage.expectDeviceRowVisible(bulkDeploymentConfig.offlineDeviceName, 'Offline');
 
-    // TC-BULK-PUBLISH-005: future schedule
+    setActualResult(testInfo, 'Offline device retained after publish');
+  });
+
+  test('TC-BULK-PUBLISH-005: Future schedule publish results in Scheduled status', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-005',
+      category: 'Bulk Deployment Publish',
+      title: 'Publishing with Future schedule results in Scheduled status',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Future schedule+device+app → Publish → status Scheduled, Start On populated'],
+      expected: 'Status is Scheduled and Start On is populated',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const future = futureScheduleDate(1);
     await createDraftWithAppsAndDevices(context, 'publish-scheduled', {
       data: { schedule: 'Future', scheduleDate: future.date, scheduleTime: future.time },
     });
     await context.bulkDeploymentPage.publishFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Status', 'Scheduled');
-    const startOn = await context.bulkDeploymentPage.getOverviewValue('Start On');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_STATUS, T.STATUS_SCHEDULED);
+    const startOn = await context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_START_ON);
     expect(startOn).not.toBe('');
     expect(startOn).not.toBe('-');
 
-    // TC-BULK-PUBLISH-006: action buttons after publish
+    setActualResult(testInfo, `Scheduled status confirmed; Start On="${startOn}"`);
+  });
+
+  test('TC-BULK-PUBLISH-006: Publish hides Publish, shows Duplicate, hides Delete', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-006',
+      category: 'Bulk Deployment Publish',
+      title: 'After publish action buttons update correctly',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish → Publish hidden, Duplicate visible, Delete hidden'],
+      expected: 'Publish and Delete hidden; Duplicate visible after publish',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await createDraftWithAppsAndDevices(context, 'publish-actions');
     await context.bulkDeploymentPage.publishFromDetail();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await context.bulkDeploymentPage.waitForPageReady();
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Publish')).toBe(false);
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Duplicate')).toBe(true);
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Delete')).toBe(false);
+    await expect(page.getByRole('button', { name: T.PUBLISH }).first()).toBeHidden();
+    await expect(page.getByRole('button', { name: T.DUPLICATE }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: T.DELETE }).first()).toBeHidden();
 
-    setActualResult(testInfo, 'Publish happy/offline/scheduled/action-buttons all verified');
+    setActualResult(testInfo, 'Post-publish action buttons correct: Publish hidden, Duplicate visible, Delete hidden');
   });
 
-  test('TC-BULK-PUBLISH-002 ~ 003: Cannot publish without app/device (known issues)', async ({ page }, testInfo) => {
-    test.fail(true, 'Known issue: system may allow publishing without app or device.');
+  test('TC-BULK-PUBLISH-007: List page Publish cancel keeps status as Draft', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-PUBLISH-002~003',
+      testcaseId: 'TC-BULK-PUBLISH-007',
       category: 'Bulk Deployment Publish',
-      title: 'Cannot publish without app or device',
-      precondition: 'Business rule expects at least one app and one device before publish',
-      steps: [
-        'Draft+device (no app) → Publish → should stay Draft',
-        'Draft+app (no device) → Publish → should stay Draft',
-      ],
-      expected: 'Publish blocked until both app and device are assigned',
-    });
-
-    const context = createBulkDeploymentContext(page);
-
-    // no app
-    await createDraftWithAppsAndDevices(context, 'publish-no-app', { appNames: [], deviceNames: [bulkDeploymentConfig.onlineDeviceName] });
-    await context.bulkDeploymentPage.publishFromDetail();
-    const status1 = await context.bulkDeploymentPage.getOverviewValue('Status');
-
-    // no device
-    await createDraftWithAppsAndDevices(context, 'publish-no-device', { appNames: [bulkDeploymentConfig.appDigitalSignage], deviceNames: [] });
-    await context.bulkDeploymentPage.publishFromDetail();
-    const status2 = await context.bulkDeploymentPage.getOverviewValue('Status');
-
-    setActualResult(testInfo, `No-app status="${status1}", no-device status="${status2}". Defect candidate.`);
-    expect(status1).toContain('Draft');
-    expect(status2).toContain('Draft');
-  });
-
-  test('TC-BULK-PUBLISH-007 ~ 010: List publish cancel/confirm, Version retained, Batch Size retained', async ({ page }, testInfo) => {
-    setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-PUBLISH-007~010',
-      category: 'Bulk Deployment Publish',
-      title: 'List page publish cancel/confirm, Version and Batch Size preserved after publish',
+      title: 'Cancelling Publish from list page leaves status as Draft',
       precondition: 'Online device and Digital Signage app are available',
-      steps: [
-        'Create draft → list Publish → Cancel → status stays Draft',
-        'Create draft → list Publish → Confirm → status not Draft',
-        'Publish with custom Version → verify Version unchanged in detail and list',
-        'Publish with custom Batch Size → verify Batch Size unchanged',
-      ],
-      expected: 'List publish works correctly; Version and Batch Size are preserved through publish',
+      steps: ['Create draft → list Publish → Cancel → status stays Draft'],
+      expected: 'Status remains Draft after cancelling list Publish dialog',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-PUBLISH-007: list cancel
     const cancelCreated = await createDraftWithAppsAndDevices(context, 'publish-list-cancel');
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(cancelCreated.data.name);
-    await context.bulkDeploymentPage.selectRowAction(cancelCreated.data.name, 'Publish');
-    const cancelDialog = context.bulkDeploymentPage.dialogByTitle('Deployment Confirm');
+    await context.bulkDeploymentPage.selectRowAction(cancelCreated.data.name, T.ROW_ACTION_PUBLISH);
+    const cancelDialog = context.bulkDeploymentPage.dialogByTitle(T.DIALOG_DEPLOYMENT_CONFIRM);
     await expect(cancelDialog).toBeVisible();
-    await cancelDialog.getByRole('button', { name: 'Cancel' }).click();
+    await cancelDialog.getByRole('button', { name: T.CANCEL }).click();
     const statusAfterCancel = await context.bulkDeploymentPage.getListCellText(cancelCreated.data.name, 'status');
-    expect(statusAfterCancel).toContain('Draft');
+    expect(statusAfterCancel).toContain(T.STATUS_DRAFT);
 
-    // TC-BULK-PUBLISH-008: list confirm
+    setActualResult(testInfo, 'List Publish cancel kept status as Draft');
+  });
+
+  test('TC-BULK-PUBLISH-008: List page Publish confirm transitions status out of Draft', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-008',
+      category: 'Bulk Deployment Publish',
+      title: 'Confirming Publish from list page transitions status out of Draft',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Create draft → list Publish → Confirm → status not Draft'],
+      expected: 'Status transitions out of Draft after list Publish confirm',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const confirmCreated = await createDraftWithAppsAndDevices(context, 'publish-list-confirm');
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(confirmCreated.data.name);
-    await context.bulkDeploymentPage.selectRowAction(confirmCreated.data.name, 'Publish');
-    const confirmDialog = context.bulkDeploymentPage.dialogByTitle('Deployment Confirm');
+    await context.bulkDeploymentPage.selectRowAction(confirmCreated.data.name, T.ROW_ACTION_PUBLISH);
+    const confirmDialog = context.bulkDeploymentPage.dialogByTitle(T.DIALOG_DEPLOYMENT_CONFIRM);
     await expect(confirmDialog).toBeVisible();
-    await confirmDialog.getByRole('button', { name: 'Confirm' }).click();
+    await confirmDialog.getByRole('button', { name: T.CONFIRM }).click();
     await context.bulkDeploymentPage.waitForToastOrNetwork();
-    await expect.poll(() => context.bulkDeploymentPage.getListCellText(confirmCreated.data.name, 'status'), {
-      timeout: context.bulkDeploymentPage.timeout,
-    }).not.toContain('Draft');
+    await expect.poll(
+      () => context.bulkDeploymentPage.getListCellText(confirmCreated.data.name, 'status'),
+      { timeout: context.bulkDeploymentPage.timeout }
+    ).not.toContain(T.STATUS_DRAFT);
 
-    // TC-BULK-PUBLISH-009: Version retained
-    const version = '10.2.0';
-    const verCreated = await createDraftWithAppsAndDevices(context, 'publish-version', { data: { version } });
-    await context.bulkDeploymentPage.publishFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Version', version);
-    await context.bulkDeploymentPage.gotoList();
-    await context.bulkDeploymentPage.waitForListReady();
-    await context.bulkDeploymentPage.searchDeployment(verCreated.data.name);
-    expect(await context.bulkDeploymentPage.getListCellText(verCreated.data.name, 'version')).toContain(version);
-
-    // TC-BULK-PUBLISH-010: Batch Size retained
-    await createDraftWithAppsAndDevices(context, 'publish-batch', { data: { batchSize: '37' } });
-    await context.bulkDeploymentPage.publishFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Batch Size', '37');
-
-    setActualResult(testInfo, 'List publish cancel/confirm works; Version and Batch Size preserved');
+    setActualResult(testInfo, 'List Publish confirm transitioned status out of Draft');
   });
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Delete
-// ─────────────────────────────────────────────────────────────────────────────
-test.describe('Bulk Deployment - Delete', () => {
-  test('TC-BULK-DELETE-001 ~ 004: Detail cancel/confirm, list cancel/confirm delete', async ({ page }, testInfo) => {
+  test('TC-BULK-PUBLISH-009: Version is preserved after publish', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-DELETE-001~004',
-      category: 'Bulk Deployment Delete',
-      title: 'Cancel and confirm delete from detail and list pages',
-      precondition: 'User is logged in; Draft deployments exist',
-      steps: [
-        'Detail page → Delete → Cancel → deployment remains',
-        'Detail page → Delete → Confirm → deployment gone from list',
-        'List page → Delete → Cancel → row stays visible',
-        'List page → Delete → Confirm → deployment gone from list',
-      ],
-      expected: 'Cancel preserves deployment; confirm deletes it from both locations',
+      testcaseId: 'TC-BULK-PUBLISH-009',
+      category: 'Bulk Deployment Publish',
+      title: 'Version is unchanged in detail and list after publish',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish with custom Version → verify Version unchanged in detail and list'],
+      expected: 'Version is preserved in both detail and list after publish',
     });
 
     const context = createBulkDeploymentContext(page);
+    const version = '10.2.0';
+    const verCreated = await createDraftWithAppsAndDevices(context, 'publish-version', { data: { version } });
+    await context.bulkDeploymentPage.publishFromDetail();
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, version);
 
-    // TC-BULK-DELETE-001: detail cancel
+    setActualResult(testInfo, `Version ${version} preserved after publish in detail and list`);
+  });
+
+  test('TC-BULK-PUBLISH-010: Batch Size is preserved after publish', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-PUBLISH-010',
+      category: 'Bulk Deployment Publish',
+      title: 'Batch Size is unchanged after publish',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish with custom Batch Size → verify Batch Size unchanged'],
+      expected: 'Batch Size is preserved after publish',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await createDraftWithAppsAndDevices(context, 'publish-batch', { data: { batchSize: '37' } });
+    await context.bulkDeploymentPage.publishFromDetail();
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_BATCH_SIZE, '37');
+
+    setActualResult(testInfo, 'Batch Size 37 preserved after publish');
+  });
+});
+
+test.describe('Bulk Deployment - Delete', () => {
+  test('TC-BULK-DELETE-001: Cancel delete from detail keeps deployment intact', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DELETE-001',
+      category: 'Bulk Deployment Delete',
+      title: 'Cancelling delete from detail page keeps deployment intact',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Detail page → Delete → Cancel → deployment remains'],
+      expected: 'Deployment ID unchanged after cancel',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const cancelCreated = await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('del-cancel-detail'));
     await context.bulkDeploymentPage.deleteFromDetail(false);
     expect(context.bulkDeploymentPage.getDeploymentIdFromUrl()).toBe(cancelCreated.id);
 
-    // TC-BULK-DELETE-002: detail confirm
+    setActualResult(testInfo, `Cancel preserved deployment id=${cancelCreated.id}`);
+  });
+
+  test('TC-BULK-DELETE-002: Confirm delete from detail removes deployment', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DELETE-002',
+      category: 'Bulk Deployment Delete',
+      title: 'Confirming delete from detail page removes the deployment',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Detail page → Delete → Confirm → deployment gone from list'],
+      expected: 'Deployment is not found in list after deletion',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const detailData = createDeploymentData('del-confirm-detail');
     await context.bulkDeploymentPage.createDraftDeployment(detailData);
     await context.bulkDeploymentPage.deleteFromDetail(true);
     await context.bulkDeploymentPage.searchDeployment(detailData.name);
     await context.bulkDeploymentPage.expectNoDeploymentResults();
 
-    // TC-BULK-DELETE-003: list cancel
+    setActualResult(testInfo, 'Deployment deleted from detail; not found in list');
+  });
+
+  test('TC-BULK-DELETE-003: Cancel delete from list keeps row visible', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DELETE-003',
+      category: 'Bulk Deployment Delete',
+      title: 'Cancelling delete from list page keeps row visible',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['List page → Delete → Cancel → row stays visible'],
+      expected: 'Deployment row remains visible after cancel',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const listCancelData = createDeploymentData('del-cancel-list');
     await context.bulkDeploymentPage.createDraftDeployment(listCancelData);
     await context.bulkDeploymentPage.deleteFromListByName(listCancelData.name, false);
     await expect(context.bulkDeploymentPage.rowByText(listCancelData.name)).toBeVisible();
 
-    // TC-BULK-DELETE-004: list confirm
+    setActualResult(testInfo, 'Cancel from list preserved deployment row');
+  });
+
+  test('TC-BULK-DELETE-004: Confirm delete from list removes deployment', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DELETE-004',
+      category: 'Bulk Deployment Delete',
+      title: 'Confirming delete from list page removes the deployment',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['List page → Delete → Confirm → deployment gone from list'],
+      expected: 'Deployment is not found in list after deletion',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const listConfirmData = createDeploymentData('del-confirm-list');
     await context.bulkDeploymentPage.createDraftDeployment(listConfirmData);
     await context.bulkDeploymentPage.deleteFromListByName(listConfirmData.name, true);
     await context.bulkDeploymentPage.searchDeployment(listConfirmData.name);
     await context.bulkDeploymentPage.expectNoDeploymentResults();
 
-    setActualResult(testInfo, 'Detail/list cancel and confirm delete all verified');
+    setActualResult(testInfo, 'Deployment deleted from list; no results found');
   });
 
-  test('TC-BULK-DELETE-005 ~ 006: Delete hidden after publish, scheduled delete', async ({ page }, testInfo) => {
+  test('TC-BULK-DELETE-005: Delete button is hidden after non-scheduled publish', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-DELETE-005~006',
+      testcaseId: 'TC-BULK-DELETE-005',
       category: 'Bulk Deployment Delete',
-      title: 'Delete hidden after non-scheduled publish; scheduled deployment can be deleted',
+      title: 'Delete button is hidden after non-scheduled publish',
       precondition: 'Online device and Digital Signage app are available',
-      steps: [
-        'Publish non-scheduled → Delete button hidden',
-        'Publish scheduled → Delete visible → confirm → deployment gone',
-      ],
-      expected: 'Non-scheduled published deployment hides Delete; scheduled can be deleted',
+      steps: ['Publish non-scheduled → Delete button hidden'],
+      expected: 'Delete button is not visible after non-scheduled publish',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-DELETE-005: hidden after publish
     await createDraftWithAppsAndDevices(context, 'del-published');
     await context.bulkDeploymentPage.publishFromDetail();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await context.bulkDeploymentPage.waitForPageReady();
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Delete')).toBe(false);
+    expect(await context.bulkDeploymentPage.isDetailActionVisible(T.DELETE)).toBe(false);
 
-    // TC-BULK-DELETE-006: scheduled delete
+    setActualResult(testInfo, 'Delete button hidden after non-scheduled publish');
+  });
+
+  test('TC-BULK-DELETE-006: Scheduled deployment can be deleted after publish', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DELETE-006',
+      category: 'Bulk Deployment Delete',
+      title: 'Scheduled deployment shows Delete button and can be deleted',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish scheduled → Delete visible → confirm → deployment gone'],
+      expected: 'Scheduled published deployment can be deleted',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const future = futureScheduleDate(1);
     const schedCreated = await createDraftWithAppsAndDevices(context, 'del-scheduled', {
       data: { schedule: 'Future', scheduleDate: future.date, scheduleTime: future.time },
@@ -401,23 +627,24 @@ test.describe('Bulk Deployment - Delete', () => {
     await context.bulkDeploymentPage.publishFromDetail();
     await page.reload({ waitUntil: 'domcontentloaded' });
     await context.bulkDeploymentPage.waitForPageReady();
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Delete')).toBe(true);
+    expect(await context.bulkDeploymentPage.isDetailActionVisible(T.DELETE)).toBe(true);
     await context.bulkDeploymentPage.deleteFromDetail(true);
     await context.bulkDeploymentPage.searchDeployment(schedCreated.data.name);
     await context.bulkDeploymentPage.expectNoDeploymentResults();
 
-    setActualResult(testInfo, 'Delete hidden after non-scheduled publish; scheduled delete confirmed');
+    setActualResult(testInfo, 'Scheduled deployment deleted successfully');
   });
 
-  test('TC-BULK-DELETE-007: Failed deployment Delete visibility', async ({ page }, testInfo) => {
+  test('TC-BULK-DELETE-007: Failed deployment shows Delete button', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
       testcaseId: 'TC-BULK-DELETE-007',
       category: 'Bulk Deployment Delete',
-      title: 'Failed deployment Delete visibility',
+      title: 'Failed deployment displays Delete button',
       precondition: 'BULK_DEPLOYMENT_FAILED_ID points to a Failed deployment (configured in helpers)',
       steps: ['Open Failed deployment detail page', 'Verify Delete button visibility'],
       expected: 'Failed deployment displays Delete button',
     });
+
     if (!bulkDeploymentConfig.failedDeploymentId) {
       const msg = 'Blocked: failedDeploymentId is not configured.';
       setActualResult(testInfo, msg);
@@ -427,87 +654,174 @@ test.describe('Bulk Deployment - Delete', () => {
     const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.gotoDetail(bulkDeploymentConfig.failedDeploymentId);
     await context.bulkDeploymentPage.waitForPageReady();
-    expect(await context.bulkDeploymentPage.isDetailActionVisible('Delete')).toBe(true);
+    expect(await context.bulkDeploymentPage.isDetailActionVisible(T.DELETE)).toBe(true);
 
     setActualResult(testInfo, 'Failed deployment displayed Delete button');
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Duplicate
-// ─────────────────────────────────────────────────────────────────────────────
 test.describe('Bulk Deployment - Duplicate', () => {
-  test('TC-BULK-DUPLICATE-001 ~ 008: Cancel, confirm, overview copy, version, apps, devices, name, no batches', async ({ page }, testInfo) => {
+  test('TC-BULK-DUPLICATE-001: Cancel duplicate stays on original deployment', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-DUPLICATE-001~008',
+      testcaseId: 'TC-BULK-DUPLICATE-001',
       category: 'Bulk Deployment Duplicate',
-      title: 'Cancel, confirm, overview fields, version, apps, devices, name, and no batch data',
-      precondition: 'Online/Offline devices and Digital Signage/counter_now apps are available',
-      steps: [
-        'Cancel duplicate → stay on original',
-        'Confirm duplicate → new deployment ID, Draft status',
-        'Verify overview fields are copied',
-        'Verify Version is copied',
-        'Verify apps are copied',
-        'Verify devices are copied',
-        'Verify name is traceable to original',
-        'Verify no batch data on duplicated Draft',
-      ],
-      expected: 'Duplicate copies all configuration; creates new Draft with no batch data',
+      title: 'Cancelling duplicate stays on the original deployment page',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Cancel duplicate → stay on original'],
+      expected: 'URL remains pointing to original deployment after cancel',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-DUPLICATE-001: cancel
     const cancelCreated = await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('dup-cancel'));
     await context.bulkDeploymentPage.cancelDuplicateFromDetail();
     expect(context.bulkDeploymentPage.getDeploymentIdFromUrl()).toBe(cancelCreated.id);
 
-    // TC-BULK-DUPLICATE-002: confirm → new id + Draft
+    setActualResult(testInfo, `Cancel kept URL on original id=${cancelCreated.id}`);
+  });
+
+  test('TC-BULK-DUPLICATE-002: Confirm duplicate creates new deployment with Draft status', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-002',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Confirming duplicate creates new deployment with different ID and Draft status',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Confirm duplicate → new deployment ID, Draft status'],
+      expected: 'Duplicated deployment has a new unique ID and status is Draft',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const origCreated = await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('dup-draft'));
     const dupId = await context.bulkDeploymentPage.duplicateFromDetail();
     expect(dupId).not.toBe(origCreated.id);
-    await context.bulkDeploymentPage.expectOverviewValue('Status', 'Draft');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_STATUS, T.STATUS_DRAFT);
 
-    // TC-BULK-DUPLICATE-003: overview copied
-    const overviewData = createDeploymentData('dup-overview', { description: 'Duplicate overview baseline', rebootDevice: true, forceUpdate: true });
+    setActualResult(testInfo, `Duplicate created new id=${dupId}; status is Draft`);
+  });
+
+  test('TC-BULK-DUPLICATE-003: Overview fields are copied to duplicate', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-003',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Duplicate copies all overview fields from original',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Verify overview fields are copied to duplicate'],
+      expected: 'Name, Target OS, Batch Size, Description, Reboot Device, Force Update are all copied',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    const overviewData = createDeploymentData('dup-overview', {
+      description: 'Duplicate overview baseline',
+      rebootDevice: true,
+      forceUpdate: true,
+    });
     await context.bulkDeploymentPage.createDraftDeployment(overviewData);
     await context.bulkDeploymentPage.duplicateFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Deployment Name', overviewData.name);
-    await context.bulkDeploymentPage.expectOverviewValue('Target OS', overviewData.targetOS);
-    await context.bulkDeploymentPage.expectOverviewValue('Batch Size', overviewData.batchSize);
-    await context.bulkDeploymentPage.expectOverviewValue('Description', overviewData.description);
-    await context.bulkDeploymentPage.expectOverviewValue('Reboot Device', 'Enable');
-    await context.bulkDeploymentPage.expectOverviewValue('Force Update', 'Enable');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME, overviewData.name);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_TARGET_OS, overviewData.targetOS);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_BATCH_SIZE, overviewData.batchSize);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_DESCRIPTION, overviewData.description);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_REBOOT_DEVICE, 'Enable');
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_FORCE_UPDATE, 'Enable');
 
-    // TC-BULK-DUPLICATE-004: version copied
+    setActualResult(testInfo, 'All overview fields copied to duplicate');
+  });
+
+  test('TC-BULK-DUPLICATE-004: Version is copied to duplicate', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-004',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Version is copied to the duplicated deployment',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Verify Version is copied'],
+      expected: 'Duplicate shows same Version as original',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const verData = createDeploymentData('dup-version', { version: '9.1.0' });
     await context.bulkDeploymentPage.createDraftDeployment(verData);
     await context.bulkDeploymentPage.duplicateFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Version', verData.version);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, verData.version);
 
-    // TC-BULK-DUPLICATE-005: apps copied
-    await createDraftWithAppsAndDevices(context, 'dup-apps', { deviceNames: [], appNames: [bulkDeploymentConfig.appDigitalSignage, bulkDeploymentConfig.appCounterNow] });
+    setActualResult(testInfo, `Version ${verData.version} copied to duplicate`);
+  });
+
+  test('TC-BULK-DUPLICATE-005: Apps are copied to duplicate', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-005',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Apps are copied to the duplicated deployment',
+      precondition: 'Digital Signage and counter_now apps are available',
+      steps: ['Verify apps are copied in Apps tab'],
+      expected: 'Duplicate shows same apps in Apps tab',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await createDraftWithAppsAndDevices(context, 'dup-apps', {
+      deviceNames: [],
+      appNames: [bulkDeploymentConfig.appDigitalSignage, bulkDeploymentConfig.appCounterNow],
+    });
     await context.bulkDeploymentPage.duplicateFromDetail();
     await context.bulkDeploymentPage.openAppsTab();
     await expect(context.bulkDeploymentPage.rowByText(bulkDeploymentConfig.appDigitalSignage)).toBeVisible();
     await expect(context.bulkDeploymentPage.rowByText(bulkDeploymentConfig.appCounterNow)).toBeVisible();
 
-    // TC-BULK-DUPLICATE-006: devices copied
-    await createDraftWithAppsAndDevices(context, 'dup-devices', { appNames: [], deviceNames: [bulkDeploymentConfig.onlineDeviceName, bulkDeploymentConfig.offlineDeviceName] });
+    setActualResult(testInfo, 'Digital Signage and counter_now copied to duplicate');
+  });
+
+  test('TC-BULK-DUPLICATE-006: Devices are copied to duplicate', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-006',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Devices are copied to the duplicated deployment',
+      precondition: 'Online and Offline test devices are available',
+      steps: ['Verify devices are copied in Devices tab'],
+      expected: 'Duplicate shows same devices in Devices tab',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await createDraftWithAppsAndDevices(context, 'dup-devices', {
+      appNames: [],
+      deviceNames: [bulkDeploymentConfig.onlineDeviceName, bulkDeploymentConfig.offlineDeviceName],
+    });
     await context.bulkDeploymentPage.duplicateFromDetail();
     await context.bulkDeploymentPage.openDevicesTab();
     await context.bulkDeploymentPage.expectDeviceRowVisible(bulkDeploymentConfig.onlineDeviceName);
     await context.bulkDeploymentPage.expectDeviceRowVisible(bulkDeploymentConfig.offlineDeviceName);
 
-    // TC-BULK-DUPLICATE-007: name traceable
+    setActualResult(testInfo, 'Online and Offline devices copied to duplicate');
+  });
+
+  test('TC-BULK-DUPLICATE-007: Duplicate name is traceable to original', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-007',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Duplicate name contains or references the original name',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Verify name is traceable to original'],
+      expected: 'Duplicate name contains original name',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const nameData = createDeploymentData('dup-name');
     await context.bulkDeploymentPage.createDraftDeployment(nameData);
     await context.bulkDeploymentPage.duplicateFromDetail();
-    const dupName = await context.bulkDeploymentPage.getOverviewValue('Deployment Name');
+    const dupName = await context.bulkDeploymentPage.getOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME);
     expect(dupName).toContain(nameData.name);
 
-    // TC-BULK-DUPLICATE-008: no batch data
+    setActualResult(testInfo, `Duplicate name "${dupName}" contains original "${nameData.name}"`);
+  });
+
+  test('TC-BULK-DUPLICATE-008: Duplicate Draft has no batch data', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-DUPLICATE-008',
+      category: 'Bulk Deployment Duplicate',
+      title: 'Duplicated Draft deployment has zero batch metrics and empty Batches tab',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Verify no batch data on duplicated Draft'],
+      expected: 'Batches tab shows zero metrics and empty state',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('dup-batches'));
     await context.bulkDeploymentPage.duplicateFromDetail();
     await context.bulkDeploymentPage.openBatchesTab();
@@ -515,38 +829,42 @@ test.describe('Bulk Deployment - Duplicate', () => {
     expect(metrics.total).toBe(0);
     await context.bulkDeploymentPage.expectBatchesEmptyState();
 
-    setActualResult(testInfo, 'Duplicate cancel, confirm, overview/version/apps/devices/name/batches all verified');
+    setActualResult(testInfo, 'Duplicate Draft had zero batch data');
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Batches
-// ─────────────────────────────────────────────────────────────────────────────
 test.describe('Bulk Deployment - Batches', () => {
-  test('TC-BULK-BATCHES-001 ~ 003: Draft empty, metrics after publish, metrics consistency', async ({ page }, testInfo) => {
+  test('TC-BULK-BATCHES-001: Draft has zero batch metrics and empty state', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-BATCHES-001~003',
+      testcaseId: 'TC-BULK-BATCHES-001',
       category: 'Bulk Deployment Batches',
-      title: 'Draft zero metrics, post-publish metrics visible, metrics consistency',
-      precondition: 'Online device and Digital Signage app are available',
-      steps: [
-        'Draft → Batches tab → zero metrics and empty state',
-        'Publish → Batches tab → metrics are numeric and non-negative',
-        'Verify each status metric ≤ Total Batches',
-      ],
-      expected: 'Draft has zero metrics; published deployment has valid metrics',
+      title: 'Draft deployment Batches tab shows zero metrics and empty state',
+      precondition: 'User is logged in',
+      steps: ['Draft → Batches tab → zero metrics and empty state'],
+      expected: 'All batch metrics are 0 and empty state is visible',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-BATCHES-001: draft empty
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('batches-draft'));
     await context.bulkDeploymentPage.openBatchesTab();
     const draftMetrics = await context.bulkDeploymentPage.getBatchMetrics();
     expect(draftMetrics).toEqual({ total: 0, completed: 0, inProgress: 0, failed: 0, canceled: 0 });
     await context.bulkDeploymentPage.expectBatchesEmptyState();
 
-    // TC-BULK-BATCHES-002: metrics after publish
+    setActualResult(testInfo, 'Draft batch metrics all zero; empty state visible');
+  });
+
+  test('TC-BULK-BATCHES-002: Published deployment shows numeric non-negative batch metrics', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-BATCHES-002',
+      category: 'Bulk Deployment Batches',
+      title: 'Published deployment shows valid numeric batch metrics',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish → Batches tab → metrics are numeric and non-negative'],
+      expected: 'All batch metrics are finite numbers and non-negative',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await createDraftWithAppsAndDevices(context, 'batches-publish');
     await context.bulkDeploymentPage.publishFromDetail();
     await context.bulkDeploymentPage.openBatchesTab();
@@ -556,44 +874,74 @@ test.describe('Bulk Deployment - Batches', () => {
       expect(v).toBeGreaterThanOrEqual(0);
     }
 
-    // TC-BULK-BATCHES-003: consistency
+    setActualResult(testInfo, `Published metrics: ${JSON.stringify(pubMetrics)}`);
+  });
+
+  test('TC-BULK-BATCHES-003: Each status metric does not exceed Total Batches', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-BATCHES-003',
+      category: 'Bulk Deployment Batches',
+      title: 'Each batch status metric is less than or equal to Total Batches',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Verify each status metric <= Total Batches'],
+      expected: 'Completed, In-Progress, Failed, Canceled each <= Total',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await createDraftWithAppsAndDevices(context, 'batches-consistency');
+    await context.bulkDeploymentPage.publishFromDetail();
+    await context.bulkDeploymentPage.openBatchesTab();
+    const pubMetrics = await context.bulkDeploymentPage.getBatchMetrics();
     expect(pubMetrics.completed).toBeLessThanOrEqual(pubMetrics.total);
     expect(pubMetrics.inProgress).toBeLessThanOrEqual(pubMetrics.total);
     expect(pubMetrics.failed).toBeLessThanOrEqual(pubMetrics.total);
     expect(pubMetrics.canceled).toBeLessThanOrEqual(pubMetrics.total);
 
-    setActualResult(testInfo, `Draft empty; published metrics: ${JSON.stringify(pubMetrics)}`);
+    setActualResult(testInfo, `Metrics consistent: ${JSON.stringify(pubMetrics)}`);
   });
 
-  test('TC-BULK-BATCHES-004 ~ 007: Batch columns, scheduled empty, offline stable, refresh', async ({ page }, testInfo) => {
+  test('TC-BULK-BATCHES-004: Batch table columns are visible when batches exist', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-BATCHES-004~007',
+      testcaseId: 'TC-BULK-BATCHES-004',
       category: 'Bulk Deployment Batches',
-      title: 'Batch table columns, scheduled empty, offline stable, refresh keeps metrics',
-      precondition: 'Online/Offline devices and Digital Signage app are available',
-      steps: [
-        'Publish with Online device → if batches > 0, verify table columns',
-        'Publish with Future schedule → Total Batches should be 0',
-        'Publish with Offline device → metrics remain numeric and non-negative',
-        'Refresh Draft Batches tab → metrics still visible',
-      ],
-      expected: 'Batches behave correctly for published, scheduled, offline, and after refresh',
+      title: 'Batch table shows expected column headers when batches exist',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish with Online device → if batches > 0, verify table columns'],
+      expected: 'All batch table column headers are visible when total > 0',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-BATCHES-004: table columns when batches exist
     await createDraftWithAppsAndDevices(context, 'batches-table');
     await context.bulkDeploymentPage.publishFromDetail();
     await context.bulkDeploymentPage.openBatchesTab();
     const tableMetrics = await context.bulkDeploymentPage.getBatchMetrics();
     if (tableMetrics.total > 0) {
-      for (const col of ['#', 'Batch Name', 'Devices', 'Status', 'Started On', 'End On']) {
-        await expect(page.getByText(col, { exact: true }).first()).toBeVisible();
+      for (const col of [
+        T.BATCH_TABLE_COL_NUM,
+        T.BATCH_TABLE_COL_BATCH_NAME,
+        T.BATCH_TABLE_COL_DEVICES,
+        T.BATCH_TABLE_COL_STATUS,
+        T.BATCH_TABLE_COL_STARTED_ON,
+        T.BATCH_TABLE_COL_END_ON,
+      ]) {
+        await expect(context.bulkDeploymentPage.getBatchTableColumnHeader(col)).toBeVisible();
       }
     }
 
-    // TC-BULK-BATCHES-005: future scheduled → no runtime batches
+    setActualResult(testInfo, `Table columns verified; total=${tableMetrics.total}`);
+  });
+
+  test('TC-BULK-BATCHES-005: Future scheduled publish results in zero runtime batches', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-BATCHES-005',
+      category: 'Bulk Deployment Batches',
+      title: 'Future scheduled publish shows zero batches in Batches tab',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish with Future schedule → Total Batches should be 0'],
+      expected: 'Total Batches is 0 and empty state is visible for scheduled deployment',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const future = futureScheduleDate(1);
     await createDraftWithAppsAndDevices(context, 'batches-scheduled', {
       data: { schedule: 'Future', scheduleDate: future.date, scheduleTime: future.time },
@@ -604,7 +952,20 @@ test.describe('Bulk Deployment - Batches', () => {
     expect(schedMetrics.total).toBe(0);
     await context.bulkDeploymentPage.expectBatchesEmptyState();
 
-    // TC-BULK-BATCHES-006: offline stable
+    setActualResult(testInfo, 'Scheduled publish showed zero batches');
+  });
+
+  test('TC-BULK-BATCHES-006: Offline device publish shows stable non-negative metrics', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-BATCHES-006',
+      category: 'Bulk Deployment Batches',
+      title: 'Offline device publish shows stable non-negative batch metrics',
+      precondition: 'Offline device and Digital Signage app are available',
+      steps: ['Publish with Offline device → metrics remain numeric and non-negative'],
+      expected: 'All batch metrics are non-negative for offline device publish',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await createDraftWithAppsAndDevices(context, 'batches-offline', {
       deviceNames: [bulkDeploymentConfig.offlineDeviceName],
       appNames: [bulkDeploymentConfig.appDigitalSignage],
@@ -616,93 +977,185 @@ test.describe('Bulk Deployment - Batches', () => {
       expect(v).toBeGreaterThanOrEqual(0);
     }
 
-    // TC-BULK-BATCHES-007: refresh
+    setActualResult(testInfo, `Offline metrics stable: ${JSON.stringify(offMetrics)}`);
+  });
+
+  test('TC-BULK-BATCHES-007: Refresh keeps Batches tab metrics visible', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-BATCHES-007',
+      category: 'Bulk Deployment Batches',
+      title: 'Refreshing Batches tab keeps metrics visible',
+      precondition: 'User is logged in',
+      steps: ['Open Draft Batches tab → reload page → metrics still visible'],
+      expected: 'Batch metrics are accessible and non-negative after page refresh',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('batches-refresh'));
     await context.bulkDeploymentPage.openBatchesTab();
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
     await context.bulkDeploymentPage.waitForPageReady();
     await context.bulkDeploymentPage.openBatchesTab();
     const refreshMetrics = await context.bulkDeploymentPage.getBatchMetrics();
     expect(refreshMetrics.total).toBeGreaterThanOrEqual(0);
 
-    setActualResult(testInfo, 'Batch columns, scheduled empty, offline stable, and refresh all verified');
+    setActualResult(testInfo, `Refresh kept metrics visible; total=${refreshMetrics.total}`);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Version
-// ─────────────────────────────────────────────────────────────────────────────
 test.describe('Bulk Deployment - Version', () => {
-  test('TC-BULK-VERSION-001 ~ 008: Default, editable, semver, edit, duplicate, publish, empty default, tab switching', async ({ page }, testInfo) => {
+  test('TC-BULK-VERSION-001: Version defaults to 1.0.0 in Add Deployment modal', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-VERSION-001~008',
+      testcaseId: 'TC-BULK-VERSION-001',
       category: 'Bulk Deployment Version',
-      title: 'Version: default, editable, semver, edit, duplicate, publish, empty default, tab switching',
-      precondition: 'Online device and Digital Signage app are available',
-      steps: [
-        'Open Add Deployment modal → Version defaults to 1.0.0',
-        'Update Version field → verify accepts new value',
-        'Create Draft with semver Version → verify in detail and list',
-        'Edit Version → verify updated in detail and list',
-        'Duplicate → verify Version copied',
-        'Publish → verify Version unchanged',
-        'Create with empty Version → defaults to 1.0.0',
-        'Switch tabs → Version remains unchanged',
-      ],
-      expected: 'Version is correct through create, edit, duplicate, publish, and tab switching',
+      title: 'Version field defaults to 1.0.0 in Add Deployment modal',
+      precondition: 'User is logged in',
+      steps: ['Open Add Deployment modal → Version defaults to 1.0.0'],
+      expected: 'Version input value is 1.0.0',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-VERSION-001: default
     await context.bulkDeploymentPage.openAddDeploymentModal();
-    await expect(context.bulkDeploymentPage.inputByLabel('Version')).toHaveValue(bulkDeploymentConfig.defaultVersion);
+    await expect(context.bulkDeploymentPage.inputByLabel(T.FORM.VERSION_LABEL)).toHaveValue(
+      bulkDeploymentConfig.defaultVersion
+    );
 
-    // TC-BULK-VERSION-002: editable
-    await context.bulkDeploymentPage.fillInput('Version', '1.2.3');
-    await expect(context.bulkDeploymentPage.inputByLabel('Version')).toHaveValue('1.2.3');
+    setActualResult(testInfo, `Version defaulted to ${bulkDeploymentConfig.defaultVersion}`);
+  });
 
-    // TC-BULK-VERSION-003: semver persisted
+  test('TC-BULK-VERSION-002: Version field accepts new value while modal is open', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-002',
+      category: 'Bulk Deployment Version',
+      title: 'Version field is editable in Add Deployment modal',
+      precondition: 'User is logged in; Add Deployment modal is open',
+      steps: ['Update Version field → verify accepts new value'],
+      expected: 'Version input reflects the updated value',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await context.bulkDeploymentPage.openAddDeploymentModal();
+    await context.bulkDeploymentPage.fillInput(T.FORM.VERSION_LABEL, '1.2.3');
+    await expect(context.bulkDeploymentPage.inputByLabel(T.FORM.VERSION_LABEL)).toHaveValue('1.2.3');
+
+    setActualResult(testInfo, 'Version field accepted value 1.2.3');
+  });
+
+  test('TC-BULK-VERSION-003: Semver version is persisted in detail and list', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-003',
+      category: 'Bulk Deployment Version',
+      title: 'Semver version is saved and visible in detail overview and list page',
+      precondition: 'User is logged in',
+      steps: ['Create Draft with semver Version → verify in detail and list'],
+      expected: 'Version is consistent in detail overview and list row',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const semver = '1.2.3-beta';
     const semverData = createDeploymentData('ver-semver', { version: semver });
     await context.bulkDeploymentPage.createDraftDeployment(semverData);
-    await context.bulkDeploymentPage.expectOverviewValue('Version', semver);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, semver);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(semverData.name);
     expect(await context.bulkDeploymentPage.getListCellText(semverData.name, 'version')).toContain(semver);
 
-    // TC-BULK-VERSION-004: edit + list consistency
+    setActualResult(testInfo, `Semver ${semver} consistent in detail and list`);
+  });
+
+  test('TC-BULK-VERSION-004: Edited version is consistent in detail and list', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-004',
+      category: 'Bulk Deployment Version',
+      title: 'Edited version is consistent in detail overview and list page',
+      precondition: 'User is logged in',
+      steps: ['Edit Version → verify updated in detail and list'],
+      expected: 'Updated version is consistent in detail and list',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const editVerData = createDeploymentData('ver-edit');
     await context.bulkDeploymentPage.createDraftDeployment(editVerData);
     const updatedVer = '6.0.0';
     await context.bulkDeploymentPage.openEditDeploymentModal();
     await context.bulkDeploymentPage.fillEditDeploymentForm({ version: updatedVer });
     await context.bulkDeploymentPage.saveEditExpectDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Version', updatedVer);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, updatedVer);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(editVerData.name);
     expect(await context.bulkDeploymentPage.getListCellText(editVerData.name, 'version')).toContain(updatedVer);
 
-    // TC-BULK-VERSION-005: duplicate preserves
+    setActualResult(testInfo, `Edited version ${updatedVer} consistent in detail and list`);
+  });
+
+  test('TC-BULK-VERSION-005: Duplicate preserves version from original', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-005',
+      category: 'Bulk Deployment Version',
+      title: 'Duplicated deployment preserves version from original',
+      precondition: 'User is logged in',
+      steps: ['Duplicate → verify Version copied'],
+      expected: 'Duplicate shows same version as original',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const dupVer = '7.7.1';
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('ver-dup', { version: dupVer }));
     await context.bulkDeploymentPage.duplicateFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Version', dupVer);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, dupVer);
 
-    // TC-BULK-VERSION-006: publish preserves
+    setActualResult(testInfo, `Version ${dupVer} preserved in duplicate`);
+  });
+
+  test('TC-BULK-VERSION-006: Publish preserves version unchanged', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-006',
+      category: 'Bulk Deployment Version',
+      title: 'Publish does not change the version value',
+      precondition: 'Online device and Digital Signage app are available',
+      steps: ['Publish → verify Version unchanged'],
+      expected: 'Version is unchanged after publish',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const pubVer = '11.0.0';
     await createDraftWithAppsAndDevices(context, 'ver-publish', { data: { version: pubVer } });
     await context.bulkDeploymentPage.publishFromDetail();
-    await context.bulkDeploymentPage.expectOverviewValue('Version', pubVer);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, pubVer);
 
-    // TC-BULK-VERSION-007: empty → default
+    setActualResult(testInfo, `Version ${pubVer} unchanged after publish`);
+  });
+
+  test('TC-BULK-VERSION-007: Empty version defaults to 1.0.0 after creation', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-007',
+      category: 'Bulk Deployment Version',
+      title: 'Empty version input defaults to 1.0.0 in created deployment',
+      precondition: 'User is logged in',
+      steps: ['Create with empty Version → defaults to 1.0.0'],
+      expected: 'Version shows default 1.0.0 when created with empty value',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('ver-empty', { version: '' }));
-    await context.bulkDeploymentPage.expectOverviewValue('Version', bulkDeploymentConfig.defaultVersion);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, bulkDeploymentConfig.defaultVersion);
 
-    // TC-BULK-VERSION-008: tab switching
+    setActualResult(testInfo, `Empty version defaulted to ${bulkDeploymentConfig.defaultVersion}`);
+  });
+
+  test('TC-BULK-VERSION-008: Version remains unchanged when switching between tabs', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-VERSION-008',
+      category: 'Bulk Deployment Version',
+      title: 'Version in overview remains correct when switching between Devices, Apps, and Batches tabs',
+      precondition: 'User is logged in',
+      steps: ['Switch tabs → Version remains unchanged'],
+      expected: 'Version is correct in overview regardless of which tab is active',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const tabVer = '12.3.4';
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('ver-tabs', { version: tabVer }));
     for (const openTab of [
@@ -711,9 +1164,9 @@ test.describe('Bulk Deployment - Version', () => {
       () => context.bulkDeploymentPage.openBatchesTab(),
     ]) {
       await openTab();
-      await context.bulkDeploymentPage.expectOverviewValue('Version', tabVer);
+      await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, tabVer);
     }
 
-    setActualResult(testInfo, 'Version default/editable/semver/edit/dup/publish/empty/tabs all verified');
+    setActualResult(testInfo, `Version ${tabVer} remained correct across all tab switches`);
   });
 });

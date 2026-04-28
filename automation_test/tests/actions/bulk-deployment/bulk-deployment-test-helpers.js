@@ -134,7 +134,42 @@ const test = base.extend({
       try {
         await use();
       } finally {
+        // 1. Dismiss any open dialogs/toasts before cleanup
+        try {
+          const openDialogs = page.getByRole('dialog');
+          if (await openDialogs.count() > 0) {
+            for (const dialog of await openDialogs.all()) {
+              const closeBtn = dialog.getByRole('button', { name: /close|cancel|×/i }).first();
+              if (await closeBtn.isVisible().catch(() => false)) {
+                await closeBtn.click();
+                await expect(dialog).toBeHidden({ timeout: 5000 }).catch(() => {});
+              }
+            }
+          }
+          // Dismiss any toast notifications
+          const toastCloseBtns = page.locator('[data-sonner-toast] button, .toast-close, [aria-label="Close toast"]');
+          for (const btn of await toastCloseBtns.all()) {
+            await btn.click().catch(() => {});
+          }
+        } catch (_) {
+          // Non-critical: if dialog dismissal fails, continue with cleanup
+        }
+
+        // 2. Delete all tracked deployments via API
         await cleanupTrackedBulkDeployments(page, testInfo);
+
+        // 3. Navigate to list page to ensure clean state for next test
+        try {
+          const appUrl = config.appURL;
+          if (appUrl) {
+            await page.goto(`${appUrl}/user/iot/bundles`, {
+              waitUntil: 'domcontentloaded',
+              timeout: 15000,
+            }).catch(() => {});
+          }
+        } catch (_) {
+          // Non-critical: page navigation for cleanup
+        }
       }
     },
     { auto: true },
@@ -159,10 +194,10 @@ const bulkDeploymentConfig = {
   appSearchKeyword: '',
   appDigitalSignage: 'Digital Signage',
   appCounterNow: 'counter_now',
-  onlineDeviceName: 'Auto test - 8C:FC:A0:31:59:34 - 3576N',
-  onlineDeviceMac: '8C:FC:A0:31:59:34',
-  offlineDeviceName: 'Auto test - 24:1C:04:27:0C:8B - DN76',
-  offlineDeviceMac: '24:1C:04:27:0C:8B',
+  onlineDeviceName: 'Auto test - 24:1C:04:26:88:E7 - DN74',
+  onlineDeviceMac: '24:1C:04:26:88:E7',
+  offlineDeviceName: '',
+  offlineDeviceMac: '',
   noResultKeyword: `zz_no_bulk_${Date.now()}`,
 };
 

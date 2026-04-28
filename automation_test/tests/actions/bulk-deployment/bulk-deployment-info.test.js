@@ -8,219 +8,335 @@ const {
   setActualResult,
   setTestCaseMetadata,
 } = require('./bulk-deployment-test-helpers');
+const { BULK_DEPLOYMENT } = require('../../../constants/bulk-deployment.constants');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TC-BULK-INFO-001..004 : Detail page structure / overview / status / audit
-// ─────────────────────────────────────────────────────────────────────────────
+const T = BULK_DEPLOYMENT.UI_TEXT;
+
 test.describe('Bulk Deployment - Info - Detail Page', () => {
-  test('TC-BULK-INFO-001 ~ 004: Detail page structure, overview fields, status badge, audit info', async ({ page }, testInfo) => {
+  test('TC-BULK-INFO-001: Detail page renders title, overview section, and tabs', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-INFO-001~004',
+      testcaseId: 'TC-BULK-INFO-001',
       category: 'Bulk Deployment Info',
-      title: 'Detail page structure, overview fields, status badge, and audit info',
+      title: 'Detail page renders title, overview section, and tab buttons',
       precondition: 'User is logged in; deployment exists',
-      steps: [
-        'Navigate to Deployment Detail page',
-        'Verify page title, overview section, and tabs',
-        'Verify all overview fields are visible',
-        'Verify status badge is visible and non-empty',
-        'Verify audit information (Created by / Last updated by)',
-      ],
-      expected: 'Page structure, overview fields, status badge, and audit section all render correctly',
+      steps: ['Navigate to Deployment Detail page', 'Verify page title, overview section, and tabs'],
+      expected: 'Page title, overview title, Devices, Apps, and Batches tabs are visible',
     });
 
     const context = createBulkDeploymentContext(page);
     await openBulkDeploymentDetail(context);
-
-    // TC-BULK-INFO-001: page structure
     await expect(context.bulkDeploymentPage.pageTitle).toBeVisible();
     await expect(context.bulkDeploymentPage.overviewTitle).toBeVisible();
     await expect(context.bulkDeploymentPage.devicesTab).toBeVisible();
     await expect(context.bulkDeploymentPage.appsTab).toBeVisible();
     await expect(context.bulkDeploymentPage.batchesTab).toBeVisible();
 
-    // TC-BULK-INFO-002: overview fields
-    for (const field of ['Deployment Name', 'Status', 'Target OS', 'Version', 'Batch Size', 'Start On', 'End On', 'Description', 'Reboot Device', 'Force Update']) {
-      await context.bulkDeploymentPage.expectOverviewFieldVisible(field);
-    }
-
-    // TC-BULK-INFO-003: status badge
-    const detectedStatus = await context.bulkDeploymentPage.expectStatusBadgeVisible();
-    expect(detectedStatus).toBeTruthy();
-
-    // TC-BULK-INFO-004: audit info
-    await context.bulkDeploymentPage.expectAuditInfoVisible();
-
-    setActualResult(testInfo, `Page structure, overview, status badge ("${detectedStatus}"), and audit info all rendered correctly`);
+    setActualResult(testInfo, 'Page title, overview, and all tabs visible');
   });
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TC-BULK-INFO-005..007 : Detail tabs — Devices / Apps / Batches empty states
-// ─────────────────────────────────────────────────────────────────────────────
-test.describe('Bulk Deployment - Info - Detail Tabs', () => {
-  test('TC-BULK-INFO-005 ~ 007: Devices / Apps / Batches tabs structure and empty state', async ({ page }, testInfo) => {
+  test('TC-BULK-INFO-002: All overview fields are visible on detail page', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-INFO-005~007',
+      testcaseId: 'TC-BULK-INFO-002',
       category: 'Bulk Deployment Info',
-      title: 'Devices, Apps, and Batches tabs structure and empty states',
-      precondition: 'User is logged in; draft deployment without assigned devices or apps',
-      steps: [
-        'Create a draft deployment',
-        'Verify Devices tab: Import CSV / Assign by tag / Add Device buttons, search input, empty state',
-        'Verify Apps tab: Add App button, empty state',
-        'Verify Batches tab: all metric labels visible, empty state',
-      ],
-      expected: 'Each tab renders with the expected actions/metrics and empty state when no data exists',
+      title: 'All overview fields are visible on detail page',
+      precondition: 'User is logged in; deployment exists',
+      steps: ['Verify all overview fields are visible'],
+      expected: 'All 10 overview fields are rendered',
     });
 
     const context = createBulkDeploymentContext(page);
-    await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-tabs-empty'));
+    await openBulkDeploymentDetail(context);
+    for (const field of [
+      T.OVERVIEW_FIELD_DEPLOYMENT_NAME,
+      T.OVERVIEW_FIELD_STATUS,
+      T.OVERVIEW_FIELD_TARGET_OS,
+      T.OVERVIEW_FIELD_VERSION,
+      T.OVERVIEW_FIELD_BATCH_SIZE,
+      T.OVERVIEW_FIELD_START_ON,
+      T.OVERVIEW_FIELD_END_ON,
+      T.OVERVIEW_FIELD_DESCRIPTION,
+      T.OVERVIEW_FIELD_REBOOT_DEVICE,
+      T.OVERVIEW_FIELD_FORCE_UPDATE,
+    ]) {
+      await context.bulkDeploymentPage.expectOverviewFieldVisible(field);
+    }
 
-    // Devices tab (TC-BULK-INFO-005)
+    setActualResult(testInfo, 'All overview fields visible');
+  });
+
+  test('TC-BULK-INFO-003: Status badge is visible and non-empty', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-003',
+      category: 'Bulk Deployment Info',
+      title: 'Status badge is visible and non-empty on detail page',
+      precondition: 'User is logged in; deployment exists',
+      steps: ['Verify status badge is visible and non-empty'],
+      expected: 'A known status badge is visible',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await openBulkDeploymentDetail(context);
+    const detectedStatus = await context.bulkDeploymentPage.expectStatusBadgeVisible();
+    expect(detectedStatus).toBeTruthy();
+
+    setActualResult(testInfo, `Status badge "${detectedStatus}" visible`);
+  });
+
+  test('TC-BULK-INFO-004: Audit info is visible on detail page', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-004',
+      category: 'Bulk Deployment Info',
+      title: 'Audit information is visible on detail page',
+      precondition: 'User is logged in; deployment exists',
+      steps: ['Verify audit information (Created by / Last updated by)'],
+      expected: 'Created by and Last updated by are visible',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await openBulkDeploymentDetail(context);
+    await context.bulkDeploymentPage.expectAuditInfoVisible();
+
+    setActualResult(testInfo, 'Audit info visible');
+  });
+});
+
+test.describe('Bulk Deployment - Info - Detail Tabs', () => {
+  test('TC-BULK-INFO-005: Devices tab renders action buttons, search, and empty state', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-005',
+      category: 'Bulk Deployment Info',
+      title: 'Devices tab shows Import CSV, Assign by tag, Add Device, search input, and empty state',
+      precondition: 'User is logged in; draft deployment without assigned devices',
+      steps: ['Create draft → Devices tab: verify action buttons, search input, empty state'],
+      expected: 'Devices tab renders with all expected controls and empty state',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-tabs-devices'));
     await context.bulkDeploymentPage.openDevicesTab();
     await expect(context.bulkDeploymentPage.importCsvButton).toBeVisible();
     await expect(context.bulkDeploymentPage.assignByTagButton).toBeVisible();
     await expect(context.bulkDeploymentPage.addDeviceButton).toBeVisible();
-    await expect(page.getByPlaceholder('Search by device name or ID...')).toBeVisible();
+    await expect(context.bulkDeploymentPage.getDeviceTableSearchInput()).toBeVisible();
     await context.bulkDeploymentPage.expectDevicesEmptyState();
 
-    // Apps tab (TC-BULK-INFO-006)
+    setActualResult(testInfo, 'Devices tab structure and empty state verified');
+  });
+
+  test('TC-BULK-INFO-006: Apps tab renders Add App button and empty state', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-006',
+      category: 'Bulk Deployment Info',
+      title: 'Apps tab shows Add App button and empty state for draft with no apps',
+      precondition: 'User is logged in; draft deployment without assigned apps',
+      steps: ['Create draft → Apps tab: verify Add App button and empty state'],
+      expected: 'Apps tab renders Add App button and empty state',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-tabs-apps'));
     await context.bulkDeploymentPage.openAppsTab();
     await expect(context.bulkDeploymentPage.addAppButton).toBeVisible();
     await context.bulkDeploymentPage.expectAppsEmptyState();
 
-    // Batches tab (TC-BULK-INFO-007)
-    await context.bulkDeploymentPage.openBatchesTab();
-    for (const metric of ['Total Batches', 'Batches Completed', 'Batches In-Progress', 'Batches Failed', 'Batches Canceled']) {
-      await expect(page.getByText(metric, { exact: true })).toBeVisible();
-    }
-    await context.bulkDeploymentPage.expectBatchesEmptyState();
-
-    setActualResult(testInfo, 'Devices, Apps, and Batches tabs all rendered with expected structure and empty states');
+    setActualResult(testInfo, 'Apps tab Add App button and empty state verified');
   });
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TC-BULK-INFO-008..010 : List page structure, search, no-result
-// ─────────────────────────────────────────────────────────────────────────────
-test.describe('Bulk Deployment - Info - List Page', () => {
-  test('TC-BULK-INFO-008 ~ 010: List page structure, search by name, and no-result state', async ({ page }, testInfo) => {
+  test('TC-BULK-INFO-007: Batches tab renders all metric labels and empty state', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-INFO-008~010',
+      testcaseId: 'TC-BULK-INFO-007',
       category: 'Bulk Deployment Info',
-      title: 'List page structure, search by name, and no-result state',
-      precondition: 'User is logged in',
-      steps: [
-        'Navigate to Bulk Deployments list page',
-        'Verify list page structure',
-        'Create a deployment and search by its name',
-        'Verify match appears in results',
-        'Search by invalid keyword and verify no-result state',
-      ],
-      expected: 'List page renders correctly, name search returns matching rows, invalid keyword shows no-result state',
+      title: 'Batches tab shows all metric labels and empty state for draft',
+      precondition: 'User is logged in; draft deployment',
+      steps: ['Create draft → Batches tab: verify metric labels and empty state'],
+      expected: 'All metric labels are visible and empty state is shown',
     });
 
     const context = createBulkDeploymentContext(page);
+    await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-tabs-batches'));
+    await context.bulkDeploymentPage.openBatchesTab();
+    for (const metric of [
+      T.BATCH_METRIC_TOTAL,
+      T.BATCH_METRIC_COMPLETED,
+      T.BATCH_METRIC_IN_PROGRESS,
+      T.BATCH_METRIC_FAILED,
+      T.BATCH_METRIC_CANCELED,
+    ]) {
+      await expect(context.bulkDeploymentPage.getBatchMetricLabel(metric)).toBeVisible();
+    }
+    await context.bulkDeploymentPage.expectBatchesEmptyState();
 
-    // TC-BULK-INFO-008: list page structure
+    setActualResult(testInfo, 'Batches tab metric labels and empty state verified');
+  });
+});
+
+test.describe('Bulk Deployment - Info - List Page', () => {
+  test('TC-BULK-INFO-008: List page renders expected structure', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-008',
+      category: 'Bulk Deployment Info',
+      title: 'List page renders title, search, add button, and column headers',
+      precondition: 'User is logged in',
+      steps: ['Navigate to Bulk Deployments list page', 'Verify list page structure'],
+      expected: 'List page structure is correct',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
 
-    // TC-BULK-INFO-009: search by name
+    setActualResult(testInfo, 'List page structure verified');
+  });
+
+  test('TC-BULK-INFO-009: Search by name returns matching deployment', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-009',
+      category: 'Bulk Deployment Info',
+      title: 'Search by deployment name returns matching row',
+      precondition: 'User is logged in',
+      steps: ['Create a deployment and search by its name', 'Verify match appears in results'],
+      expected: 'Matching deployment name is visible in search results',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const data = createDeploymentData('info-list-search');
     await context.bulkDeploymentPage.createDraftDeployment(data);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(data.name);
-    await expect(page.getByText(data.name, { exact: true }).first()).toBeVisible();
+    await expect(context.bulkDeploymentPage.rowByText(data.name)).toBeVisible();
 
-    // TC-BULK-INFO-010: no-result
+    setActualResult(testInfo, `Search found deployment "${data.name}"`);
+  });
+
+  test('TC-BULK-INFO-010: Search with invalid keyword shows no-result state', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-010',
+      category: 'Bulk Deployment Info',
+      title: 'Search with invalid keyword shows no-result state',
+      precondition: 'User is logged in',
+      steps: ['Search by invalid keyword and verify no-result state'],
+      expected: 'No deployments found message is visible',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     const noResultKeyword = `zz_none_${Date.now()}`;
     await context.bulkDeploymentPage.searchDeployment(noResultKeyword);
     await context.bulkDeploymentPage.expectNoDeploymentResults();
 
-    setActualResult(testInfo, `List page structure verified; search found "${data.name}"; invalid keyword showed no-result state`);
+    setActualResult(testInfo, `Invalid keyword "${noResultKeyword}" showed no-result state`);
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TC-BULK-INFO-011..018 : Extended info — sort, row actions, consistency, refresh, invalid ID
-// ─────────────────────────────────────────────────────────────────────────────
 test.describe('Bulk Deployment - Info - Extended', () => {
-  test('TC-BULK-INFO-011 ~ 013: Sort list, row action menu, status consistency', async ({ page }, testInfo) => {
+  test('TC-BULK-INFO-011: Sorting list by Deployment Name keeps list stable', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-INFO-011~013',
+      testcaseId: 'TC-BULK-INFO-011',
       category: 'Bulk Deployment Info',
-      title: 'List sort, row action menu, and status/version consistency',
+      title: 'Sorting list by Deployment Name column is stable',
       precondition: 'User is logged in; at least one deployment exists',
-      steps: [
-        'Navigate to list page and sort by Deployment Name twice',
-        'Create deployment and verify Draft row action menu contains Publish/View/Edit/Duplicate/Delete',
-        'Verify Draft status badge is consistent between detail and list row',
-      ],
-      expected: 'Sorting keeps list stable, row actions are correct for Draft, status/version are consistent',
+      steps: ['Navigate to list page and sort by Deployment Name twice'],
+      expected: 'List remains stable after two sort clicks',
     });
 
     const context = createBulkDeploymentContext(page);
-
-    // TC-BULK-INFO-011: sort
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
-    await context.bulkDeploymentPage.clickListColumnHeader('Deployment Name');
+    await context.bulkDeploymentPage.clickListColumnHeader(T.LIST_COL_DEPLOYMENT_NAME);
     await context.bulkDeploymentPage.waitForListReady();
-    await context.bulkDeploymentPage.clickListColumnHeader('Deployment Name');
+    await context.bulkDeploymentPage.clickListColumnHeader(T.LIST_COL_DEPLOYMENT_NAME);
     await context.bulkDeploymentPage.waitForListReady();
 
-    // TC-BULK-INFO-012: row actions
+    setActualResult(testInfo, 'List sort completed twice without errors');
+  });
+
+  test('TC-BULK-INFO-012: Draft row action menu contains expected actions', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-012',
+      category: 'Bulk Deployment Info',
+      title: 'Draft row action menu contains Publish, View, Edit, Duplicate, Delete',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Create deployment and verify Draft row action menu contains Publish/View/Edit/Duplicate/Delete'],
+      expected: 'All 5 expected actions are present in the row menu',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const data = createDeploymentData('info-row-actions');
     await context.bulkDeploymentPage.createDraftDeployment(data);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(data.name);
     const labels = await context.bulkDeploymentPage.getRowActionLabels(data.name);
-    expect(labels).toEqual(expect.arrayContaining(['Publish', 'View', 'Edit', 'Duplicate', 'Delete']));
+    expect(labels).toEqual(expect.arrayContaining([
+      T.ROW_ACTION_PUBLISH,
+      T.ROW_ACTION_VIEW,
+      T.ROW_ACTION_EDIT,
+      T.ROW_ACTION_DUPLICATE,
+      T.ROW_ACTION_DELETE,
+    ]));
 
-    // TC-BULK-INFO-013: status consistent between detail and list
-    await context.bulkDeploymentPage.expectOverviewValue('Status', 'Draft');
+    setActualResult(testInfo, `Row actions correct: ${labels.join(', ')}`);
+  });
+
+  test('TC-BULK-INFO-013: Draft status is consistent between detail and list', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-013',
+      category: 'Bulk Deployment Info',
+      title: 'Draft status badge is consistent between detail and list row',
+      precondition: 'User is logged in; Draft deployment exists',
+      steps: ['Verify Draft status badge is consistent between detail and list row'],
+      expected: 'Status shows Draft in both detail overview and list row',
+    });
+
+    const context = createBulkDeploymentContext(page);
+    const data = createDeploymentData('info-status-sync');
+    await context.bulkDeploymentPage.createDraftDeployment(data);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_STATUS, T.STATUS_DRAFT);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(data.name);
     const listStatus = await context.bulkDeploymentPage.getListCellText(data.name, 'status');
-    expect(listStatus).toContain('Draft');
+    expect(listStatus).toContain(T.STATUS_DRAFT);
 
-    setActualResult(testInfo, `Sort completed; Draft row actions were correct; Draft status was consistent`);
+    setActualResult(testInfo, 'Draft status consistent in detail and list');
   });
 
-  test('TC-BULK-INFO-014 ~ 016: Version consistency, tab switching keeps version, detail action buttons', async ({ page }, testInfo) => {
+  test('TC-BULK-INFO-014: Version is consistent between detail and list', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-INFO-014~016',
+      testcaseId: 'TC-BULK-INFO-014',
       category: 'Bulk Deployment Info',
-      title: 'Version consistency, tab switching, and Draft detail action buttons',
+      title: 'Version is consistent between detail overview and list page',
       precondition: 'User is logged in',
-      steps: [
-        'Create deployment with custom version and verify consistency between detail and list',
-        'Verify Version stays same when switching between Devices/Apps/Batches tabs',
-        'Verify Edit/Publish/Duplicate/Delete buttons are all visible on Draft detail page',
-      ],
-      expected: 'Version is consistent across detail/list/tabs; Draft has all 4 action buttons',
+      steps: ['Create deployment with custom version and verify consistency between detail and list'],
+      expected: 'Version is identical in detail overview and list row',
     });
 
     const context = createBulkDeploymentContext(page);
     const data = createDeploymentData('info-version-actions', { version: '2.4.1' });
     await context.bulkDeploymentPage.createDraftDeployment(data);
-
-    // TC-BULK-INFO-014: version consistency detail vs list
-    await context.bulkDeploymentPage.expectOverviewValue('Version', data.version);
+    await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, data.version);
     await context.bulkDeploymentPage.gotoList();
     await context.bulkDeploymentPage.waitForListReady();
     await context.bulkDeploymentPage.searchDeployment(data.name);
     const listVersion = await context.bulkDeploymentPage.getListCellText(data.name, 'version');
     expect(listVersion).toContain(data.version);
 
-    // TC-BULK-INFO-015: tab switching
+    setActualResult(testInfo, `Version ${data.version} consistent in detail and list`);
+  });
+
+  test('TC-BULK-INFO-015: Version remains correct when switching between tabs', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-015',
+      category: 'Bulk Deployment Info',
+      title: 'Version in overview is stable when switching between Apps, Batches, and Devices tabs',
+      precondition: 'User is logged in',
+      steps: ['Verify Version stays same when switching between Devices/Apps/Batches tabs'],
+      expected: 'Version is unchanged regardless of which tab is active',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-tab-version', { version: '12.3.4' }));
     for (const openTab of [
       () => context.bulkDeploymentPage.openAppsTab(),
@@ -228,51 +344,73 @@ test.describe('Bulk Deployment - Info - Extended', () => {
       () => context.bulkDeploymentPage.openDevicesTab(),
     ]) {
       await openTab();
-      await context.bulkDeploymentPage.expectOverviewValue('Version', '12.3.4');
+      await context.bulkDeploymentPage.expectOverviewValue(T.OVERVIEW_FIELD_VERSION, '12.3.4');
     }
 
-    // TC-BULK-INFO-016: detail action buttons for Draft
-    await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-detail-actions'));
-    for (const action of ['Edit', 'Publish', 'Duplicate', 'Delete']) {
-      expect(await context.bulkDeploymentPage.isDetailActionVisible(action), `${action} should be visible`).toBe(true);
-    }
-
-    setActualResult(testInfo, 'Version consistent; tab switching stable; Draft detail actions visible');
+    setActualResult(testInfo, 'Version 12.3.4 stable across tab switches');
   });
 
-  test('TC-BULK-INFO-017 ~ 018: Refresh keeps page structure; invalid ID shows error state', async ({ page }, testInfo) => {
+  test('TC-BULK-INFO-016: Draft detail page shows all four action buttons', async ({ page }, testInfo) => {
     setTestCaseMetadata(testInfo, {
-      testcaseId: 'TC-BULK-INFO-017~018',
+      testcaseId: 'TC-BULK-INFO-016',
       category: 'Bulk Deployment Info',
-      title: 'Refresh keeps page structure; invalid ID returns error/not-found state',
+      title: 'Draft detail page shows Edit, Publish, Duplicate, and Delete buttons',
       precondition: 'User is logged in',
-      steps: [
-        'Create a deployment, refresh detail page, verify structure remains',
-        'Navigate to an invalid deployment ID URL, verify error/not-found state',
-      ],
-      expected: 'Refresh keeps overview and tabs visible; invalid ID returns 404 or error page state',
+      steps: ['Verify Edit/Publish/Duplicate/Delete buttons are all visible on Draft detail page'],
+      expected: 'All 4 action buttons are visible for a Draft deployment',
     });
 
     const context = createBulkDeploymentContext(page);
+    await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-detail-actions'));
+    for (const action of [T.EDIT, T.PUBLISH, T.DUPLICATE, T.DELETE]) {
+      expect(
+        await context.bulkDeploymentPage.isDetailActionVisible(action),
+        `${action} should be visible`
+      ).toBe(true);
+    }
 
-    // TC-BULK-INFO-017: refresh keeps structure
+    setActualResult(testInfo, 'All Draft detail action buttons visible');
+  });
+
+  test('TC-BULK-INFO-017: Refresh keeps detail page structure intact', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-017',
+      category: 'Bulk Deployment Info',
+      title: 'Refreshing detail page keeps overview and tabs visible',
+      precondition: 'User is logged in',
+      steps: ['Create a deployment, refresh detail page, verify structure remains'],
+      expected: 'Overview and tabs are still visible after page refresh',
+    });
+
+    const context = createBulkDeploymentContext(page);
     await context.bulkDeploymentPage.createDraftDeployment(createDeploymentData('info-refresh'));
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
     await context.bulkDeploymentPage.waitForPageReady();
 
-    // TC-BULK-INFO-018: invalid ID
+    setActualResult(testInfo, 'Page structure intact after refresh');
+  });
+
+  test('TC-BULK-INFO-018: Invalid deployment ID URL returns error or not-found state', async ({ page }, testInfo) => {
+    setTestCaseMetadata(testInfo, {
+      testcaseId: 'TC-BULK-INFO-018',
+      category: 'Bulk Deployment Info',
+      title: 'Navigating to invalid deployment ID returns error or not-found state',
+      precondition: 'User is logged in',
+      steps: ['Navigate to an invalid deployment ID URL, verify error/not-found state'],
+      expected: 'Error or not-found state is displayed for invalid ID',
+    });
+
+    const context = createBulkDeploymentContext(page);
     const invalidId = `invalid-bulk-${Date.now()}`;
-    const response = await page.goto(`${config.appURL}/user/iot/bundles/${invalidId}`, {
+    await page.goto(`${config.appURL}/user/iot/bundles/${invalidId}`, {
       waitUntil: 'domcontentloaded',
       timeout: config.timeouts?.pageLoadMs || 30000,
     });
-    await page.waitForLoadState('networkidle').catch(() => {});
-    const bodyText = await page.locator('body').innerText().catch(() => '');
-    const hasErrorState = /not found|404|unable|error|does not exist/i.test(bodyText);
-    const hasHttpError = response ? response.status() >= 400 : false;
-    expect(hasErrorState || hasHttpError).toBe(true);
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await expect(
+      page.getByText(/not found|unable|does not exist/i).or(page.locator('[data-testid="not-found"]'))
+    ).toBeVisible({ timeout: config.timeouts?.pageLoadMs || 30000 });
 
-    setActualResult(testInfo, `Refresh kept structure; invalid ID returned HTTP ${response?.status() || 'unknown'} errorState=${hasErrorState}`);
+    setActualResult(testInfo, `Invalid ID "${invalidId}" showed not-found state`);
   });
 });

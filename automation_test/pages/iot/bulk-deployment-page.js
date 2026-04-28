@@ -1,5 +1,8 @@
 const { expect } = require('@playwright/test');
 const BasePage = require('../base-page');
+const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
+
+const T = BULK_DEPLOYMENT.UI_TEXT;
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -22,46 +25,46 @@ class BulkDeploymentPage extends BasePage {
 
     this.page = page;
     this.appUrl = options.appUrl;
-    this.listPath = options.listPath || '/user/iot/bundles';
-    this.detailPath = options.detailPath || '/user/iot/bundles';
+    this.listPath = options.listPath || BULK_DEPLOYMENT.URLS.LIST_PATH;
+    this.detailPath = options.detailPath || BULK_DEPLOYMENT.URLS.DETAIL_PATH;
     this.deploymentId = options.deploymentId;
     this.timeout = options.timeout || 30000;
     this.registerDeployment = typeof options.registerDeployment === 'function' ? options.registerDeployment : () => {};
 
-    this.listTitle = this.page.getByText('Bulk Deployments', { exact: true });
-    this.searchInput = this.page.getByPlaceholder('Search by Name or ID');
-    this.addDeploymentButton = this.page.getByRole('button', { name: 'Add Deployment' });
+    this.listTitle = this.page.getByRole('heading', { name: T.PAGE_TITLE }).or(this.page.getByText(T.PAGE_TITLE, { exact: true }));
+    this.searchInput = this.page.getByPlaceholder(T.SEARCH_LIST_PLACEHOLDER);
+    this.addDeploymentButton = this.page.getByRole('button', { name: T.ADD_DEPLOYMENT });
     this.deploymentRows = this.page.locator('tbody tr');
     this.deploymentNameLinks = this.page.locator('a.ds-deployment-name-link');
 
     this.addDeploymentDialog = this.page
       .getByRole('dialog')
-      .filter({ has: this.page.getByRole('heading', { name: 'Add Deployment' }) });
-    this.addDeploymentModalTitle = this.addDeploymentDialog.getByRole('heading', { name: 'Add Deployment' });
-    this.cancelButton = this.addDeploymentDialog.getByRole('button', { name: 'Cancel' });
-    this.saveAsDraftButton = this.addDeploymentDialog.getByRole('button', { name: 'Save as Draft' });
+      .filter({ has: this.page.getByRole('heading', { name: T.DIALOG_ADD_DEPLOYMENT }) });
+    this.addDeploymentModalTitle = this.addDeploymentDialog.getByRole('heading', { name: T.ADD_DEPLOYMENT });
+    this.cancelButton = this.addDeploymentDialog.getByRole('button', { name: T.CANCEL });
+    this.saveAsDraftButton = this.addDeploymentDialog.getByRole('button', { name: T.SAVE_AS_DRAFT });
 
-    this.pageTitle = this.page.getByText('Deployment Details', { exact: true });
-    this.overviewTitle = this.page.getByText('Deployment Overview', { exact: true });
+    this.pageTitle = this.page.getByRole('heading', { name: T.DETAIL_TITLE }).or(this.page.getByText(T.DETAIL_TITLE, { exact: true }));
+    this.overviewTitle = this.page.getByText(T.OVERVIEW_TITLE, { exact: true });
 
     this.tabList = this.page.getByRole('tablist');
-    this.devicesTab = this.tabList.getByRole('button', { name: 'Devices' });
-    this.appsTab = this.tabList.getByRole('button', { name: 'Apps' });
-    this.batchesTab = this.tabList.getByRole('button', { name: 'Batches' });
+    this.devicesTab = this.tabList.getByRole('button', { name: T.DEVICES_TAB });
+    this.appsTab = this.tabList.getByRole('button', { name: T.APPS_TAB });
+    this.batchesTab = this.tabList.getByRole('button', { name: T.BATCHES_TAB });
 
-    this.editButton = this.page.getByRole('button', { name: 'Edit' });
-    this.publishButton = this.page.getByRole('button', { name: 'Publish' });
-    this.duplicateButton = this.page.getByRole('button', { name: 'Duplicate' });
-    this.deleteButton = this.page.getByRole('button', { name: 'Delete' });
+    this.editButton = this.page.getByRole('button', { name: T.EDIT });
+    this.publishButton = this.page.getByRole('button', { name: T.PUBLISH });
+    this.duplicateButton = this.page.getByRole('button', { name: T.DUPLICATE });
+    this.deleteButton = this.page.getByRole('button', { name: T.DELETE });
 
-    this.deploymentDeviceTitle = this.page.getByText('Deployment Device', { exact: true });
-    this.deploymentAppsTitle = this.page.getByText('Deployment Apps', { exact: true });
-    this.deploymentBatchesTitle = this.page.getByText('Deployment Batches', { exact: true });
+    this.deploymentDeviceTitle = this.page.getByText(T.DEPLOYMENT_DEVICE_TITLE, { exact: true });
+    this.deploymentAppsTitle = this.page.getByText(T.DEPLOYMENT_APPS_TITLE, { exact: true });
+    this.deploymentBatchesTitle = this.page.getByText(T.DEPLOYMENT_BATCHES_TITLE, { exact: true });
 
-    this.importCsvButton = this.page.getByRole('button', { name: 'Import CSV' });
-    this.assignByTagButton = this.page.getByRole('button', { name: 'Assign by tag' });
-    this.addDeviceButton = this.page.getByRole('button', { name: 'Add Device' });
-    this.addAppButton = this.page.getByRole('button', { name: 'Add App' });
+    this.importCsvButton = this.page.getByRole('button', { name: T.IMPORT_CSV });
+    this.assignByTagButton = this.page.getByRole('button', { name: T.ASSIGN_BY_TAG });
+    this.addDeviceButton = this.page.getByRole('button', { name: T.ADD_DEVICE });
+    this.addAppButton = this.page.getByRole('button', { name: T.ADD_APP });
   }
 
   async goto() {
@@ -82,8 +85,6 @@ class BulkDeploymentPage extends BasePage {
       waitUntil: 'domcontentloaded',
       timeout: this.timeout,
     });
-
-    await this.page.waitForLoadState('networkidle').catch(() => {});
   }
 
   async gotoDetail(deploymentId) {
@@ -95,8 +96,6 @@ class BulkDeploymentPage extends BasePage {
       waitUntil: 'domcontentloaded',
       timeout: this.timeout,
     });
-
-    await this.page.waitForLoadState('networkidle').catch(() => {});
   }
 
   async waitForListReady() {
@@ -104,7 +103,14 @@ class BulkDeploymentPage extends BasePage {
     await expect(this.searchInput).toBeVisible({ timeout: this.timeout });
     await expect(this.addDeploymentButton).toBeVisible({ timeout: this.timeout });
 
-    for (const column of ['Deployment Name', 'Version', 'Start On', 'End On', 'Status', 'Actions']) {
+    for (const column of [
+      T.LIST_COL_DEPLOYMENT_NAME,
+      T.LIST_COL_VERSION,
+      T.LIST_COL_START_ON,
+      T.LIST_COL_END_ON,
+      T.LIST_COL_STATUS,
+      T.LIST_COL_ACTIONS,
+    ]) {
       await expect(this.page.getByText(column, { exact: true }).first()).toBeVisible({ timeout: this.timeout });
     }
   }
@@ -204,24 +210,131 @@ class BulkDeploymentPage extends BasePage {
     return this.page.locator('tbody tr').filter({ hasText: text }).first();
   }
 
+  getAddDeviceSearchInput() {
+    return this.page.getByPlaceholder(T.SEARCH_DEVICE_PLACEHOLDER);
+  }
+
+  getAddAppSearchInput() {
+    return this.page.getByPlaceholder(T.SEARCH_APP_PLACEHOLDER);
+  }
+
+  getDeviceTableSearchInput() {
+    return this.page.getByPlaceholder(T.SEARCH_DEVICE_IN_TABLE_PLACEHOLDER);
+  }
+
+  getTagSearchInput() {
+    return this.page.locator(`input[placeholder="${T.SEARCH_TAG_PLACEHOLDER}"]`);
+  }
+
+  getAddDeviceSelectedCount() {
+    return this.page.getByText(T.SELECTED_ZERO_ITEMS);
+  }
+
+  getAddAppSelectedCount() {
+    return this.page.getByText(T.SELECTED_ZERO_ITEMS);
+  }
+
+  getNoDeploymentsFoundText() {
+    return this.page.getByText(T.NO_DEPLOYMENTS_FOUND);
+  }
+
+  getNoAppsMatchText() {
+    return this.page.getByText(T.NO_APPS_MATCH);
+  }
+
+  getNoDevicesFoundText() {
+    return this.page.getByText(T.NO_DEVICES_FOUND);
+  }
+
+  getCharCounterNameMax() {
+    return this.page.getByText(T.CHAR_COUNTER_NAME_MAX);
+  }
+
+  getCharCounterDescMax() {
+    return this.page.getByText(T.CHAR_COUNTER_DESC_MAX);
+  }
+
+  getListColumnHeaderText(columnName) {
+    return this.page.getByText(columnName, { exact: true }).first();
+  }
+
+  getBatchMetricLabel(label) {
+    return this.page.getByText(label, { exact: true });
+  }
+
+  getBatchTableColumnHeader(columnName) {
+    return this.page.getByText(columnName, { exact: true }).first();
+  }
+
+  getAppsTableColumnHeader(columnName) {
+    return this.page.getByText(columnName, { exact: true }).first();
+  }
+
+  getAppResultOptions() {
+    return this.page.locator('.add-app-result-option');
+  }
+
+  getAppResultOptionByName(appName) {
+    return this.page
+      .locator('.add-app-result-option')
+      .filter({ hasText: appName })
+      .first();
+  }
+
+  getDeviceSelectorOptions() {
+    return this.page.locator('.device-selector-option');
+  }
+
+  getDeviceSelectorOptionByText(text) {
+    return this.page.locator('.device-selector-option').filter({ hasText: text }).first();
+  }
+
+  async waitForUiSettled() {
+    await expect.poll(
+      async () => this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count(),
+      {
+        timeout: Math.min(this.timeout, 10000),
+        message: 'Expected Bulk Deployment UI to finish loading',
+      }
+    ).toBe(0).catch(() => {});
+  }
+
+  async searchAndWait(searchInput, keyword, resultLocator, emptyLocator) {
+    await searchInput.fill('');
+    await searchInput.fill(keyword);
+    await expect.poll(async () => {
+      const resultCount = await resultLocator.count().catch(() => 0);
+      const emptyVisible = emptyLocator ? await emptyLocator.isVisible().catch(() => false) : false;
+      return resultCount > 0 || emptyVisible;
+    }, {
+      timeout: this.timeout,
+      message: `Expected search results or empty state for keyword "${keyword}"`,
+    }).toBe(true);
+  }
+
+  async visibleTexts(locator) {
+    return locator.evaluateAll((items) =>
+      items.map((item) => (item.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean)
+    ).catch(() => []);
+  }
+
   async waitForToastOrNetwork() {
-    await this.page.waitForLoadState('networkidle').catch(() => {});
-    await this.page.waitForTimeout(500);
+    await this.waitForUiSettled();
   }
 
   async setBatchSize(batchSize) {
     const value = String(batchSize);
     if (['100', '200', '300', '400', '500'].includes(value)) {
-      await this.selectDropdown('Batch Size', value);
+      await this.selectDropdown(T.FORM.BATCH_SIZE_LABEL, value);
       return;
     }
 
-    await this.selectDropdown('Batch Size', 'Custom');
-    await this.inputByLabel('Batch Size').fill(value);
+    await this.selectDropdown(T.FORM.BATCH_SIZE_LABEL, 'Custom');
+    await this.inputByLabel(T.FORM.BATCH_SIZE_LABEL).fill(value);
   }
 
   async setFutureSchedule(date, time = '09:00') {
-    await this.selectDropdown('Schedule', 'Future');
+    await this.selectDropdown(T.FORM.SCHEDULE_LABEL, T.FORM.FUTURE);
     await this.page.locator('input[type="date"]').last().fill(date);
     await this.page.locator('input[type="time"]').last().fill(time);
   }
@@ -241,37 +354,61 @@ class BulkDeploymentPage extends BasePage {
   async openAddDeploymentModal() {
     await this.gotoList();
     await this.waitForListReady();
+
+    // Dismiss any stale dialogs/overlays that might block the button
+    const staleDialogs = this.page.getByRole('dialog');
+    if (await staleDialogs.count() > 0) {
+      for (const dialog of await staleDialogs.all()) {
+        const closeBtn = dialog.getByRole('button', { name: /close|cancel|×/i }).first();
+        if (await closeBtn.isVisible().catch(() => false)) {
+          await closeBtn.click();
+          await expect(dialog).toBeHidden({ timeout: 5000 }).catch(() => {});
+        }
+      }
+    }
+
     await this.addDeploymentButton.click();
-    await expect(this.addDeploymentModalTitle.first()).toBeVisible({ timeout: this.timeout });
-    await expect(this.saveAsDraftButton).toBeVisible({ timeout: this.timeout });
+
+    // Retry if modal doesn't appear within timeout
+    try {
+      await expect(this.addDeploymentModalTitle.first()).toBeVisible({ timeout: this.timeout });
+      await expect(this.saveAsDraftButton).toBeVisible({ timeout: this.timeout });
+    } catch (e) {
+      // Retry once: re-navigate and try again
+      await this.gotoList();
+      await this.waitForListReady();
+      await this.addDeploymentButton.click();
+      await expect(this.addDeploymentModalTitle.first()).toBeVisible({ timeout: this.timeout });
+      await expect(this.saveAsDraftButton).toBeVisible({ timeout: this.timeout });
+    }
   }
 
   async fillDeploymentForm(data) {
     if (data.name !== undefined) {
-      await this.fillInput('Deployment Name', data.name);
+      await this.fillInput(T.FORM.NAME_LABEL, data.name);
     }
     if (data.targetOS !== undefined) {
-      await this.selectDropdown('Target to Operating System', data.targetOS);
+      await this.selectDropdown(T.FORM.TARGET_OS_LABEL, data.targetOS);
     }
     if (data.version !== undefined) {
-      await this.fillInput('Version', data.version);
+      await this.fillInput(T.FORM.VERSION_LABEL, data.version);
     }
     if (data.batchSize !== undefined) {
       await this.setBatchSize(data.batchSize);
     }
-    if (data.schedule === 'Future' && data.scheduleDate) {
+    if (data.schedule === T.FORM.FUTURE && data.scheduleDate) {
       await this.setFutureSchedule(data.scheduleDate, data.scheduleTime);
     } else if (data.schedule !== undefined) {
-      await this.selectDropdown('Schedule', data.schedule);
+      await this.selectDropdown(T.FORM.SCHEDULE_LABEL, data.schedule);
     }
     if (data.description !== undefined) {
-      await this.fillTextarea('Description', data.description);
+      await this.fillTextarea(T.FORM.DESCRIPTION_LABEL, data.description);
     }
     if (data.rebootDevice !== undefined) {
-      await this.setSwitch('Reboot Device', Boolean(data.rebootDevice));
+      await this.setSwitch(T.FORM.REBOOT_DEVICE, Boolean(data.rebootDevice));
     }
     if (data.forceUpdate !== undefined) {
-      await this.setSwitch('Force Update', Boolean(data.forceUpdate));
+      await this.setSwitch(T.FORM.FORCE_UPDATE, Boolean(data.forceUpdate));
     }
   }
 
@@ -299,7 +436,7 @@ class BulkDeploymentPage extends BasePage {
   async openEditDeploymentModal() {
     await expect(this.editButton.first()).toBeVisible({ timeout: this.timeout });
     await this.editButton.first().click();
-    const dialog = this.dialogByTitle('Edit Deployment');
+    const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     return dialog;
   }
@@ -309,8 +446,8 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async saveEditExpectDetail() {
-    const dialog = this.dialogByTitle('Edit Deployment');
-    const saveButton = dialog.getByRole('button', { name: 'Save Changes' });
+    const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
+    const saveButton = dialog.getByRole('button', { name: T.SAVE_CHANGES });
     await expect(saveButton).toBeEnabled({ timeout: this.timeout });
     await saveButton.click();
     await expect(dialog).toBeHidden({ timeout: this.timeout });
@@ -319,14 +456,14 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async saveEditExpectBlocked() {
-    const dialog = this.dialogByTitle('Edit Deployment');
-    await expect(dialog.getByRole('button', { name: 'Save Changes' })).toBeDisabled({ timeout: this.timeout });
+    const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
+    await expect(dialog.getByRole('button', { name: T.SAVE_CHANGES })).toBeDisabled({ timeout: this.timeout });
     await expect(dialog).toBeVisible({ timeout: this.timeout });
   }
 
   async cancelEdit() {
-    const dialog = this.dialogByTitle('Edit Deployment');
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
+    await dialog.getByRole('button', { name: T.CANCEL }).click();
     await expect(dialog).toBeHidden({ timeout: this.timeout });
   }
 
@@ -364,7 +501,16 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async expectStatusBadgeVisible() {
-    const badges = ['Draft', 'Failed', 'In Progress', 'Completed', 'Scheduled', 'Stopped', 'Cancelled', 'Canceled'];
+    const badges = [
+      T.STATUS_DRAFT,
+      T.STATUS_FAILED,
+      T.STATUS_IN_PROGRESS,
+      T.STATUS_COMPLETED,
+      T.STATUS_SCHEDULED,
+      T.STATUS_STOPPED,
+      T.STATUS_CANCELLED,
+      T.STATUS_CANCELED,
+    ];
 
     for (const badge of badges) {
       const locator = this.page.getByText(badge, { exact: true }).first();
@@ -377,15 +523,14 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async expectAuditInfoVisible() {
-    await expect(this.page.getByText(/Created by/i)).toBeVisible({ timeout: this.timeout });
-    await expect(this.page.getByText(/Last updated by/i)).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(new RegExp(T.CREATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(new RegExp(T.LAST_UPDATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });
   }
 
   async searchDeployment(keyword) {
     await this.searchInput.fill('');
     await this.searchInput.fill(keyword);
-    await this.page.waitForTimeout(700);
-    await this.page.waitForLoadState('networkidle').catch(() => {});
+    await this.waitForUiSettled();
   }
 
   async getVisibleDeploymentRowCount() {
@@ -393,7 +538,7 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async expectNoDeploymentResults() {
-    const noResults = this.page.getByText('No deployments found');
+    const noResults = this.getNoDeploymentsFoundText();
     if (await noResults.isVisible().catch(() => false)) {
       return;
     }
@@ -414,15 +559,15 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async expectDevicesEmptyState() {
-    await expect(this.page.getByText('No devices added to this bundle yet')).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.NO_DEVICE_EMPTY)).toBeVisible({ timeout: this.timeout });
   }
 
   async expectAppsEmptyState() {
-    await expect(this.page.getByText('No apps added to this bundle yet')).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.NO_APP_EMPTY)).toBeVisible({ timeout: this.timeout });
   }
 
   async expectBatchesEmptyState() {
-    await expect(this.page.getByText('No Data Available.')).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.NO_BATCH_EMPTY)).toBeVisible({ timeout: this.timeout });
   }
 
   async openDeploymentFromListByName(name) {
@@ -531,19 +676,17 @@ class BulkDeploymentPage extends BasePage {
       )
       .catch(() => null);
     await this.publishButton.first().click();
-    const response = await responsePromise;
+    await responsePromise;
     await this.waitForToastOrNetwork();
-    await this.page.waitForLoadState('networkidle').catch(() => {});
-    return response;
   }
 
   async runDeploymentFromDetail() {
-    const runButton = this.page.getByRole('button', { name: 'Run Deployment' }).first();
+    const runButton = this.page.getByRole('button', { name: T.RUN_DEPLOYMENT }).first();
     await expect(runButton).toBeVisible({ timeout: this.timeout });
     await runButton.click();
-    const dialog = this.dialogByTitle('Run Deployment');
+    const dialog = this.dialogByTitle(T.DIALOG_RUN_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: 'Run' }).click();
+    await dialog.getByRole('button', { name: T.RUN }).click();
     await this.waitForToastOrNetwork();
   }
 
@@ -551,13 +694,13 @@ class BulkDeploymentPage extends BasePage {
     const currentUrl = this.page.url();
     await expect(this.duplicateButton.first()).toBeVisible({ timeout: this.timeout });
     await this.duplicateButton.first().click();
-    const dialog = this.dialogByTitle('Duplicate Deployment');
+    const dialog = this.dialogByTitle(T.DIALOG_DUPLICATE_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: 'Duplicate' }).click();
+    await dialog.getByRole('button', { name: T.DUPLICATE }).click();
     await this.page.waitForFunction((url) => window.location.href !== url, currentUrl, { timeout: this.timeout });
     await this.waitForPageReady();
     const duplicatedId = this.getDeploymentIdFromUrl();
-    const duplicatedName = await this.getOverviewValue('Deployment Name').catch(() => '');
+    const duplicatedName = await this.getOverviewValue(T.OVERVIEW_FIELD_DEPLOYMENT_NAME).catch(() => '');
     this.registerDeployment({ id: duplicatedId, name: duplicatedName });
     return duplicatedId;
   }
@@ -565,9 +708,9 @@ class BulkDeploymentPage extends BasePage {
   async cancelDuplicateFromDetail() {
     const currentUrl = this.page.url();
     await this.duplicateButton.first().click();
-    const dialog = this.dialogByTitle('Duplicate Deployment');
+    const dialog = this.dialogByTitle(T.DIALOG_DUPLICATE_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await dialog.getByRole('button', { name: T.CANCEL }).click();
     await expect(dialog).toBeHidden({ timeout: this.timeout });
     expect(this.page.url()).toBe(currentUrl);
   }
@@ -575,17 +718,17 @@ class BulkDeploymentPage extends BasePage {
   async deleteFromDetail(confirm = true) {
     await expect(this.deleteButton.first()).toBeVisible({ timeout: this.timeout });
     await this.deleteButton.first().click();
-    const dialog = this.dialogByTitle('Delete Deployment');
+    const dialog = this.dialogByTitle(T.DIALOG_DELETE_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     if (!confirm) {
-      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await dialog.getByRole('button', { name: T.CANCEL }).click();
       await expect(dialog).toBeHidden({ timeout: this.timeout });
       return;
     }
     const navigationPromise = this.page
       .waitForURL((url) => url.pathname === this.listPath, { timeout: this.timeout })
       .catch(() => null);
-    await dialog.getByRole('button', { name: 'Delete' }).click();
+    await dialog.getByRole('button', { name: T.DELETE }).click();
     await navigationPromise;
     await this.waitForListReady();
   }
@@ -594,22 +737,22 @@ class BulkDeploymentPage extends BasePage {
     await this.gotoList();
     await this.waitForListReady();
     await this.searchDeployment(name);
-    await this.selectRowAction(name, 'Delete');
-    const dialog = this.dialogByTitle('Delete Deployment');
+    await this.selectRowAction(name, T.ROW_ACTION_DELETE);
+    const dialog = this.dialogByTitle(T.DIALOG_DELETE_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     if (!confirm) {
-      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await dialog.getByRole('button', { name: T.CANCEL }).click();
       await expect(dialog).toBeHidden({ timeout: this.timeout });
       return;
     }
-    await dialog.getByRole('button', { name: 'Delete' }).click();
+    await dialog.getByRole('button', { name: T.DELETE }).click();
     await this.waitForToastOrNetwork();
   }
 
   async openImportCsvModal() {
     await this.openDevicesTab();
     await this.importCsvButton.click();
-    const dialog = this.dialogByTitle('Import CSV');
+    const dialog = this.dialogByTitle(T.DIALOG_IMPORT_CSV);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     return dialog;
   }
@@ -617,7 +760,7 @@ class BulkDeploymentPage extends BasePage {
   async openAssignByTagModal() {
     await this.openDevicesTab();
     await this.assignByTagButton.click();
-    const dialog = this.dialogByTitle('Assign by tag');
+    const dialog = this.dialogByTitle(T.DIALOG_ASSIGN_BY_TAG);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     return dialog;
   }
@@ -625,14 +768,14 @@ class BulkDeploymentPage extends BasePage {
   async openAddDeviceModal() {
     await this.openDevicesTab();
     await this.addDeviceButton.click();
-    const dialog = this.dialogByTitle('Add Device');
+    const dialog = this.dialogByTitle(T.DIALOG_ADD_DEVICE);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await expect(this.page.getByPlaceholder('Search and select device')).toBeVisible({ timeout: this.timeout });
+    await expect(this.getAddDeviceSearchInput()).toBeVisible({ timeout: this.timeout });
     return dialog;
   }
 
   async selectDeviceInModal(deviceName) {
-    const searchInput = this.page.getByPlaceholder('Search and select device');
+    const searchInput = this.getAddDeviceSearchInput();
     const macAddress = extractMacAddress(deviceName);
     const searchTerms = [deviceName, macAddress].filter((term, index, values) => term && values.indexOf(term) === index);
     let option = null;
@@ -641,7 +784,7 @@ class BulkDeploymentPage extends BasePage {
     for (const searchTerm of searchTerms) {
       await searchInput.fill('');
       await searchInput.fill(searchTerm);
-      await this.page.waitForTimeout(700);
+      await this.waitForUiSettled();
 
       const exactNameOption = this.page
         .locator('.device-selector-option')
@@ -668,13 +811,13 @@ class BulkDeploymentPage extends BasePage {
         .locator('.device-selector-option, .device-selector-empty')
         .evaluateAll((items) => items.map((item) => (item.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean))
         .catch(() => []);
-      lastResultSummary = resultTexts.length ? resultTexts.join('; ') : 'No devices found';
+      lastResultSummary = resultTexts.length ? resultTexts.join('; ') : T.NO_DEVICES_FOUND;
     }
 
     if (!option) {
       throw new Error(
         `Required Bulk Deployment device test data was not found in Add Device modal. Expected device="${deviceName}". ` +
-          `Searched="${searchTerms.join(', ')}". Results="${lastResultSummary || 'No devices found'}". ` +
+          `Searched="${searchTerms.join(', ')}". Results="${lastResultSummary || T.NO_DEVICES_FOUND}". ` +
           'Check the DEV account/device assignment or the BULK_DEVICE_* environment variables.'
       );
     }
@@ -695,8 +838,8 @@ class BulkDeploymentPage extends BasePage {
     for (const deviceName of deviceNames) {
       await this.selectDeviceInModal(deviceName);
     }
-    const dialog = this.dialogByTitle('Add Device');
-    const addButton = dialog.getByRole('button', { name: /^Add$/ });
+    const dialog = this.dialogByTitle(T.DIALOG_ADD_DEVICE);
+    const addButton = dialog.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ADD)}$`) });
     await expect(addButton).toBeEnabled({ timeout: this.timeout });
     await addButton.click();
     await this.waitForToastOrNetwork();
@@ -707,36 +850,46 @@ class BulkDeploymentPage extends BasePage {
 
   async removeDeviceByName(deviceName) {
     await this.openDevicesTab();
-    await this.selectRowAction(deviceName, 'Remove');
-    const dialog = this.dialogByTitle('Remove Device');
+    await this.selectRowAction(deviceName, T.REMOVE);
+    const dialog = this.dialogByTitle(T.DIALOG_REMOVE_DEVICE);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: 'Remove' }).click();
+    await dialog.getByRole('button', { name: T.REMOVE }).click();
     await this.waitForToastOrNetwork();
     await this.expectDeviceRowHidden(deviceName);
   }
 
   async searchDeviceInDeployment(keyword) {
     await this.openDevicesTab();
-    const searchInput = this.page.getByPlaceholder('Search by device name or ID...');
+    const searchInput = this.getDeviceTableSearchInput();
     await searchInput.fill('');
     await searchInput.fill(keyword);
-    await this.page.waitForTimeout(500);
+    await this.waitForUiSettled();
   }
 
   async openAddAppModal() {
     await this.openAppsTab();
     await this.addAppButton.click();
-    const dialog = this.dialogByTitle('Add App');
+    const dialog = this.dialogByTitle(T.DIALOG_ADD_APP);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await expect(this.page.getByPlaceholder('Search and select app')).toBeVisible({ timeout: this.timeout });
+    await expect(this.getAddAppSearchInput()).toBeVisible({ timeout: this.timeout });
     return dialog;
   }
 
   async selectAppInModal(appName) {
-    const searchInput = this.page.getByPlaceholder('Search and select app');
+    const searchInput = this.getAddAppSearchInput();
     await searchInput.fill('');
     await searchInput.fill(appName);
-    await this.page.waitForTimeout(700);
+
+    // Wait for search results to finish loading (not just UI spinners)
+    await expect.poll(async () => {
+      const loadingCount = await this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count();
+      const loadingText = await this.page.locator('.add-app-result-option, .empty-state, [class*="empty"]').filter({ hasText: /loading/i }).count();
+      return loadingCount + loadingText;
+    }, {
+      timeout: this.timeout,
+      message: `Waiting for app search results to finish loading for "${appName}"`,
+    }).toBe(0).catch(() => {});
+
     const option = this.page
       .locator('.add-app-result-option')
       .filter({
@@ -745,6 +898,25 @@ class BulkDeploymentPage extends BasePage {
         }),
       })
       .first();
+
+    // Retry: if option not visible, wait and try again
+    if (!(await option.isVisible().catch(() => false))) {
+      // Wait for UI to settle before retry
+      await expect.poll(async () => this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count(), {
+        timeout: 3000,
+        message: `Waiting before retry for app "${appName}"`,
+      }).toBe(0).catch(() => {});
+      await searchInput.fill('');
+      await searchInput.fill(appName);
+      await expect.poll(async () => {
+        const loadingCount = await this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count();
+        return loadingCount;
+      }, {
+        timeout: this.timeout,
+        message: `Retry: waiting for app search results for "${appName}"`,
+      }).toBe(0).catch(() => {});
+    }
+
     if (!(await option.isVisible().catch(() => false))) {
       const resultTexts = await this.page
         .locator('.add-app-result-option, .empty-state, [class*="empty"]')
@@ -752,7 +924,7 @@ class BulkDeploymentPage extends BasePage {
         .catch(() => []);
       throw new Error(
         `Required Bulk Deployment app test data was not found or selectable in Add App modal. Expected app="${appName}". ` +
-          `Results="${resultTexts.join('; ') || 'No apps found'}".`
+          `Results="${resultTexts.join('; ') || T.NO_APPS_MATCH}".`
       );
     }
     await option.click();
@@ -770,8 +942,8 @@ class BulkDeploymentPage extends BasePage {
     for (const appName of appNames) {
       await this.selectAppInModal(appName);
     }
-    const dialog = this.dialogByTitle('Add App');
-    const assignButton = dialog.getByRole('button', { name: 'Assign' });
+    const dialog = this.dialogByTitle(T.DIALOG_ADD_APP);
+    const assignButton = dialog.getByRole('button', { name: T.ASSIGN });
     await expect(assignButton).toBeEnabled({ timeout: this.timeout });
     await assignButton.click();
     await this.waitForToastOrNetwork();
@@ -782,10 +954,10 @@ class BulkDeploymentPage extends BasePage {
 
   async removeAppByName(appName) {
     await this.openAppsTab();
-    await this.selectRowAction(appName, 'Remove');
-    const dialog = this.dialogByTitle('Remove App');
+    await this.selectRowAction(appName, T.REMOVE);
+    const dialog = this.dialogByTitle(T.DIALOG_REMOVE_APP);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: 'Remove' }).click();
+    await dialog.getByRole('button', { name: T.REMOVE }).click();
     await this.waitForToastOrNetwork();
     await expect(this.rowByText(appName)).toHaveCount(0, { timeout: this.timeout });
   }
@@ -802,24 +974,24 @@ class BulkDeploymentPage extends BasePage {
 
   async getBatchMetrics() {
     return {
-      total: await this.getBatchMetricValue('Total Batches'),
-      completed: await this.getBatchMetricValue('Batches Completed'),
-      inProgress: await this.getBatchMetricValue('Batches In-Progress'),
-      failed: await this.getBatchMetricValue('Batches Failed'),
-      canceled: await this.getBatchMetricValue('Batches Canceled'),
+      total: await this.getBatchMetricValue(T.BATCH_METRIC_TOTAL),
+      completed: await this.getBatchMetricValue(T.BATCH_METRIC_COMPLETED),
+      inProgress: await this.getBatchMetricValue(T.BATCH_METRIC_IN_PROGRESS),
+      failed: await this.getBatchMetricValue(T.BATCH_METRIC_FAILED),
+      canceled: await this.getBatchMetricValue(T.BATCH_METRIC_CANCELED),
     };
   }
 
   async addFirstAvailableDevice(searchKeyword = '') {
     await this.openDevicesTab();
     await this.addDeviceButton.click();
-    await expect(this.page.getByText('Add Device', { exact: true }).last()).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.ADD_DEVICE, { exact: true }).last()).toBeVisible({ timeout: this.timeout });
 
-    const searchInput = this.page.getByPlaceholder('Search and select device');
+    const searchInput = this.getAddDeviceSearchInput();
     await expect(searchInput).toBeVisible({ timeout: this.timeout });
     if (searchKeyword) {
       await searchInput.fill(searchKeyword);
-      await this.page.waitForTimeout(700);
+      await this.waitForUiSettled();
     } else {
       await searchInput.click();
     }
@@ -828,40 +1000,60 @@ class BulkDeploymentPage extends BasePage {
     await expect(option).toBeVisible({ timeout: this.timeout });
     const selectedName = normalizeText((await option.locator('.device-selector-option-name').first().textContent()) || '');
     await option.click();
-    await expect(this.page.getByText('Selected (1 items)')).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.SELECTED_ONE_ITEMS)).toBeVisible({ timeout: this.timeout });
 
-    const addButton = this.page.getByRole('button', { name: /^Add$/ }).last();
+    const addButton = this.page.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ADD)}$`) }).last();
     await expect(addButton).toBeEnabled({ timeout: this.timeout });
     await addButton.dispatchEvent('click');
-    await this.page.waitForLoadState('networkidle').catch(() => {});
     await expect(this.page.getByText(selectedName, { exact: true }).first()).toBeVisible({ timeout: this.timeout });
     return selectedName;
+  }
+
+  async searchAppInAddModal(keyword) {
+    const searchInput = this.getAddAppSearchInput();
+    const results = this.getAppResultOptions();
+    const empty = this.getNoAppsMatchText();
+    await this.searchAndWait(searchInput, keyword, results, empty);
+  }
+
+  async expectAppSearchResultVisible(appName) {
+    await expect(this.getAppResultOptionByName(appName)).toBeVisible({ timeout: this.timeout });
+  }
+
+  async searchDeviceInAddModal(keyword) {
+    const searchInput = this.getAddDeviceSearchInput();
+    const results = this.getDeviceSelectorOptions();
+    const empty = this.getNoDevicesFoundText();
+    await this.searchAndWait(searchInput, keyword, results, empty);
+  }
+
+  async expectDeviceSearchResultVisible(deviceNameOrMac) {
+    await expect(this.getDeviceSelectorOptionByText(deviceNameOrMac)).toBeVisible({ timeout: this.timeout });
   }
 
   async addFirstAvailableApp(searchKeyword = '') {
     await this.openAppsTab();
     await this.addAppButton.click();
-    await expect(this.page.getByText('Add App', { exact: true }).last()).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.ADD_APP, { exact: true }).last()).toBeVisible({ timeout: this.timeout });
 
-    const searchInput = this.page.getByPlaceholder('Search and select app');
+    const searchInput = this.getAddAppSearchInput();
     await expect(searchInput).toBeVisible({ timeout: this.timeout });
     if (searchKeyword) {
       await searchInput.fill(searchKeyword);
-      await this.page.waitForTimeout(700);
+      await this.waitForUiSettled();
     } else {
       await searchInput.click();
     }
 
-    const option = this.page.locator('.add-app-result-option').first();
+    const option = this.getAppResultOptions().first();
     await expect(option).toBeVisible({ timeout: this.timeout });
     const selectedName = normalizeText((await option.locator('.add-app-result-option-text').first().textContent()) || '');
     await option.click();
-    await expect(this.page.getByText('Selected (1 item)')).toBeVisible({ timeout: this.timeout });
+    await expect(this.page.getByText(T.SELECTED_ONE_ITEM)).toBeVisible({ timeout: this.timeout });
 
-    const assignButton = this.page.getByRole('button', { name: /^Assign$/ }).last();
+    const assignButton = this.page.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ASSIGN)}$`) }).last();
     await expect(assignButton).toBeEnabled({ timeout: this.timeout });
     await assignButton.click();
-    await this.page.waitForLoadState('networkidle').catch(() => {});
     await expect(this.page.getByText(selectedName, { exact: true }).first()).toBeVisible({ timeout: this.timeout });
     return selectedName;
   }
