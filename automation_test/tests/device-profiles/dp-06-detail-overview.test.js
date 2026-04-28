@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const DeviceProfilePage = require('../../pages/iot/device-profile-page');
+const DeviceProfilePage = require('../../pages/device-profiles/device-profile-page');
 const {
     authFile,
     PROFILE_WITH_DEVICES_ID,

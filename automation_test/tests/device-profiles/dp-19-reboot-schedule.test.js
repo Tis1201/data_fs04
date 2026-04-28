@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const DeviceProfilePage = require('../../pages/iot/device-profile-page');
+const DeviceProfilePage = require('../../pages/device-profiles/device-profile-page');
 const DeviceDetailPage = require('../../pages/devices/device-detail/device-detail-page');
 const DevicePage = require('../../pages/devices/device-listing-page');
 const {
@@ -30,6 +30,14 @@ test.describe('Section 21 — Reboot Schedule Verification', () => {
         const profileName = generateTestProfileNameWithSuffix('AutoTest_reboot_sched');
         const dp = new DeviceProfilePage(page);
         const devicePage = new DevicePage(page, SCHEDULE_DEVICE_ID);
+        const deviceDetailPage = new DeviceDetailPage(page, SCHEDULE_DEVICE_ID);
+
+        // Helper: read connection status from current device detail page
+        async function getDeviceConnectionStatus() {
+            const isOnline = await deviceDetailPage.onlineBadge.isVisible({ timeout: 5000 }).catch(() => false);
+            if (isOnline) return 'online';
+            return 'offline';
+        }
 
         function getDeviceTimeWithOffset(offsetMinutes) {
             const future = new Date(Date.now() + offsetMinutes * 60000);
@@ -53,11 +61,10 @@ test.describe('Section 21 — Reboot Schedule Verification', () => {
                 await page.goto(devicePage.deviceUrl);
                 await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
 
-                const status = await devicePage.getDeviceConnectionStatus();
+                const status = await getDeviceConnectionStatus();
                 console.log(`  Device connection status: "${status}"`);
                 expect(status, 'Device must be ONLINE to run reboot test').toContain('online');
 
-                const deviceDetailPage = new DeviceDetailPage(page, SCHEDULE_DEVICE_ID);
                 const fields = await deviceDetailPage.extractAllFieldValues();
                 scheduleDeviceName = fields['Device Name'] || '';
                 console.log(`  Schedule test device name: "${scheduleDeviceName}"`);
@@ -153,8 +160,8 @@ test.describe('Section 21 — Reboot Schedule Verification', () => {
                 let offlineDetected = false;
                 const maxOfflinePolls = 60;
                 for (let attempt = 1; attempt <= maxOfflinePolls; attempt++) {
-                    await page.reload({ waitUntil: 'domcontentloaded' });
-                    const status = await devicePage.getDeviceConnectionStatus();
+                    await page.goto(deviceDetailPage.url, { waitUntil: 'domcontentloaded' });
+                    const status = await getDeviceConnectionStatus();
                     console.log(`  Poll ${attempt}: status = "${status.trim()}"`);
                     if (status.includes('offline')) {
                         offlineDetected = true;
@@ -169,8 +176,8 @@ test.describe('Section 21 — Reboot Schedule Verification', () => {
                 let onlineRestored = false;
                 const maxOnlinePolls = 30;
                 for (let attempt = 1; attempt <= maxOnlinePolls; attempt++) {
-                    await page.reload({ waitUntil: 'domcontentloaded' });
-                    const status = await devicePage.getDeviceConnectionStatus();
+                    await page.goto(deviceDetailPage.url, { waitUntil: 'domcontentloaded' });
+                    const status = await getDeviceConnectionStatus();
                     console.log(`  Recovery poll ${attempt}: status = "${status.trim()}"`);
                     if (status.includes('online')) {
                         onlineRestored = true;
