@@ -17,13 +17,17 @@ module.exports = {
 
   pageURL: {
     devices: {
+      url: 'https://app-dev-v2.datarealities.com/user/iot/devices',
       listUrl: 'https://app-dev-v2.datarealities.com/user/iot/devices',
       detailPath: '/user/iot/devices',
 
       // Online device: Auto test - 8C:FC:A0:31:59:34 - 3576M (cmo2cimuo012114b2csz0wxxm)
-      // Offline device: Auto test - 24:1C:04:27:0C:8B - DN76 (cmo2e0ih2016714b2cvo4567z)
+      // Offline device: Auto test - 22:16:C6:7B:2D:82 - DN76 (cmm053wd7003bvdijqu4fbcej)
       onlineDeviceId: 'cmo2cimuo012114b2csz0wxxm',
-      offlineDeviceId: 'cmo2e0ih2016714b2cvo4567z',
+      offlineDeviceId: 'cmm053wd7003bvdijqu4fbcej',
+      ethernetDeviceId: 'cmo2cimuo012114b2csz0wxxm',
+      wifiDeviceId: 'cmo2cimuo012114b2csz0wxxm',
+      invalidDeviceId: 'invalid-device-id-999',
       snapshotTargetDeviceId: 'cmo2cimuo012114b2csz0wxxm',
 
       snapshot: {

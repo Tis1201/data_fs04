@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const config = require('../../../config/config-loader');
-const DeviceDetailPage = require('../../../pages/iot/device-detail-page');
+const DeviceDetailPage = require('../../../pages/devices/device-detail/device-detail-page');
 const InstallAppModal = require('../../../pages/iot/install-app-modal');
 const InstalledAppsPanel = require('../../../pages/iot/installed-apps-panel');
 const DeviceTerminalPage = require('../../../pages/iot/device-terminal-page');

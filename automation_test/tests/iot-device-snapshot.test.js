@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const DevicePage = require('../pages/iot/device-page');
+const DevicePage = require('../pages/devices/device-listing-page');
 const config = require('../config/config-loader');
 const path = require('path');
 
