@@ -6,12 +6,12 @@ const {
   openActivityTabReady,
   setActualResult,
   setTestCaseMetadata,
-} = require('./reboot-test-helpers');
+} = require('../../../pages/devices/device-detail/test-helpers/reboot-test-helpers');
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
-} = require('../shared/device-action-common');
+} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
 
 test.describe('Device detail - Reboot action', () => {
   // ── TC-REBOOT-001 ~ 003: Precondition, Modal, Cancel ────────────────────

@@ -6,12 +6,12 @@ const {
   runSnapshotHappyFlow,
   setActualResult,
   setTestCaseMetadata,
-} = require('./snapshot-test-helpers');
+} = require('../../../pages/devices/device-detail/test-helpers/snapshot-test-helpers');
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
-} = require('../shared/device-action-common');
+} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
 
 test.describe('Device detail - Snapshot action', () => {
   // ── TC-SNAPSHOT-001 ~ 003: Precondition, trigger, image display ──────────

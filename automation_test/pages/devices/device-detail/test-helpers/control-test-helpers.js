@@ -1,51 +1,51 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
-const config = require('../../../config/config-loader');
-const DeviceDetailPage = require('../../../pages/devices/device-detail/device-detail-page');
-const DeviceTerminalPage = require('../../../pages/iot/device-terminal-page');
+const config = require('../../../../config/config-loader');
+const DeviceDetailPage = require('../device-detail-page');
+const DeviceControlPage = require('../../../../pages/iot/device-control-page');
+const DeviceTerminalPage = require('../../../../pages/iot/device-terminal-page');
 const {
   setActualResult,
   setTestCaseMetadata,
-} = require('../../support/usecase-annotations');
+} = require('../../../../tests/support/usecase-annotations');
 
-const authFile = path.resolve(__dirname, '../../../user.json');
+const authFile = path.resolve(__dirname, '../../../../user.json');
 
 test.use({ storageState: authFile });
 
-const rebootConfig = config.pageURL?.devices?.reboot || {};
-const targetDeviceId =
-  rebootConfig.targetDeviceId ||
-  config.pageURL?.devices?.terminal?.targetDeviceId ||
-  config.pageURL?.devices?.installApp?.targetDeviceId ||
-  config.pageURL?.devices?.snapshotTargetDeviceId;
+const controlConfig = config.pageURL?.devices?.control || {};
 const terminalVerifyCommand =
-  rebootConfig.terminalVerifyCommand || config.pageURL?.devices?.terminal?.recoveryCommand || 'id';
+  controlConfig.terminalVerifyCommand || config.pageURL?.devices?.terminal?.smokeCommand || 'id';
 const terminalVerifyExpectedPattern =
-  rebootConfig.terminalVerifyExpectedPattern ||
-  config.pageURL?.devices?.terminal?.recoveryExpectedPattern ||
+  controlConfig.terminalVerifyExpectedPattern ||
+  config.pageURL?.devices?.terminal?.smokeExpectedPattern ||
   'uid=';
 
-function createRebootContext(page) {
+function createControlContext(page, deviceId = controlConfig.targetDeviceId) {
   return {
     config,
-    targetDeviceId,
-    rebootConfig,
+    controlConfig,
+    targetDeviceId: deviceId,
     terminalVerifyCommand,
     terminalVerifyExpectedPattern,
     deviceDetailPage: new DeviceDetailPage(page, {
       appUrl: config.appURL,
       devicePath: config.pageURL?.devices?.detailPath,
-      deviceId: targetDeviceId,
+      deviceId,
       timeouts: {
         pageLoad: config.timeouts?.pageLoadMs,
         activityLog: config.timeouts?.activityLogMs,
-        rebootFinalStatus:
-          rebootConfig.finalStatusTimeoutMs || config.timeouts?.rebootFinalStatusMs,
       },
       maxActivityLogRows: 50,
     }),
+    deviceControlPage: new DeviceControlPage(page, {
+      timeouts: {
+        pageLoad: config.timeouts?.pageLoadMs,
+        controlReady: config.timeouts?.controlReadyMs,
+      },
+    }),
     terminalPage: new DeviceTerminalPage(page, {
-      deviceId: targetDeviceId,
+      deviceId,
       timeouts: {
         pageLoad: config.timeouts?.pageLoadMs,
         terminalReady: config.timeouts?.terminalReadyMs,
@@ -71,10 +71,10 @@ async function openActivityTabReady(context) {
 module.exports = {
   test,
   expect,
-  createRebootContext,
+  createControlContext,
   openOnlineDeviceDetail,
   openActivityTabReady,
-  rebootConfig,
+  controlConfig,
   terminalVerifyCommand,
   terminalVerifyExpectedPattern,
   setActualResult,

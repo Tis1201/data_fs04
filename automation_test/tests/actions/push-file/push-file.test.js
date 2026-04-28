@@ -13,14 +13,14 @@ const {
   cleanupPushFileTarget,
   setActualResult,
   setTestCaseMetadata,
-} = require('./push-file-test-helpers');
+} = require('../../../pages/devices/device-detail/test-helpers/push-file-test-helpers');
 const {
   attachJson,
   buildPathExistsCommand,
   openTerminalSession,
   toRegExp,
   withFreshPageContext,
-} = require('../shared/device-action-common');
+} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
 
 function getPushFileCleanupFailureMessage(phase, cleanupResult = {}) {
   if (!cleanupResult || cleanupResult.skipped || cleanupResult.cleaned) {

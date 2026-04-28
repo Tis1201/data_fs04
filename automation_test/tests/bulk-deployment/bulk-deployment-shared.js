@@ -1,13 +1,15 @@
 const { test: base, expect } = require('@playwright/test');
 const path = require('path');
-const config = require('../../../config/config-loader');
-const BulkDeploymentPage = require('../../../pages/iot/bulk-deployment-page');
+const config = require('../../config/config-loader');
+const BulkDeploymentPage = require('../../pages/iot/bulk-deployment-page');
 const {
   setActualResult,
   setTestCaseMetadata,
-} = require('../../support/usecase-annotations');
+} = require('../support/usecase-annotations');
 
-const authFile = path.resolve(__dirname, '../../../user.json');
+const authFile = path.resolve(__dirname, '../../user.json');
+const appOrigin = 'https://app-dev-v2.datarealities.com';
+const apiOrigin = 'https://app-dev-v2.datarealities.com';
 
 const cleanupStateByPage = new WeakMap();
 
@@ -46,13 +48,13 @@ async function responseSummary(response) {
 }
 
 async function requestDeleteBundle(page, deploymentId, apiPath) {
-  return page.request.delete(`${config.appURL}${apiPath}/${deploymentId}`, {
+  return page.request.delete(`${apiOrigin}${apiPath}/${deploymentId}`, {
     timeout: config.timeouts?.pageLoadMs || 30000,
   });
 }
 
 async function requestStopBundle(page, deploymentId) {
-  return page.request.post(`${config.appURL}/api/v2/bundles/${deploymentId}/stop`, {
+  return page.request.post(`${apiOrigin}/api/v2/bundles/${deploymentId}/stop`, {
     data: {},
     timeout: config.timeouts?.pageLoadMs || 30000,
   });
@@ -206,7 +208,7 @@ function createBulkDeploymentContext(page) {
     config,
     bulkDeploymentConfig,
     bulkDeploymentPage: new BulkDeploymentPage(page, {
-      appUrl: config.appURL,
+      appUrl: appOrigin,
       listPath: bulkDeploymentConfig.listPath,
       detailPath: bulkDeploymentConfig.detailPath,
       deploymentId: bulkDeploymentConfig.targetDeploymentId,

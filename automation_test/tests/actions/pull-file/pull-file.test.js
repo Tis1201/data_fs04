@@ -9,13 +9,13 @@ const {
   invalidSourceFilePath,
   setActualResult,
   setTestCaseMetadata,
-} = require('./pull-file-test-helpers');
+} = require('../../../pages/devices/device-detail/test-helpers/pull-file-test-helpers');
 const {
   attachJson,
   buildPathExistsCommand,
   openTerminalSession,
   toRegExp,
-} = require('../shared/device-action-common');
+} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
 
 test.describe('Device detail - Pull File action', () => {
   // ── TC-PULLFILE-001 ~ 004: Precondition + Modal states + Confirm button ─

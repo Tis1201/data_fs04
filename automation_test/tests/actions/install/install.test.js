@@ -9,7 +9,7 @@ const {
   attachJson,
   setActualResult,
   setTestCaseMetadata,
-} = require('./install-test-helpers');
+} = require('../../../pages/devices/device-detail/test-helpers/install-test-helpers');
 
 test.describe('Device detail - Install App action', () => {
   // ── TC-INSTALL-V2-001 ~ 002: Activity Log + Installed Apps ───────────────

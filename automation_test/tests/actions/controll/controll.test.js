@@ -7,13 +7,13 @@ const {
   controlConfig,
   setActualResult,
   setTestCaseMetadata,
-} = require('./controll-test-helpers');
+} = require('../../../pages/devices/device-detail/test-helpers/control-test-helpers');
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
   withFreshPageContext,
-} = require('../shared/device-action-common');
+} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
 
 test.describe('Device detail - Control action', () => {
   // ── TC-CONTROL-001 ~ 003: Precondition, Loading UI, Connected Session ────

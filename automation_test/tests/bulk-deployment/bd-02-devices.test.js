@@ -6,8 +6,8 @@ const {
   createDeploymentData,
   setActualResult,
   setTestCaseMetadata,
-} = require('./bulk-deployment-test-helpers');
-const { BULK_DEPLOYMENT } = require('../../../constants/bulk-deployment.constants');
+} = require('./bulk-deployment-shared');
+const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
 
 const T = BULK_DEPLOYMENT.UI_TEXT;
 

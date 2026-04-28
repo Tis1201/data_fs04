@@ -1,4 +1,5 @@
-const { expect } = require('@playwright/test');
+
+nst { expect } = require('@playwright/test');
 const { DEVICE_DETAIL } = require('../../../constants/device-detail.constants');
 
 const deviceDetailModals = {
