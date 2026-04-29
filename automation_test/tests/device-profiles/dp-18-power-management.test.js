@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const DeviceProfilePage = require('../../pages/iot/device-profile-page');
+const DeviceProfilePage = require('../../pages/device-profiles/device-profile-page');
 const DeviceDetailPage = require('../../pages/devices/device-detail/device-detail-page');
 const DevicePage = require('../../pages/devices/device-listing-page');
 const {
@@ -30,6 +30,7 @@ test.describe('Section 20 — Power Management Schedule Verification', () => {
         const profileName = generateTestProfileNameWithSuffix('AutoTest_power_sched');
         const dp = new DeviceProfilePage(page);
         const devicePage = new DevicePage(page, SCHEDULE_DEVICE_ID);
+        const deviceDetailPage = new DeviceDetailPage(page, SCHEDULE_DEVICE_ID);
 
         // ── Helpers ──
         function getDeviceTimeWithOffset(offsetMinutes) {
@@ -68,13 +69,13 @@ test.describe('Section 20 — Power Management Schedule Verification', () => {
         }
 
         async function takeSnapshotAndGetBrightness() {
-            await devicePage.triggerSnapshot();
-            await expect(devicePage.successLogMessage).toBeVisible({ timeout: 30000 });
-            await expect(devicePage.snapshotImage).toBeVisible({ timeout: 5000 });
-            const src = await devicePage.getSnapshotImageSrc();
+            await deviceDetailPage.triggerSnapshot();
+            await deviceDetailPage.waitForSnapshotImage();
+            await expect(deviceDetailPage.screenshotImage).toBeVisible({ timeout: 30000 });
+            const src = await deviceDetailPage.screenshotImage.getAttribute('src');
             expect(src, 'Snapshot should be a valid base64 JPEG').toMatch(/^data:image\/jpeg;base64,/);
             const brightness = await getImageBrightness(src);
-            await devicePage.closeSnapshotModal();
+            await deviceDetailPage.closeSnapshotModalIfVisible();
             return brightness;
         }
 
@@ -123,7 +124,6 @@ test.describe('Section 20 — Power Management Schedule Verification', () => {
             await test.step('Get schedule test device name', async () => {
                 await page.goto(devicePage.deviceUrl);
                 await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
-                const deviceDetailPage = new DeviceDetailPage(page, SCHEDULE_DEVICE_ID);
                 const fields = await deviceDetailPage.extractAllFieldValues();
                 scheduleDeviceName = fields['Device Name'] || '';
                 console.log(`  Schedule test device name: "${scheduleDeviceName}"`);

@@ -25,6 +25,7 @@ module.exports = {
       // Offline device: Auto test - 22:16:C6:7B:2D:82 - DN76 (cmm053wd7003bvdijqu4fbcej)
       onlineDeviceId: 'cmo2cimuo012114b2csz0wxxm',
       offlineDeviceId: 'cmm053wd7003bvdijqu4fbcej',
+      scheduleTestDeviceId: 'cmo0yzd4z00c014b2fn8k4o7n',
       ethernetDeviceId: 'cmo2cimuo012114b2csz0wxxm',
       wifiDeviceId: 'cmo2cimuo012114b2csz0wxxm',
       invalidDeviceId: 'invalid-device-id-999',
@@ -106,7 +107,7 @@ module.exports = {
     },
      deviceProfiles: {
             url: 'https://app-dev-v2.datarealities.com/user/iot/device-profiles',
-            profileWithDevicesId: 'cmn2yfvw70021ygu0fwwqrtrl',
+            profileWithDevicesId: 'cmmx6a4wx005m101ijldfeoww',
             profileWithDevicesName: 'DN74-profile',
             profileWithoutDevicesId: 'cmmnr86oc002r100okcqr3y0n',
             profileWithoutDevicesName: 'Dn74config',

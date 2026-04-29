@@ -1,5 +1,5 @@
 const { expect } = require('@playwright/test');
-const DeviceProfilePage = require('../pages/iot/device-profile-page');
+const DeviceProfilePage = require('../pages/device-profiles/device-profile-page');
 const { compare } = require('./terminal-helpers');
 
 function getErrorMessage(error) {
