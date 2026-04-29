@@ -1,5 +1,5 @@
 const base = require('@playwright/test');
-const DeviceProfilePage = require('../../pages/iot/device-profile-page');
+const DeviceProfilePage = require('../../pages/device-profiles/device-profile-page');
 const { authFile, generateTestProfileNameWithSuffix } = require('./dp-shared');
 const { createProfileViaModal, cleanupProfile } = require('../../utils/device-profiles-helpers');
 
