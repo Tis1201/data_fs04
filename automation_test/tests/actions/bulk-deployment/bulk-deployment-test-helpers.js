@@ -4,7 +4,6 @@ const config = require('../../config/config-loader');
 const BulkDeploymentPage = require('../../pages/iot/bulk-deployment-page');
 const {
   setActualResult,
-  setTestCaseMetadata,
 } = require('../support/usecase-annotations');
 
 const authFile = path.resolve(__dirname, '../../user.json');
@@ -292,5 +291,4 @@ module.exports = {
   makeString,
   openBulkDeploymentDetail,
   setActualResult,
-  setTestCaseMetadata,
 };
