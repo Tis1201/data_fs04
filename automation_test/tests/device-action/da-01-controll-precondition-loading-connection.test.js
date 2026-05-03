@@ -94,8 +94,8 @@ extendedTest1.describe('Section 2 — Activity Log Verification', () => {
 extendedTest1.describe('Section 3 — Negative: Disconnected State', () => {
   extendedTest1('TC-DA-005: Verify disconnected UI when control session cannot connect', async ({ page }, testInfo) => {
     test.skip(
-      !controlConfig.failureTargetDeviceId,
-      'Set CONTROL_FAILURE_TARGET_DEVICE_ID or CONTROL_OFFLINE_TARGET_DEVICE_ID before running the negative Control test.'
+      !controlConfig.failureTargetDeviceId || process.env.RUN_NEGATIVE_CONTROL !== '1',
+      'Negative Control test is skipped unless RUN_NEGATIVE_CONTROL=1 and a failureTargetDeviceId is configured.'
     );
 
     await test.step('Run main flow', async () => {

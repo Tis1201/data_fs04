@@ -21,9 +21,15 @@ module.exports = {
       listUrl: 'https://app-dev-v2.datarealities.com/user/iot/devices',
       detailPath: '/user/iot/devices',
 
-      // Online device: Auto test - 8C:FC:A0:31:59:34 - 3576M (cmo2cimuo012114b2csz0wxxm)
+      // Online devices (from Devices list)
+      // - Auto test - 24:1C:04:26:88:E7 - DN74 (cmo0yzd4z00c014b2fn8k4o7n)
+      // - Auto test - 8C:FC:A0:31:59:34 - 3576M (cmo2cimuo012114b2csz0wxxm)
+      // - Auto test - 8C:FC:A0:31:59:5F - 3576M-2 (cmo6pi0i00eeqjch8wr6po2v5)
       // Offline device: Auto test - 22:16:C6:7B:2D:82 - DN76 (cmm053wd7003bvdijqu4fbcej)
+      // Primary device used by most device-action tests.
       onlineDeviceId: 'cmo2cimuo012114b2csz0wxxm',
+      secondaryOnlineDeviceId: 'cmo0yzd4z00c014b2fn8k4o7n',
+      tertiaryOnlineDeviceId: 'cmo6pi0i00eeqjch8wr6po2v5',
       offlineDeviceId: 'cmm053wd7003bvdijqu4fbcej',
       scheduleTestDeviceId: 'cmo0yzd4z00c014b2fn8k4o7n',
       ethernetDeviceId: 'cmo2cimuo012114b2csz0wxxm',
@@ -60,7 +66,8 @@ module.exports = {
 
       control: {
         targetDeviceId: 'cmo2cimuo012114b2csz0wxxm',
-        failureTargetDeviceId: 'cmo2e0ih2016714b2cvo4567z',
+        // Use an offline device to validate disconnected UI.
+        failureTargetDeviceId: 'cmm053wd7003bvdijqu4fbcej',
         terminalVerifyCommand: 'id',
         terminalVerifyExpectedPattern: 'uid=',
       },

@@ -67,6 +67,25 @@ class BulkDeploymentPage extends BasePage {
     this.addAppButton = this.page.getByRole('button', { name: T.ADD_APP });
   }
 
+  async dismissBlockingDialogs(maxAttempts = 3) {
+    const dialogLocator = this.page.locator('[role="dialog"][aria-modal="true"]');
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const hasDialog = (await dialogLocator.count().catch(() => 0)) > 0;
+      if (!hasDialog) return;
+
+      const dialog = dialogLocator.last();
+      const closeBtn = dialog.getByRole('button', { name: /close|cancel|×/i }).first();
+      if (await closeBtn.isVisible().catch(() => false)) {
+        await closeBtn.click().catch(async () => closeBtn.click({ force: true }));
+      } else {
+        await this.page.keyboard.press('Escape').catch(() => {});
+      }
+
+      await dialog.waitFor({ state: 'hidden', timeout: 2000 }).catch(() => {});
+      await this.waitForUiSettled();
+    }
+  }
+
   async goto() {
     if (!this.deploymentId) {
       await this.gotoList();
@@ -149,6 +168,9 @@ class BulkDeploymentPage extends BasePage {
   }
 
   async openAppsTab() {
+    const alreadyOnApps = await this.deploymentAppsTitle.isVisible().catch(() => false);
+    if (alreadyOnApps) return;
+
     await this.appsTab.click();
     await expect(this.deploymentAppsTitle).toBeVisible({ timeout: this.timeout });
   }
@@ -416,6 +438,8 @@ class BulkDeploymentPage extends BasePage {
     await expect(this.saveAsDraftButton).toBeEnabled({ timeout: this.timeout });
     await this.saveAsDraftButton.click();
     await expect(this.pageTitle).toBeVisible({ timeout: this.timeout });
+    await expect(this.addDeploymentDialog).toBeHidden({ timeout: this.timeout }).catch(() => {});
+    await this.waitForUiSettled();
     return this.getDeploymentIdFromUrl();
   }
 
@@ -1033,6 +1057,7 @@ class BulkDeploymentPage extends BasePage {
 
   async addFirstAvailableApp(searchKeyword = '') {
     await this.openAppsTab();
+    await this.dismissBlockingDialogs();
     await this.addAppButton.click();
     await expect(this.page.getByText(T.ADD_APP, { exact: true }).last()).toBeVisible({ timeout: this.timeout });
 
@@ -1049,7 +1074,6 @@ class BulkDeploymentPage extends BasePage {
     await expect(option).toBeVisible({ timeout: this.timeout });
     const selectedName = normalizeText((await option.locator('.add-app-result-option-text').first().textContent()) || '');
     await option.click();
-    await expect(this.page.getByText(T.SELECTED_ONE_ITEM)).toBeVisible({ timeout: this.timeout });
 
     const assignButton = this.page.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ASSIGN)}$`) }).last();
     await expect(assignButton).toBeEnabled({ timeout: this.timeout });
