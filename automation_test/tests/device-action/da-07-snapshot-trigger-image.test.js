@@ -1,17 +1,16 @@
 const base = require('@playwright/test');
 const {
-  test,
   expect,
   createSnapshotContext,
   prepareSnapshotFlow,
   runSnapshotHappyFlow,
   setActualResult,
-} = require('../../../pages/devices/device-detail/test-helpers/snapshot-test-helpers');
+} = require('../../pages/devices/device-detail/test-helpers/snapshot-test-helpers');
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
-} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
+} = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM

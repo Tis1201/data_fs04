@@ -1,5 +1,5 @@
 const base = require('@playwright/test');
-const controlHelpers = require('../../pages/devices/device-detail/test-helpers/control-test-helpers');
+const controlTestHelpers = require('../../pages/devices/device-detail/test-helpers/control-test-helpers');
 const {
   expect,
   createControlContext,
@@ -7,16 +7,14 @@ const {
   openActivityTabReady,
   controlConfig,
   setActualResult,
-} = controlHelpers;
+} = controlTestHelpers;
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
   withFreshPageContext,
 } = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
-const { authFile } = require('./device-actions-shared');
 
-// Rule 11.1 & 16.2: Use Fixture to initialize shared POM
 const extendedTest = base.test.extend({
   page: async ({ page }, use) => {
     await page.goto('/');
@@ -24,26 +22,22 @@ const extendedTest = base.test.extend({
   },
 });
 
-const extendedTest1 = extendedTest;
-extendedTest1.use({ storageState: authFile });
-const test = extendedTest1;
+extendedTest.use({ storageState: 'user.json' });
+const test = extendedTest;
 
-extendedTest1.describe('Section 1 — Device Control Action: Precondition, Loading, Connection', () => {
-  extendedTest1('TC-DA-001~003: Precondition, loading UI, and connected session', async ({ page }, testInfo) => {
+extendedTest.describe('Device detail - Control action', () => {
+  extendedTest('TC-CONTROL-001~003: Precondition, loading UI, and connected session', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
     await test.step('Run main flow', async () => {
       const context = createControlContext(page);
 
-      // TC-DA-001: precondition
       await openOnlineDeviceDetail(context);
 
-      // TC-DA-002: loading UI
       await context.deviceDetailPage.openControlFromDeviceDetail();
       await context.deviceControlPage.waitForControlPageReady();
       await context.deviceControlPage.waitForLoadingState();
 
-      // TC-DA-003: connected session
       const controlResult = await context.deviceControlPage.waitForConnected();
       expect(controlResult.isConnected).toBeTruthy();
       expect(
@@ -56,10 +50,8 @@ extendedTest1.describe('Section 1 — Device Control Action: Precondition, Loadi
       );
     });
   });
-});
 
-extendedTest1.describe('Section 2 — Activity Log Verification', () => {
-  extendedTest1('TC-DA-004: Verify Activity Log contains Control entry with Success status', async ({ page }, testInfo) => {
+  extendedTest('TC-CONTROL-004: Verify Activity Log contains Control entry with Success status', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
     await test.step('Run main flow', async () => {
@@ -89,10 +81,8 @@ extendedTest1.describe('Section 2 — Activity Log Verification', () => {
       );
     });
   });
-});
 
-extendedTest1.describe('Section 3 — Negative: Disconnected State', () => {
-  extendedTest1('TC-DA-005: Verify disconnected UI when control session cannot connect', async ({ page }, testInfo) => {
+  extendedTest('TC-CONTROL-005: Verify disconnected UI when control session cannot connect', async ({ page }, testInfo) => {
     test.skip(
       !controlConfig.failureTargetDeviceId,
       'Set CONTROL_FAILURE_TARGET_DEVICE_ID or CONTROL_OFFLINE_TARGET_DEVICE_ID before running the negative Control test.'
@@ -118,10 +108,8 @@ extendedTest1.describe('Section 3 — Negative: Disconnected State', () => {
       );
     });
   });
-});
 
-extendedTest1.describe('Section 4 — Terminal Verification', () => {
-  extendedTest1('TC-DA-006: Start Control session and verify Terminal on the same Android device', async ({ page }, testInfo) => {
+  extendedTest('TC-CONTROL-006: Start Control session and verify Terminal on the same Android device', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
     await test.step('Run main flow', async () => {

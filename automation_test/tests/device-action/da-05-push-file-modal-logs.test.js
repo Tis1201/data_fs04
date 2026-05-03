@@ -1,6 +1,5 @@
 const base = require('@playwright/test');
 const {
-  test,
   expect,
   createPushFileContext,
   openOnlineDeviceDetail,
@@ -13,14 +12,14 @@ const {
   resolvePushFileTerminalTargetPath,
   cleanupPushFileTarget,
   setActualResult,
-} = require('../../../pages/devices/device-detail/test-helpers/push-file-test-helpers');
+} = require('../../pages/devices/device-detail/test-helpers/push-file-test-helpers');
 const {
   attachJson,
   buildPathExistsCommand,
   openTerminalSession,
   toRegExp,
   withFreshPageContext,
-} = require('../../../pages/devices/device-detail/test-helpers/device-action-shared');
+} = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
 const { authFile } = require('./device-actions-shared');
 
 function getPushFileCleanupFailureMessage(phase, cleanupResult = {}) {

@@ -1,6 +1,5 @@
 const base = require('@playwright/test');
 const {
-  test,
   expect,
   createInstallContext,
   installConfiguredApp,
@@ -8,7 +7,7 @@ const {
   cleanupInstalledApp,
   attachJson,
   setActualResult,
-} = require('../../../pages/devices/device-detail/test-helpers/install-test-helpers');
+} = require('../../pages/devices/device-detail/test-helpers/install-test-helpers.js');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM
