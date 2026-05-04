@@ -8,13 +8,13 @@ const {
   validSourceFilePath,
   invalidSourceFilePath,
   setActualResult,
-} = require('../../pages/devices/device-detail/test-helpers/pull-file-test-helpers.js');
+} = require('../../pages/devices/device-detail/modules/device-actions/pull-file');
 const {
   attachJson,
   buildPathExistsCommand,
   openTerminalSession,
   toRegExp,
-} = require('../../pages/devices/device-detail/test-helpers/device-action-shared.js');
+} = require('../../pages/devices/device-detail/modules/device-actions/shared');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM
@@ -30,7 +30,7 @@ test.use({ storageState: authFile });
 
 test.describe('Section 1 — Pull File Action: Precondition and Modal States', () => {
   test('TC-DA-010~013: Precondition, modal initial state, and confirm button behaviour', async ({ page }, testInfo) => {
-    await test.step('Run main flow', async () => {
+    await test.step('Pull File modal: open, validation, confirm enable/disable', async () => {
       const context = createPullFileContext(page);
 
       // TC-DA-010: precondition
@@ -62,7 +62,7 @@ test.describe('Section 2 — Activity Log Success and Failed', () => {
   test('TC-DA-014~015: Pull file successfully and with invalid path, verify Activity Log', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Pull valid path then invalid path; assert Success and Failed logs', async () => {
       const context = createPullFileContext(page);
 
       // TC-DA-014: success
@@ -93,7 +93,7 @@ test.describe('Section 2 — Activity Log Success and Failed', () => {
 
 test.describe('Section 3 — Cancel without Log', () => {
   test('TC-DA-016: Verify Pull File modal can be cancelled without creating new Activity Log', async ({ page }, testInfo) => {
-    await test.step('Run main flow', async () => {
+    await test.step('Cancel Pull File modal without creating Activity Log entry', async () => {
       const context = createPullFileContext(page);
 
       await openActivityTabReady(context);
@@ -125,7 +125,7 @@ test.describe('Section 4 — Terminal Verification', () => {
   test('TC-DA-017: Pull file successfully and verify the source path from Terminal', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Successful pull then Terminal check on source path', async () => {
       const context = createPullFileContext(page);
 
       await openActivityTabReady(context);

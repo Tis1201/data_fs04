@@ -527,6 +527,7 @@ class BulkDeploymentPage extends BasePage {
   async expectStatusBadgeVisible() {
     const badges = [
       T.STATUS_DRAFT,
+      T.STATUS_PUBLISHED,
       T.STATUS_FAILED,
       T.STATUS_IN_PROGRESS,
       T.STATUS_COMPLETED,
@@ -700,6 +701,38 @@ class BulkDeploymentPage extends BasePage {
       )
       .catch(() => null);
     await this.publishButton.first().click();
+    await responsePromise;
+    await this.waitForToastOrNetwork();
+  }
+
+  /**
+   * List page: row Actions → Publish → Deployment Confirm modal.
+   * @param {string} rowSearchText deployment name (or unique row match text)
+   * @param {{ confirm?: boolean }} options confirm false clicks Cancel
+   */
+  async publishFromListByName(rowSearchText, options = {}) {
+    const { confirm = true } = options;
+    await this.gotoList();
+    await this.waitForListReady();
+    await this.searchDeployment(rowSearchText);
+    await this.selectRowAction(rowSearchText, T.ROW_ACTION_PUBLISH);
+    const dialog = this.dialogByTitle(T.DIALOG_DEPLOYMENT_CONFIRM);
+    await expect(dialog).toBeVisible({ timeout: this.timeout });
+    if (!confirm) {
+      await dialog.getByRole('button', { name: T.CANCEL }).click();
+      await expect(dialog).toBeHidden({ timeout: this.timeout });
+      return;
+    }
+    const responsePromise = this.page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          response.url().includes('/api/v2/bundles/') &&
+          response.url().includes('/publish'),
+        { timeout: this.timeout }
+      )
+      .catch(() => null);
+    await dialog.getByRole('button', { name: T.CONFIRM }).click();
     await responsePromise;
     await this.waitForToastOrNetwork();
   }

@@ -5,12 +5,12 @@ const {
   prepareSnapshotFlow,
   runSnapshotHappyFlow,
   setActualResult,
-} = require('../../pages/devices/device-detail/test-helpers/snapshot-test-helpers');
+} = require('../../pages/devices/device-detail/modules/device-actions/snapshot');
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
-} = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
+} = require('../../pages/devices/device-detail/modules/device-actions/shared');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM
@@ -28,7 +28,7 @@ test.describe('Section 1 — Snapshot Action: Precondition and Trigger', () => {
   test('TC-DA-032~034: Precondition, trigger Snapshot, and verify image is displayed', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Trigger Snapshot and wait for preview image', async () => {
       const context = createSnapshotContext(page);
 
       // TC-DA-032: precondition
@@ -50,7 +50,7 @@ test.describe('Section 2 — Activity Log and Modal Close', () => {
   test('TC-DA-035~036: Verify Activity Log Success and modal close stability', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Snapshot Success in Activity Log and stable UI after closing modal', async () => {
       const context = createSnapshotContext(page);
 
       await prepareSnapshotFlow(context);
@@ -86,7 +86,7 @@ test.describe('Section 3 — Multiple Runs', () => {
   test('TC-DA-037: Trigger Snapshot 3 times and verify each run creates a new Success log', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Three consecutive Snapshots each add a new Success log', async () => {
       const context = createSnapshotContext(page);
       const runResults = [];
 
@@ -112,7 +112,7 @@ test.describe('Section 4 — Terminal Verification', () => {
   test('TC-DA-038: Trigger Snapshot and verify Terminal remains usable on Android', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('After Snapshot, Terminal still responds on the device', async () => {
       const context = createSnapshotContext(page);
 
       await prepareSnapshotFlow(context);

@@ -52,6 +52,7 @@ module.exports = {
       NO_DEVICES_FOUND: 'No devices found',
 
       STATUS_DRAFT: 'Draft',
+      STATUS_PUBLISHED: 'Published',
       STATUS_FAILED: 'Failed',
       STATUS_IN_PROGRESS: 'In Progress',
       STATUS_COMPLETED: 'Completed',
