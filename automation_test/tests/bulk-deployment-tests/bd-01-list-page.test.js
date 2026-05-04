@@ -1,5 +1,5 @@
 const { createBulkTest } = require('./bd-shared');
-const { createDraftOpenDetail, assertListPageStructure } = require('../../pages/iot/modules/bulk-deployment/flows');
+const { createDraftOpenDetail, assertListPageStructure } = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkTest();
 const expect = test.expect;

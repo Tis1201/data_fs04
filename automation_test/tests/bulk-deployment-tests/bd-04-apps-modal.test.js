@@ -3,7 +3,7 @@ const {
   openDeploymentForAppsTab,
   assertAddAppModalStructure,
   assertAddAppModalInvalidSearch,
-} = require('../../pages/iot/modules/bulk-deployment/flows');
+} = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkTest();
 const expect = test.expect;

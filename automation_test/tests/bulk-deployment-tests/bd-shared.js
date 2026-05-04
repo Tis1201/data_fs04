@@ -3,7 +3,7 @@
  */
 const path = require('path');
 const base = require('@playwright/test');
-const { createBulkPage, deleteTrackedBundlesForPage } = require('../../pages/iot/modules/bulk-deployment/flows');
+const { createBulkPage, deleteTrackedBundlesForPage } = require('../../pages/bulk-deployments/flows');
 const config = require('../../config/config-loader');
 
 (function validateBulkDeploymentEnv() {

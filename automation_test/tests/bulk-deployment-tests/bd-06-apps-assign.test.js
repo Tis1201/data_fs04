@@ -1,5 +1,5 @@
 const { createBulkTest, bulkTestData } = require('./bd-shared');
-const { createDraftOpenDetail } = require('../../pages/iot/modules/bulk-deployment/flows');
+const { createDraftOpenDetail } = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkTest();
 const expect = test.expect;

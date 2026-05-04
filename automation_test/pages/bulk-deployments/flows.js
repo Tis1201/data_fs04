@@ -1,7 +1,7 @@
 const { expect } = require('@playwright/test');
-const config = require('../../../../config/config-loader');
-const BulkDeploymentPage = require('../../bulk-deployment-page');
-const { BULK_DEPLOYMENT } = require('../../../../constants/bulk-deployment.constants');
+const config = require('../../config/config-loader');
+const BulkDeploymentPage = require('./bulk-deployment-page');
+const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
 
 const T = BULK_DEPLOYMENT.UI_TEXT;
 
