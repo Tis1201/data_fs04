@@ -2,6 +2,15 @@
 const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const appConfig = require('./config/config-loader');
+
+function originOrEmpty(url) {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+}
 
 // Path to the authentication state file - use absolute path for reliability
 const authFile = path.resolve(__dirname, 'user.json');
@@ -48,6 +57,8 @@ reporter: [
 ],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
+    // config.baseURL may include a full path (e.g. /auth/login); Playwright baseURL must be an origin/root.
+    baseURL: originOrEmpty(appConfig.baseURL),
     headless,
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,

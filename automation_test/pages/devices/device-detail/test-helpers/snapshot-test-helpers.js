@@ -1,14 +1,14 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
-const config = require('../../../config/config-loader');
-const DeviceDetailPage = require('../../../pages/devices/device-detail/device-detail-page');
-const DeviceTerminalPage = require('../../../pages/iot/device-terminal-page');
+const config = require('../../../../config/config-loader');
+const DeviceDetailPage = require('../device-detail-page');
+const DeviceTerminalPage = require('../../../../pages/iot/device-terminal-page');
 const {
   setActualResult,
   setTestCaseMetadata,
-} = require('../../support/usecase-annotations');
+} = require('../../../../tests/support/usecase-annotations');
 
-const authFile = path.resolve(__dirname, '../../../user.json');
+const authFile = path.resolve(__dirname, '../../../../user.json');
 
 test.use({ storageState: authFile });
 

@@ -10,6 +10,8 @@ pnpm-lock.yaml
 
 workings/
 
+
+
 .env.dev
 
 .build/
@@ -48,6 +50,8 @@ vite.config.ts.timestamp-*
 /coverage
 /playwright-report
 /test-results
+automation_test/test-results/
+**/test-results/
 /tests/e2e/videos/
 /tests/e2e/screenshots/
 
