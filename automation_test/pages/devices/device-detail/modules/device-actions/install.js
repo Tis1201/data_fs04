@@ -897,6 +897,7 @@ module.exports = {
   ensureConfiguredPackageAbsent,
   cleanupInstalledApp,
   isForbiddenCleanupRecord,
+  uninstallPackageViaUi,
   attachJson,
   setActualResult,
   setTestCaseMetadata,

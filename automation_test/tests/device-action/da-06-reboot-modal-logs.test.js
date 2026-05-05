@@ -24,7 +24,7 @@ const extendedTest = base.test.extend({
 const test = extendedTest;
 test.use({ storageState: authFile });
 
-test.describe('Section 1 — Reboot Action: Precondition, Modal, Cancel', () => {
+test.describe('Reboot — modal & cancel (subset · TC-DA-E2E-009)', () => {
   test('TC-DA-027~029: Precondition, modal content, and cancel without rebooting', async ({ page }, testInfo) => {
     await test.step('Reboot modal: open, content, cancel without sending reboot', async () => {
       const context = createRebootContext(page);
@@ -56,7 +56,9 @@ test.describe('Section 1 — Reboot Action: Precondition, Modal, Cancel', () => 
 });
 
 test.describe('Section 2 — Confirm Reboot and Activity Log', () => {
-  test('TC-DA-030: Confirm reboot and verify Activity Log transitions from In Progress to Success', async ({ page }, testInfo) => {
+  test('TC-DA-030 · TC-DA-E2E-039: Confirm reboot and verify Activity Log In Progress → Success', async ({
+    page,
+  }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
     await test.step('Confirm reboot and wait for In Progress → Success in Activity Log', async () => {

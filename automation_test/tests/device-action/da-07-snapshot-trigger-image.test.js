@@ -24,7 +24,7 @@ const extendedTest = base.test.extend({
 const test = extendedTest;
 test.use({ storageState: authFile });
 
-test.describe('Section 1 — Snapshot Action: Precondition and Trigger', () => {
+test.describe('Snapshot — trigger & image (subset · TC-DA-E2E-007)', () => {
   test('TC-DA-032~034: Precondition, trigger Snapshot, and verify image is displayed', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
