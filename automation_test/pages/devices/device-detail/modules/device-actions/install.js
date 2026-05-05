@@ -1,21 +1,14 @@
-const { test, expect } = require('@playwright/test');
-const path = require('path');
-const config = require('../../../../config/config-loader');
-const DeviceDetailPage = require('../device-detail-page');
-const InstallAppModal = require('../../../../pages/iot/install-app-modal');
-const InstalledAppsPanel = require('../../../../pages/iot/installed-apps-panel');
-const DeviceTerminalPage = require('../../../../pages/iot/device-terminal-page');
+const { expect } = require('@playwright/test');
+const config = require('../../../../../config/config-loader');
+const DeviceDetailPage = require('../../device-detail-page');
+const InstallAppModal = require('../../../../../pages/iot/install-app-modal');
+const InstalledAppsPanel = require('../../../../../pages/iot/installed-apps-panel');
+const DeviceTerminalPage = require('../../../../../pages/iot/device-terminal-page');
 const {
   setActualResult,
   setTestCaseMetadata,
-} = require('../../../../tests/support/usecase-annotations');
-const {
-  openTerminalSession,
-} = require('./device-action-shared');
-
-const authFile = path.resolve(__dirname, '../../../../user.json');
-
-test.use({ storageState: authFile });
+} = require('../../../../../tests/support/usecase-annotations');
+const { openTerminalSession, attachJson } = require('./shared');
 
 const installConfig = config.pageURL?.devices?.installApp || {};
 const remoteCleanupPattern = /\bremote\b/i;
@@ -888,15 +881,7 @@ async function cleanupInstalledApp(context, record) {
   };
 }
 
-async function attachJson(testInfo, name, data) {
-  await testInfo.attach(name, {
-    body: JSON.stringify(data, null, 2),
-    contentType: 'application/json',
-  });
-}
-
 module.exports = {
-  test,
   expect,
   config,
   installConfig,

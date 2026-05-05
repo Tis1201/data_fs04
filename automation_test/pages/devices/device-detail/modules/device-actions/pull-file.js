@@ -1,16 +1,11 @@
-const { test, expect } = require('@playwright/test');
-const path = require('path');
-const config = require('../../../../config/config-loader');
-const DeviceDetailPage = require('../device-detail-page');
-const DeviceTerminalPage = require('../../../../pages/iot/device-terminal-page');
+const { expect } = require('@playwright/test');
+const config = require('../../../../../config/config-loader');
+const DeviceDetailPage = require('../../device-detail-page');
+const DeviceTerminalPage = require('../../../../../pages/iot/device-terminal-page');
 const {
   setActualResult,
   setTestCaseMetadata,
-} = require('../../../../tests/support/usecase-annotations');
-
-const authFile = path.resolve(__dirname, '../../../../user.json');
-
-test.use({ storageState: authFile });
+} = require('../../../../../tests/support/usecase-annotations');
 
 const pullFileConfig = config.pageURL?.devices?.pullFile || {};
 const targetDeviceId =
@@ -75,7 +70,6 @@ async function openActivityTabReady(context) {
 }
 
 module.exports = {
-  test,
   expect,
   createPullFileContext,
   openOnlineDeviceDetail,

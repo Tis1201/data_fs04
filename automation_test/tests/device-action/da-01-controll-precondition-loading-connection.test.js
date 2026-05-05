@@ -1,5 +1,5 @@
 const base = require('@playwright/test');
-const controlHelpers = require('../../pages/devices/device-detail/test-helpers/control-test-helpers');
+const controlHelpers = require('../../pages/devices/device-detail/modules/device-actions/control');
 const {
   expect,
   createControlContext,
@@ -13,7 +13,7 @@ const {
   openTerminalSession,
   toRegExp,
   withFreshPageContext,
-} = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
+} = require('../../pages/devices/device-detail/modules/device-actions/shared');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM
@@ -32,7 +32,7 @@ extendedTest1.describe('Section 1 — Device Control Action: Precondition, Loadi
   extendedTest1('TC-DA-001~003: Precondition, loading UI, and connected session', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Precondition, loading UI, and connected Control session', async () => {
       const context = createControlContext(page);
 
       // TC-DA-001: precondition
@@ -62,7 +62,7 @@ extendedTest1.describe('Section 2 — Activity Log Verification', () => {
   extendedTest1('TC-DA-004: Verify Activity Log contains Control entry with Success status', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Activity Log shows new Control entry with Success', async () => {
       const context = createControlContext(page);
 
       await openActivityTabReady(context);
@@ -98,7 +98,7 @@ extendedTest1.describe('Section 3 — Negative: Disconnected State', () => {
       'Negative Control test is skipped unless RUN_NEGATIVE_CONTROL=1 and a failureTargetDeviceId is configured.'
     );
 
-    await test.step('Run main flow', async () => {
+    await test.step('Negative: failure device never reaches connected Control', async () => {
       const context = createControlContext(page, controlConfig.failureTargetDeviceId);
 
       await context.deviceDetailPage.goto();
@@ -124,7 +124,7 @@ extendedTest1.describe('Section 4 — Terminal Verification', () => {
   extendedTest1('TC-DA-006: Start Control session and verify Terminal on the same Android device', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Control connected, then Terminal smoke command on same device', async () => {
       const context = createControlContext(page);
 
       await openOnlineDeviceDetail(context);

@@ -1,20 +1,15 @@
-const { test, expect } = require('@playwright/test');
-const path = require('path');
-const config = require('../../../../config/config-loader');
-const DeviceDetailPage = require('../device-detail-page');
-const DeviceTerminalPage = require('../../../../pages/iot/device-terminal-page');
+const { expect } = require('@playwright/test');
+const config = require('../../../../../config/config-loader');
+const DeviceDetailPage = require('../../device-detail-page');
+const DeviceTerminalPage = require('../../../../../pages/iot/device-terminal-page');
 const {
   setActualResult,
   setTestCaseMetadata,
-} = require('../../../../tests/support/usecase-annotations');
+} = require('../../../../../tests/support/usecase-annotations');
 const {
   buildPrintfMarkerCommand,
   openTerminalSession,
-} = require('./device-action-shared');
-
-const authFile = path.resolve(__dirname, '../../../../user.json');
-
-test.use({ storageState: authFile });
+} = require('./shared');
 
 const pushFileConfig = config.pageURL?.devices?.pushFile || {};
 const targetDeviceId =
@@ -226,7 +221,6 @@ async function selectConfiguredPushFileResource(context) {
 }
 
 module.exports = {
-  test,
   expect,
   createPushFileContext,
   openOnlineDeviceDetail,

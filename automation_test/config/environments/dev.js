@@ -112,6 +112,14 @@ module.exports = {
         terminalVerifyExpectedPattern: 'uid=',
       },
     },
+    bulkDeployments: {
+      digitalSignageAppName: 'Digital Signage',
+      counterNowAppName: 'counter_now',
+      onlineDeviceSearch: '3576M',
+      offlineDeviceSearch: 'DN76',
+      failedDeploymentId: '',
+    },
+
      deviceProfiles: {
             url: 'https://app-dev-v2.datarealities.com/user/iot/device-profiles',
             profileWithDevicesId: 'cmmx6a4wx005m101ijldfeoww',

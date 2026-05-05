@@ -8,7 +8,7 @@ const {
   cleanupInstalledApp,
   attachJson,
   setActualResult,
-} = require('../../pages/devices/device-detail/test-helpers/install-test-helpers.js');
+} = require('../../pages/devices/device-detail/modules/device-actions/install');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM
@@ -26,7 +26,7 @@ test.describe('Section 2 — Install App Action: Terminal Verification', () => {
   test('TC-DA-009: Install app and verify the package from Terminal', async ({ page }, testInfo) => {
     test.setTimeout(8 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Install, confirm package in Terminal, cleanup in fresh page', async () => {
       const context = createInstallContext(page);
       let selectedRecord = null;
       let cleanupRecord = null;

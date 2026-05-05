@@ -12,14 +12,14 @@ const {
   resolvePushFileTerminalTargetPath,
   cleanupPushFileTarget,
   setActualResult,
-} = require('../../pages/devices/device-detail/test-helpers/push-file-test-helpers');
+} = require('../../pages/devices/device-detail/modules/device-actions/push-file');
 const {
   attachJson,
   buildPathExistsCommand,
   openTerminalSession,
   toRegExp,
   withFreshPageContext,
-} = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
+} = require('../../pages/devices/device-detail/modules/device-actions/shared');
 const { authFile } = require('./device-actions-shared');
 
 function getPushFileCleanupFailureMessage(phase, cleanupResult = {}) {
@@ -46,7 +46,7 @@ test.use({ storageState: authFile });
 
 test.describe('Section 1 — Push File Action: Precondition and Modal States', () => {
   test('TC-DA-018~022: Precondition, modal initial state, and confirm button behaviour', async ({ page }, testInfo) => {
-    await test.step('Run main flow', async () => {
+    await test.step('Push File modal: precondition, resource/destination rules, confirm state', async () => {
       const context = createPushFileContext(page);
 
       // TC-DA-018: precondition
@@ -87,7 +87,7 @@ test.describe('Section 2 — Activity Log Success and Failed', () => {
   test('TC-DA-023~024: Push file successfully and with invalid path, verify Activity Log', async ({ page }, testInfo) => {
     test.setTimeout(4 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Push success and failure paths with pre/post cleanup on device', async () => {
       const context = createPushFileContext(page);
       let cleanupTargetPath = resolvePushFileTerminalTargetPath();
       const cleanupArtifacts = [];
@@ -174,7 +174,7 @@ test.describe('Section 2 — Activity Log Success and Failed', () => {
 
 test.describe('Section 3 — Empty Search State', () => {
   test('TC-DA-025: Search with no matching file and verify empty state', async ({ page }, testInfo) => {
-    await test.step('Run main flow', async () => {
+    await test.step('Search with no results: empty state and Confirm stays disabled', async () => {
       const context = createPushFileContext(page);
 
       await openPushFileModal(context);
@@ -201,7 +201,7 @@ test.describe('Section 4 — Terminal Verification', () => {
   test('TC-DA-026: Push file successfully and verify the pushed file from Terminal', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Push file, verify on disk via Terminal, enforce cleanup', async () => {
       const context = createPushFileContext(page);
       let cleanupTargetPath = resolvePushFileTerminalTargetPath();
       const cleanupArtifacts = [];

@@ -5,12 +5,12 @@ const {
   openOnlineDeviceDetail,
   openActivityTabReady,
   setActualResult,
-} = require('../../pages/devices/device-detail/test-helpers/reboot-test-helpers');
+} = require('../../pages/devices/device-detail/modules/device-actions/reboot');
 const {
   attachJson,
   openTerminalSession,
   toRegExp,
-} = require('../../pages/devices/device-detail/test-helpers/device-action-shared');
+} = require('../../pages/devices/device-detail/modules/device-actions/shared');
 const { authFile } = require('./device-actions-shared');
 
 // Rule 11.1 & 16.2: Use Fixture to initialize shared POM
@@ -26,7 +26,7 @@ test.use({ storageState: authFile });
 
 test.describe('Section 1 — Reboot Action: Precondition, Modal, Cancel', () => {
   test('TC-DA-027~029: Precondition, modal content, and cancel without rebooting', async ({ page }, testInfo) => {
-    await test.step('Run main flow', async () => {
+    await test.step('Reboot modal: open, content, cancel without sending reboot', async () => {
       const context = createRebootContext(page);
 
       // TC-DA-027: precondition
@@ -59,7 +59,7 @@ test.describe('Section 2 — Confirm Reboot and Activity Log', () => {
   test('TC-DA-030: Confirm reboot and verify Activity Log transitions from In Progress to Success', async ({ page }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Confirm reboot and wait for In Progress → Success in Activity Log', async () => {
       const context = createRebootContext(page);
 
       await openActivityTabReady(context);
@@ -99,7 +99,7 @@ test.describe('Section 3 — Terminal Verification after Reboot', () => {
   test('TC-DA-031: Reboot the device and verify Terminal reconnects on Android', async ({ page }, testInfo) => {
     test.setTimeout(8 * 60 * 1000);
 
-    await test.step('Run main flow', async () => {
+    await test.step('Reboot device then run Terminal smoke command after recovery', async () => {
       const context = createRebootContext(page);
 
       await openActivityTabReady(context);
