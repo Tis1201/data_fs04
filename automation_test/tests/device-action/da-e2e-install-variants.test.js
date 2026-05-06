@@ -74,10 +74,15 @@ test.describe('E2E — Install App variants', () => {
     let record = null;
 
     try {
-      await ensureConfiguredPackageAbsent(context);
-      const first = await installConfiguredApp(context);
-      record = first.selectedRecord;
-      expect(first.installSucceeded).toBeTruthy();
+      await test.step('Pre-clean target package before install-twice flow', async () => {
+        await ensureConfiguredPackageAbsent(context);
+      });
+
+      await test.step('Run first install and verify final status', async () => {
+        const first = await installConfiguredApp(context);
+        record = first.selectedRecord;
+        expect(first.installSucceeded).toBeTruthy();
+      });
 
       await test.step('Second install with the same modal selection', async () => {
         await openActivityTabReady(context);
@@ -110,9 +115,11 @@ test.describe('E2E — Install App variants', () => {
         await attachJson(testInfo, 'tc-da-e2e-011-second-log', { secondLog });
       });
     } finally {
-      if (record) {
-        await cleanupInstalledApp(context, record);
-      }
+      await test.step('Cleanup: remove installed package', async () => {
+        if (record) {
+          await cleanupInstalledApp(context, record);
+        }
+      });
     }
 
     setActualResult(
@@ -136,25 +143,34 @@ test.describe('E2E — Install App variants', () => {
     const pkg = installConfig.packageName;
 
     try {
-      await ensureConfiguredPackageAbsent(ctx);
-      const older = await installByExactName(ctx, installConfig.e2eOlderResourceExactName);
-      expect(older.installSucceeded).toBeTruthy();
+      await test.step('Pre-clean package before upgrade flow', async () => {
+        await ensureConfiguredPackageAbsent(ctx);
+      });
 
-      const vBefore = await readPackageVersionName(ctx, pkg);
-      await attachJson(testInfo, 'tc-da-e2e-013-version-before', { vBefore });
+      let vBefore = '';
+      await test.step('Install older build and capture versionName', async () => {
+        const older = await installByExactName(ctx, installConfig.e2eOlderResourceExactName);
+        expect(older.installSucceeded).toBeTruthy();
+        vBefore = await readPackageVersionName(ctx, pkg);
+        await attachJson(testInfo, 'tc-da-e2e-013-version-before', { vBefore });
+      });
 
-      const newer = await installByExactName(ctx, installConfig.e2eNewerResourceExactName);
-      expect(newer.installSucceeded).toBeTruthy();
+      await test.step('Install newer build and verify version changes', async () => {
+        const newer = await installByExactName(ctx, installConfig.e2eNewerResourceExactName);
+        expect(newer.installSucceeded).toBeTruthy();
 
-      const vAfter = await readPackageVersionName(ctx, pkg);
-      await attachJson(testInfo, 'tc-da-e2e-013-version-after', { vAfter });
+        const vAfter = await readPackageVersionName(ctx, pkg);
+        await attachJson(testInfo, 'tc-da-e2e-013-version-after', { vAfter });
 
-      expect(vAfter.length).toBeGreaterThan(0);
-      if (vBefore && vAfter) {
-        expect(vAfter).not.toBe(vBefore);
-      }
+        expect(vAfter.length).toBeGreaterThan(0);
+        if (vBefore && vAfter) {
+          expect(vAfter).not.toBe(vBefore);
+        }
+      });
     } finally {
-      await cleanupInstalledApp(ctx, { packageName: pkg }).catch(() => {});
+      await test.step('Cleanup: remove target package', async () => {
+        await cleanupInstalledApp(ctx, { packageName: pkg }).catch(() => {});
+      });
     }
 
     setActualResult(testInfo, 'TC-DA-E2E-013: Newer build reported a different versionName in dumpsys after upgrade.');
@@ -173,19 +189,26 @@ test.describe('E2E — Install App variants', () => {
     const pkg = installConfig.packageName;
 
     try {
-      await ensureConfiguredPackageAbsent(ctx);
-      const first = await installByExactName(ctx, installConfig.e2eEqualResourceExactName);
-      expect(first.installSucceeded).toBeTruthy();
-      const v1 = await readPackageVersionName(ctx, pkg);
+      await test.step('Pre-clean package before equal-version reinstall flow', async () => {
+        await ensureConfiguredPackageAbsent(ctx);
+      });
 
-      const second = await installByExactName(ctx, installConfig.e2eEqualResourceExactName);
-      expect(second.installSucceeded).toBeTruthy();
-      const v2 = await readPackageVersionName(ctx, pkg);
+      await test.step('Install same build twice and compare versionName', async () => {
+        const first = await installByExactName(ctx, installConfig.e2eEqualResourceExactName);
+        expect(first.installSucceeded).toBeTruthy();
+        const v1 = await readPackageVersionName(ctx, pkg);
 
-      expect(v2).toBe(v1);
-      await attachJson(testInfo, 'tc-da-e2e-014-versions', { v1, v2 });
+        const second = await installByExactName(ctx, installConfig.e2eEqualResourceExactName);
+        expect(second.installSucceeded).toBeTruthy();
+        const v2 = await readPackageVersionName(ctx, pkg);
+
+        expect(v2).toBe(v1);
+        await attachJson(testInfo, 'tc-da-e2e-014-versions', { v1, v2 });
+      });
     } finally {
-      await cleanupInstalledApp(ctx, { packageName: pkg }).catch(() => {});
+      await test.step('Cleanup: remove target package', async () => {
+        await cleanupInstalledApp(ctx, { packageName: pkg }).catch(() => {});
+      });
     }
 
     setActualResult(testInfo, 'TC-DA-E2E-014: versionName unchanged after reinstalling the same APK build.');
@@ -207,18 +230,27 @@ test.describe('E2E — Install App variants', () => {
     const pkg = installConfig.packageName;
 
     try {
-      await ensureConfiguredPackageAbsent(ctx);
-      await installByExactName(ctx, installConfig.e2eNewerResourceExactName);
-      const vHigh = await readPackageVersionName(ctx, pkg);
+      await test.step('Pre-clean package before downgrade flow', async () => {
+        await ensureConfiguredPackageAbsent(ctx);
+      });
 
-      const down = await installByExactName(ctx, installConfig.e2eOlderResourceExactName);
-      expect(down.installSucceeded).toBeTruthy();
-      const vLow = await readPackageVersionName(ctx, pkg);
+      await test.step('Install newer build and capture versionName', async () => {
+        await installByExactName(ctx, installConfig.e2eNewerResourceExactName);
+      });
 
-      await attachJson(testInfo, 'tc-da-e2e-015-downgrade', { vHigh, vLow });
-      expect(vLow).not.toBe(vHigh);
+      await test.step('Install older build and verify version changed', async () => {
+        const vHigh = await readPackageVersionName(ctx, pkg);
+        const down = await installByExactName(ctx, installConfig.e2eOlderResourceExactName);
+        expect(down.installSucceeded).toBeTruthy();
+        const vLow = await readPackageVersionName(ctx, pkg);
+
+        await attachJson(testInfo, 'tc-da-e2e-015-downgrade', { vHigh, vLow });
+        expect(vLow).not.toBe(vHigh);
+      });
     } finally {
-      await cleanupInstalledApp(ctx, { packageName: pkg }).catch(() => {});
+      await test.step('Cleanup: remove target package', async () => {
+        await cleanupInstalledApp(ctx, { packageName: pkg }).catch(() => {});
+      });
     }
 
     setActualResult(testInfo, 'TC-DA-E2E-015: Downgrade path executed (device-dependent).');

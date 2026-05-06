@@ -45,35 +45,50 @@ test.describe('E2E — Refresh & Activity Logs', () => {
   }) => {
     test.setTimeout(5 * 60 * 1000);
     const ctx = createInstallContext(page);
-    await openOnlineDeviceDetail(ctx);
-    await ctx.deviceDetailPage.openActivityTab();
-    await ctx.deviceDetailPage.waitForActivityLogsReady();
-    const before = await ctx.deviceDetailPage.getActivityLogSignatures();
-    await ctx.deviceDetailPage.goto();
-    await ctx.deviceDetailPage.waitForPageReady();
-    await ctx.deviceDetailPage.clickRefreshDeviceDetails();
-    await ctx.deviceDetailPage.waitForGenericSuccessToast();
-    await ctx.deviceDetailPage.openActivityTab();
-    await ctx.deviceDetailPage.waitForActivityLogsReady();
-    const log = await ctx.deviceDetailPage.waitForNewRefreshSuccessLog(before);
-    expect(log).toBeTruthy();
-    await expect(log.statusText).toMatch(/success/i);
+
+    let before = [];
+    await test.step('Capture Activity Log baseline', async () => {
+      await openOnlineDeviceDetail(ctx);
+      await ctx.deviceDetailPage.openActivityTab();
+      await ctx.deviceDetailPage.waitForActivityLogsReady();
+      before = await ctx.deviceDetailPage.getActivityLogSignatures();
+    });
+
+    await test.step('Trigger refresh from Details tab', async () => {
+      await ctx.deviceDetailPage.goto();
+      await ctx.deviceDetailPage.waitForPageReady();
+      await ctx.deviceDetailPage.clickRefreshDeviceDetails();
+      await ctx.deviceDetailPage.waitForGenericSuccessToast();
+    });
+
+    await test.step('Verify new Refresh Success entry appears in Activity Logs', async () => {
+      await ctx.deviceDetailPage.openActivityTab();
+      await ctx.deviceDetailPage.waitForActivityLogsReady();
+      const log = await ctx.deviceDetailPage.waitForNewRefreshSuccessLog(before);
+      expect(log).toBeTruthy();
+      await expect(log.statusText).toMatch(/success/i);
+    });
   });
 
   test('TC-DA-E2E-042: Refresh twice — two Success Activity Log entries', async ({ page }) => {
     test.setTimeout(6 * 60 * 1000);
     const ctx = createInstallContext(page);
-    await openOnlineDeviceDetail(ctx);
+    await test.step('Initialize baseline signatures', async () => {
+      await openOnlineDeviceDetail(ctx);
+    });
+
     let sig = await ctx.deviceDetailPage.getActivityLogSignatures();
     for (let i = 0; i < 2; i++) {
-      await ctx.deviceDetailPage.goto();
-      await ctx.deviceDetailPage.waitForPageReady();
-      await ctx.deviceDetailPage.clickRefreshDeviceDetails();
-      await ctx.deviceDetailPage.waitForGenericSuccessToast();
-      await ctx.deviceDetailPage.openActivityTab();
-      await ctx.deviceDetailPage.waitForActivityLogsReady();
-      await ctx.deviceDetailPage.waitForNewRefreshSuccessLog(sig);
-      sig = await ctx.deviceDetailPage.getActivityLogSignatures();
+      await test.step(`Refresh run #${i + 1}: trigger and verify Success log`, async () => {
+        await ctx.deviceDetailPage.goto();
+        await ctx.deviceDetailPage.waitForPageReady();
+        await ctx.deviceDetailPage.clickRefreshDeviceDetails();
+        await ctx.deviceDetailPage.waitForGenericSuccessToast();
+        await ctx.deviceDetailPage.openActivityTab();
+        await ctx.deviceDetailPage.waitForActivityLogsReady();
+        await ctx.deviceDetailPage.waitForNewRefreshSuccessLog(sig);
+        sig = await ctx.deviceDetailPage.getActivityLogSignatures();
+      });
     }
   });
 
@@ -96,19 +111,24 @@ test.describe('E2E — Terminal resilience', () => {
   }) => {
     test.setTimeout(6 * 60 * 1000);
     const ctx = createPullFileContext(page);
-    await openPullReady(ctx);
-    const prev = await ctx.deviceDetailPage.getActivityLogSignatures();
-    await ctx.deviceDetailPage.clickPullFile();
-    await ctx.deviceDetailPage.waitForPullFileModalVisible();
-    await ctx.deviceDetailPage.fillPullFileSourcePath(invalidSourceFilePath);
-    await ctx.deviceDetailPage.confirmPullFile();
-    await ctx.deviceDetailPage.waitForNewPullFileFailedLog(prev);
-    await ctx.deviceDetailPage.goto();
-    await ctx.deviceDetailPage.waitForPageReady();
-    await openTerminalSession(ctx);
-    const cmd = ctx.terminalVerifyCommand || 'id';
-    const out = await ctx.terminalPage.runCommandAndWaitForOutput(cmd, /uid=/i);
-    expect(out).toMatch(/uid=/i);
+    await test.step('Submit Pull File with invalid source and wait for Failed log', async () => {
+      await openPullReady(ctx);
+      const prev = await ctx.deviceDetailPage.getActivityLogSignatures();
+      await ctx.deviceDetailPage.clickPullFile();
+      await ctx.deviceDetailPage.waitForPullFileModalVisible();
+      await ctx.deviceDetailPage.fillPullFileSourcePath(invalidSourceFilePath);
+      await ctx.deviceDetailPage.confirmPullFile();
+      await ctx.deviceDetailPage.waitForNewPullFileFailedLog(prev);
+    });
+
+    await test.step('Verify Terminal remains usable after failed action', async () => {
+      await ctx.deviceDetailPage.goto();
+      await ctx.deviceDetailPage.waitForPageReady();
+      await openTerminalSession(ctx);
+      const cmd = ctx.terminalVerifyCommand || 'id';
+      const out = await ctx.terminalPage.runCommandAndWaitForOutput(cmd, /uid=/i);
+      expect(out).toMatch(/uid=/i);
+    });
   });
 
   test('TC-DA-E2E-036: Terminal verifies push file exists then cleanup removes it', async ({
@@ -158,17 +178,19 @@ test.describe('E2E — Push / Pull edge cases', () => {
         );
       }
       for (let n = 0; n < 2; n++) {
-        await openPushReady(ctx);
-        const sig = await ctx.deviceDetailPage.getActivityLogSignatures();
-        await ctx.deviceDetailPage.clickPushFile();
-        await ctx.deviceDetailPage.waitForPushFileModalVisible();
-        await ctx.deviceDetailPage.fillPushFileDestinationPath(validDestinationPath);
-        await selectConfiguredPushFileResource(ctx);
-        path = resolvePushFileTerminalTargetPath() || path;
-        await ctx.deviceDetailPage.confirmPushFile();
-        await ctx.deviceDetailPage.waitForNewPushFileSuccessLog(sig);
-        await ctx.deviceDetailPage.goto();
-        await ctx.deviceDetailPage.waitForPageReady();
+        await test.step(`Push run #${n + 1}: submit and verify Success log`, async () => {
+          await openPushReady(ctx);
+          const sig = await ctx.deviceDetailPage.getActivityLogSignatures();
+          await ctx.deviceDetailPage.clickPushFile();
+          await ctx.deviceDetailPage.waitForPushFileModalVisible();
+          await ctx.deviceDetailPage.fillPushFileDestinationPath(validDestinationPath);
+          await selectConfiguredPushFileResource(ctx);
+          path = resolvePushFileTerminalTargetPath() || path;
+          await ctx.deviceDetailPage.confirmPushFile();
+          await ctx.deviceDetailPage.waitForNewPushFileSuccessLog(sig);
+          await ctx.deviceDetailPage.goto();
+          await ctx.deviceDetailPage.waitForPageReady();
+        });
       }
     } finally {
       if (path) {

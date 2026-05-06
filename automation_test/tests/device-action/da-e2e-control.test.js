@@ -95,18 +95,24 @@ test.describe('E2E — Control', () => {
   }) => {
     test.setTimeout(6 * 60 * 1000);
     const context = createControlContext(page);
-    await openOnlineDeviceDetail(context);
-    await context.deviceDetailPage.openControlFromDeviceDetail();
-    await context.deviceControlPage.waitForControlPageReady();
-    await context.deviceControlPage.waitForLoadingState();
-    await context.deviceControlPage.waitForConnected();
-    await context.deviceDetailPage.goto();
-    await context.deviceDetailPage.waitForPageReady();
-    await context.deviceDetailPage.openControlFromDeviceDetail();
-    await context.deviceControlPage.waitForControlPageReady();
-    await context.deviceControlPage.waitForLoadingState();
-    const second = await context.deviceControlPage.waitForConnected();
-    expect(second.isConnected).toBeTruthy();
+
+    await test.step('First Control session reaches connected state', async () => {
+      await openOnlineDeviceDetail(context);
+      await context.deviceDetailPage.openControlFromDeviceDetail();
+      await context.deviceControlPage.waitForControlPageReady();
+      await context.deviceControlPage.waitForLoadingState();
+      await context.deviceControlPage.waitForConnected();
+    });
+
+    await test.step('Return to Device detail and open Control again', async () => {
+      await context.deviceDetailPage.goto();
+      await context.deviceDetailPage.waitForPageReady();
+      await context.deviceDetailPage.openControlFromDeviceDetail();
+      await context.deviceControlPage.waitForControlPageReady();
+      await context.deviceControlPage.waitForLoadingState();
+      const second = await context.deviceControlPage.waitForConnected();
+      expect(second.isConnected).toBeTruthy();
+    });
   });
 
   test('TC-DA-E2E-010-Negative (legacy TC-DA-005): failure device stays disconnected', async ({
@@ -118,16 +124,20 @@ test.describe('E2E — Control', () => {
     );
 
     const context = createControlContext(page, controlConfig.failureTargetDeviceId);
-    await context.deviceDetailPage.goto();
-    await context.deviceDetailPage.waitForPageReady();
-    await context.deviceDetailPage.openControlFromDeviceDetail();
-    await context.deviceControlPage.waitForControlPageReady();
-    await context.deviceControlPage.waitForLoadingState();
 
-    const failureResult = await context.deviceControlPage.waitForDisconnectedOrTimeout();
+    await test.step('Open Control on failure target device', async () => {
+      await context.deviceDetailPage.goto();
+      await context.deviceDetailPage.waitForPageReady();
+      await context.deviceDetailPage.openControlFromDeviceDetail();
+      await context.deviceControlPage.waitForControlPageReady();
+      await context.deviceControlPage.waitForLoadingState();
+    });
 
-    expect(failureResult.isDisconnected || failureResult.isTimedOut).toBeTruthy();
-    expect(failureResult.isConnected).toBeFalsy();
+    await test.step('Verify Control does not reach connected state', async () => {
+      const failureResult = await context.deviceControlPage.waitForDisconnectedOrTimeout();
+      expect(failureResult.isDisconnected || failureResult.isTimedOut).toBeTruthy();
+      expect(failureResult.isConnected).toBeFalsy();
+    });
 
     setActualResult(
       testInfo,
