@@ -30,8 +30,6 @@ const APK_RESOURCE_FILE_HIGHER = _rsCfg.apkFileHigher
         ? _rsCfg.apkFileHigher
         : path.join(__dirname, '..', '..', _rsCfg.apkFileHigher))
     : '';
-const IN_USE_RESOURCE_ID = _rsCfg.inUseResourceId || '';
-const IN_USE_RESOURCE_NAME = _rsCfg.inUseResourceName || '';
 
 const authFile = path.join(__dirname, '..', '..', 'user.json');
 
@@ -52,7 +50,5 @@ module.exports = {
     RESOURCE_FILE,
     APK_RESOURCE_FILE,
     APK_RESOURCE_FILE_HIGHER,
-    IN_USE_RESOURCE_ID,
-    IN_USE_RESOURCE_NAME,
     generateTestResourceNameWithSuffix,
 };

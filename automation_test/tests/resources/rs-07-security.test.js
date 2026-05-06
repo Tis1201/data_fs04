@@ -46,26 +46,19 @@ test.describe('Section 13 — Security Sanity', () => {
                 await rs.waitForSuccessToast();
             });
 
+            // Fail-fast guard: any dialog firing here means XSS payload was executed
+            page.on('dialog', dialog => {
+                throw new Error(`CRITICAL VULNERABILITY: XSS payload executed! Message: ${dialog.message()}`);
+            });
+
             await test.step('List page does not execute the script', async () => {
-                let dialogFired = false;
-                page.once('dialog', (dialog) => {
-                    dialogFired = true;
-                    dialog.dismiss();
-                });
                 await rs.gotoList();
                 await expect(rs.table.or(rs.noResourcesMessage).first()).toBeVisible();
-                expect(dialogFired).toBe(false);
             });
 
             await test.step('Detail page does not execute the script', async () => {
-                let dialogFired = false;
-                page.once('dialog', (dialog) => {
-                    dialogFired = true;
-                    dialog.dismiss();
-                });
                 await rs.gotoDetail(APPLICATION_RESOURCE_ID);
                 await expect(rs.overviewCard).toBeVisible();
-                expect(dialogFired).toBe(false);
             });
 
             await test.step('Injection strings in search do not cause 5xx', async () => {

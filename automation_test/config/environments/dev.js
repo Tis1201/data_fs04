@@ -155,10 +155,6 @@ module.exports = {
                 'cmo2cimuo012114b2csz0wxxm', // Auto test - 8C:FC:A0:31:59:34 - 3576M Test
                 'cmo0yzd4z00c014b2fn8k4o7n', // Auto test - 24:1C:04:26:88:E7 - DN74
             ],
-            // Resource that is currently referenced by a device profile / bundle / pin-rule.
-            // If no such resource exists in your environment, set to '' to skip TC-RS-018.
-            inUseResourceId: '',
-            inUseResourceName: '',
             // Second account credentials for IDOR test (TC-RS-033).
             // Leave empty to skip that specific step.
             secondAccountUsername: '',

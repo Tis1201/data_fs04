@@ -41,7 +41,7 @@ test.describe('Sections 2-4 — Resources Search, Sorting & Pagination', () => {
     test('TC-RS-005: Search no matching term shows empty state', async ({ rs }) => {
         await test.step('Search with unique non-existing keyword', async () => {
             await rs.searchFor(`nonexistent-resource-${Date.now()}`);
-            await expect(rs.noResourcesMessage.or(rs.paginationDetails)).toContainText(/No resources found|No data|No results|0\s+of\s+0/i);
+            await expect(rs.noResourcesMessage).toBeVisible();
         });
     });
 

@@ -75,13 +75,12 @@ test.describe('Sections 5-7 — Resources Create, Edit & Delete', () => {
             await rs.resourceNameInput.clear();
             await rs.addSubmitButton.click();
             await expect(rs.modalBase).toBeVisible();
-            await expect(rs.validationMessage.or(rs.modalBase)).toContainText(/required|Resource name/i);
+            await expect(rs.validationMessage).toBeVisible();
 
             await rs.fillResourceName('A'.repeat(51));
             await rs.addSubmitButton.click();
             await expect(rs.modalBase).toBeVisible();
-            // The char-count element and modalBase both match the .or() chain; use .first() to avoid strict-mode violation
-            await expect(rs.nameCharCount.or(rs.modalBase).first()).toContainText(/50|less|characters/i);
+            await expect(rs.nameCharCount).toBeVisible();
         });
 
         await rs.closeModal();

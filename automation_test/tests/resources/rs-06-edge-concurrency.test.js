@@ -107,7 +107,7 @@ test.describe('Sections 11-12 — Edge Cases & Concurrency', () => {
                 await rs.uploadResourceFile(RESOURCE_FILE);
                 await rs.fillResourceName(addName);
                 await rs.addSubmitButton.dblclick({ delay: 50 });
-                await rs.modalBase.waitFor({ state: 'hidden', timeout: 25000 });
+                await expect(rs.modalBase).toBeHidden({ timeout: 25000 });
             });
 
             await test.step('Verify exactly one resource was created', async () => {
@@ -121,17 +121,14 @@ test.describe('Sections 11-12 — Edge Cases & Concurrency', () => {
                 await rs.clickActionsMenu(deleteName);
                 await rs.clickActionItem('Delete');
                 await expect(rs.deleteModalBase).toBeVisible();
+                const toastPromise = rs.waitForSuccessToast(15000).catch(() => null);
                 await rs.deleteConfirmButton.dblclick({ delay: 50 });
-                await rs.deleteModalBase.waitFor({ state: 'hidden', timeout: 15000 });
+                await expect(rs.deleteModalBase).toBeHidden({ timeout: 15000 });
+                const toastText = await toastPromise;
+                expect(toastText).toBeTruthy();
             });
 
-            await test.step('Only one success toast; resource is gone; no duplicate error', async () => {
-                const toastLocator = rs.page
-                    .locator('[role="alert"], [class*="toast"]')
-                    .filter({ hasText: /success|deleted/i });
-                const toastCount = await toastLocator.count();
-                console.warn(`TC-RS-024: Double-click delete shows ${toastCount} toast(s) — expected 1, got ${toastCount}`);
-
+            await test.step('Resource is gone; no duplicate resource remains', async () => {
                 await rs.gotoList();
                 await rs.searchFor(deleteName);
                 await expect(rs.resourceRowByName(deleteName)).toBeHidden();
@@ -167,13 +164,13 @@ test.describe('Sections 11-12 — Edge Cases & Concurrency', () => {
 
             await test.step('Tab A opens Edit Set and types new name (unsaved)', async () => {
                 await rsA.editSetButton.click();
-                await rsA.modalBase.waitFor({ state: 'visible', timeout: 10000 });
+                await expect(rsA.modalBase).toBeVisible({ timeout: 10000 });
                 await rsA.fillResourceName(nameTabA);
             });
 
             await test.step('Tab B opens Edit Set, saves nameTabB', async () => {
                 await rsB.editSetButton.click();
-                await rsB.modalBase.waitFor({ state: 'visible', timeout: 10000 });
+                await expect(rsB.modalBase).toBeVisible({ timeout: 10000 });
                 await rsB.fillResourceName(nameTabB);
                 await rsB.saveResourceModal();
                 await rsB.waitForSuccessToast();

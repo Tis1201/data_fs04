@@ -61,7 +61,7 @@ class ResourceBase extends BasePage {
         this.cancelButton = this.modalBase.locator('button').filter({ hasText: 'Cancel' }).first();
         this.addSubmitButton = this.modalBase.getByRole('button', { name: /^Add$/i }).first();
         this.saveButton = this.modalBase.getByRole('button', { name: /Save|Update|Submit/i }).first();
-        this.validationMessage = this.modalBase.locator('[role="alert"], [class*="error"], [class*="invalid"], .text-red-500, .text-destructive').first();
+        this.validationMessage = this.modalBase.locator('[role="alert"], [class*="error"], [class*="invalid"], [class*="warning"], .text-red-500, .text-destructive, [class*="text-red"], [class*="field-error"], small, span, p, div').filter({ hasText: /required|invalid|error|must|cannot|empty|exceed|at least|Resource name/i }).first();
         this.uploadedFileLink = this.modalBase.locator('a, button').filter({ hasText: /\.apk|\.zip|\.cpk|\.deb|\.exe/i }).first();
         this.parsePendingIndicator = this.modalBase.locator('.resource-parse-pending').first();
 

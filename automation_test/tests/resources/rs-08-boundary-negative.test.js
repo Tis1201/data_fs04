@@ -44,7 +44,7 @@ test.describe('Section 14 — Boundary & Negative Inputs', () => {
                 await rs.resourceNameInput.clear();
                 await rs.saveButton.click();
                 await expect(rs.modalBase).toBeVisible();
-                await expect(rs.validationMessage.or(rs.modalBase)).toContainText(/required|Resource name/i);
+                await expect(rs.validationMessage).toContainText(/required|Resource name/i);
                 await rs.closeModal();
             });
 

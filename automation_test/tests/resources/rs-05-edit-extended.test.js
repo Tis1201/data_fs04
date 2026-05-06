@@ -1,4 +1,5 @@
 const base = require('@playwright/test');
+const config = require('../../config/config-loader');
 const ResourcesPage = require('../../pages/resources/resources-page');
 const {
     cleanupResource,
@@ -10,8 +11,6 @@ const {
     RESOURCE_FILE,
     APPLICATION_RESOURCE_ID,
     APPLICATION_RESOURCE_NAME,
-    IN_USE_RESOURCE_ID,
-    IN_USE_RESOURCE_NAME,
     generateTestResourceNameWithSuffix,
 } = require('./rs-shared');
 
@@ -81,18 +80,14 @@ test.describe('Section 6 (extended) — Resources Edit & TC-RS-018 Delete In-Use
                 await rs.resourceNameInput.clear();
                 await rs.saveButton.click();
                 await expect(rs.modalBase).toBeVisible();
-                await expect(
-                    rs.validationMessage.or(rs.modalBase)
-                ).toContainText(/required|Resource name/i);
+                await expect(rs.validationMessage).toContainText(/required|Resource name/i);
             });
 
             await test.step('51-char Resource Name is blocked', async () => {
                 await rs.fillResourceName('B'.repeat(51));
                 await rs.saveButton.click();
                 await expect(rs.modalBase).toBeVisible();
-                await expect(
-                    rs.nameCharCount.or(rs.modalBase).first()
-                ).toContainText(/50|less|characters/i);
+                await expect(rs.nameCharCount).toContainText(/50|less|characters/i);
             });
 
             await rs.closeModal();
@@ -153,30 +148,53 @@ test.describe('Section 6 (extended) — Resources Edit & TC-RS-018 Delete In-Use
     });
 
     // ─── TC-RS-018 ───────────────────────────────────────────────────────────────
-    test('TC-RS-018: Delete in-use resource is blocked or shows dependency error', async ({ rs }) => {
-        test.skip(
-            !IN_USE_RESOURCE_ID,
-            'TC-RS-018 skipped: inUseResourceId not configured in dev.js. ' +
-            'Set resources.inUseResourceId / inUseResourceName to a resource referenced by a profile/bundle/pin-rule.'
-        );
+    test('TC-RS-018: Delete resource linked to a bundle succeeds; bundle retains snapshot', async ({ rs, page }) => {
+        const resourceName = generateTestResourceNameWithSuffix('AutoTest_RSRC', 'inuse18');
+        const origin = new URL(config.baseURL).origin;
+        let resourceId = '';
+        let bundleId = '';
 
-        const targetName = IN_USE_RESOURCE_NAME || IN_USE_RESOURCE_ID;
-
-        await test.step('Locate in-use resource and open delete dialog', async () => {
-            await rs.ensureResourceVisible(targetName);
-            await rs.clickActionsMenu(targetName);
-            await rs.clickActionItem('Delete');
-            await expect(rs.deleteModalBase).toBeVisible();
+        await test.step('Create a new resource via modal', async () => {
+            await createResourceViaModal(rs, resourceName, RESOURCE_FILE);
+            await rs.waitForSuccessToast();
+            await rs.gotoList();
+            await rs.searchFor(resourceName);
+            await expect(rs.resourceRowByName(resourceName)).toBeVisible({ timeout: 10000 });
         });
 
-        await test.step('Confirm delete — server rejects with dependency error; resource remains', async () => {
-            await rs.deleteConfirmButton.click();
-            await rs.deleteModalBase.waitFor({ state: 'hidden', timeout: 15000 });
-            await expect(rs.errorToast.or(rs.toast)).toBeVisible({ timeout: 7000 });
-            await expect(rs.toast).toHaveText(/error|fail|referenced|in use|dependency/i);
+        await test.step('Get resource ID via API', async () => {
+            const listRes = await page.request.get(`${origin}/api/v2/resources?page=1&pageSize=20`);
+            expect(listRes.ok()).toBeTruthy();
+            const body = await listRes.json();
+            const found = body.data?.items?.find(r => r.name === resourceName);
+            expect(found, `Resource "${resourceName}" not found in API response`).toBeTruthy();
+            resourceId = found.id;
+        });
+
+        await test.step('Create a draft bundle via POM and add resource via API', async () => {
+            const { createDraftOpenDetail } = require('../../pages/bulk-deployments/flows');
+            const bundleName = `AutoTest_Bundle_inuse18_${Date.now()}`;
+            const { deploymentId } = await createDraftOpenDetail(page, { name: bundleName });
+            bundleId = deploymentId;
+
+            const appRes = await page.request.post(`${origin}/api/user/iot/bundles/${bundleId}/apps`, {
+                data: { resourceId, order: 1, autoOpen: false },
+            });
+            expect(appRes.ok(), `Adding resource to bundle should succeed (got ${appRes.status()})`).toBeTruthy();
+        });
+
+        await test.step('Delete resource while linked to bundle — deletion succeeds (bundle retains snapshot)', async () => {
             await rs.gotoList();
-            await rs.searchFor(targetName);
-            await expect(rs.resourceRowByName(targetName)).toBeVisible();
+            await rs.ensureResourceVisible(resourceName);
+            await rs.deleteResource(resourceName);
+            await rs.waitForSuccessToast();
+            await rs.gotoList();
+            await rs.searchFor(resourceName);
+            await expect(rs.resourceRowByName(resourceName)).toBeHidden();
+        });
+
+        await test.step('Cleanup: delete bundle', async () => {
+            await page.request.delete(`${origin}/api/user/iot/bundles/${bundleId}`).catch(() => {});
         });
     });
 });

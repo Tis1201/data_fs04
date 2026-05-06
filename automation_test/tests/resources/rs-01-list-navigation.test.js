@@ -47,17 +47,15 @@ test.describe('Section 1 — Resources List Page Load & Navigation', () => {
 
         await test.step('Verify key cell values are present', async () => {
             const row = rs.resourceRowById(APPLICATION_RESOURCE_ID);
-            await Promise.all([
-                expect(row).toContainText(APPLICATION_RESOURCE_NAME),
-                expect(row).toContainText(APPLICATION_RESOURCE_ID),
-                expect(row).toContainText('com.datarealities.rdm.agent.android'),
-                expect(row).toContainText(/Application|Archive/i),
-                expect(row).toContainText(/Production/i),
-                expect(row).toContainText(/1\.7\.12/),
-                expect(row).toContainText(/APK|ZIP/i),
-                expect(row).toContainText(/\d+(\.\d+)?\s*(KB|MB|GB)/i),
-                expect(row).toContainText(/[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}\s+\d{1,2}:\d{2}\s+(AM|PM)/)
-            ]);
+            await expect(row).toContainText(APPLICATION_RESOURCE_NAME);
+            await expect(row).toContainText(APPLICATION_RESOURCE_ID);
+            await expect(row).toContainText('com.datarealities.rdm.agent.android');
+            await expect(row).toContainText(/Application|Archive/i);
+            await expect(row).toContainText(/Production/i);
+            await expect(row).toContainText(/1\.7\.12/);
+            await expect(row).toContainText(/APK|ZIP/i);
+            await expect(row).toContainText(/\d+(\.\d+)?\s*(KB|MB|GB)/i);
+            await expect(row).toContainText(/[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}\s+\d{1,2}:\d{2}\s+(AM|PM)/);
         });
     });
 
@@ -74,12 +72,10 @@ test.describe('Section 1 — Resources List Page Load & Navigation', () => {
             await rs.gotoList();
             await rs.ensureResourceVisible(APPLICATION_RESOURCE_NAME);
             await rs.clickActionsMenu(APPLICATION_RESOURCE_NAME);
-            await Promise.all([
-                expect(rs.menuItemByName('View')).toBeVisible(),
-                expect(rs.menuItemByName('Edit')).toBeVisible(),
-                expect(rs.menuItemByName('Download')).toBeVisible(),
-                expect(rs.menuItemByName('Delete')).toBeVisible()
-            ]);
+            await expect(rs.menuItemByName('View')).toBeVisible();
+            await expect(rs.menuItemByName('Edit')).toBeVisible();
+            await expect(rs.menuItemByName('Download')).toBeVisible();
+            await expect(rs.menuItemByName('Delete')).toBeVisible();
         });
 
         await test.step('Navigate via View action', async () => {
