@@ -176,6 +176,21 @@ const deviceDetailActions = {
 
   // ── Terminal ───────────────────────────────────────────────────────
 
+  async openDetailsTab() {
+    await this.tabDetails.click();
+    await expect(this.refreshButton).toBeVisible({ timeout: this.timeouts.pageLoad });
+  },
+
+  async clickRefreshDeviceDetails() {
+    await this.openDetailsTab();
+    await expect(this.refreshButton).toBeVisible({ timeout: this.timeouts.pageLoad });
+    await this.refreshButton.click();
+  },
+
+  async waitForGenericSuccessToast(pattern = /success|refreshed|updated|completed|sent/i) {
+    await expect(this.page.getByText(pattern).first()).toBeVisible({ timeout: 25000 });
+  },
+
   async openTerminalFromDeviceDetail() {
     await this.page.addInitScript(() => {
       if (window.__xtermPlaywrightCaptureInstalled) {

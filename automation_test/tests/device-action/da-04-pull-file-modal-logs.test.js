@@ -28,7 +28,7 @@ const extendedTest = base.test.extend({
 const test = extendedTest;
 test.use({ storageState: authFile });
 
-test.describe('Section 1 — Pull File Action: Precondition and Modal States', () => {
+test.describe('Pull File — modal & validation (subset · spreadsheet Push-Pull / TC-DA-E2E-014~016)', () => {
   test('TC-DA-010~013: Precondition, modal initial state, and confirm button behaviour', async ({ page }, testInfo) => {
     await test.step('Pull File modal: open, validation, confirm enable/disable', async () => {
       const context = createPullFileContext(page);
@@ -102,16 +102,25 @@ test.describe('Section 3 — Cancel without Log', () => {
       await context.deviceDetailPage.waitForPullFileModalVisible();
       await context.deviceDetailPage.fillPullFileSourcePath(validSourceFilePath);
       await context.deviceDetailPage.cancelPullFileIfVisible();
-      await context.deviceDetailPage.page.waitForTimeout(3000);
       await context.deviceDetailPage.waitForActivityLogsReady();
 
-      const newPullFileLog = await context.deviceDetailPage.findNewPullFileLogByStatus(
-        previousSignatures,
-        /.*/,
-        30
-      );
-
-      expect(newPullFileLog).toBeNull();
+      await expect
+        .poll(
+          async () => {
+            await context.deviceDetailPage.waitForActivityLogsReady();
+            const newPullFileLog = await context.deviceDetailPage.findNewPullFileLogByStatus(
+              previousSignatures,
+              /.*/,
+              30
+            );
+            return newPullFileLog === null;
+          },
+          {
+            timeout: 10000,
+            message: 'Expected no new Pull File Activity Log row after cancel.',
+          }
+        )
+        .toBe(true);
 
       setActualResult(
         testInfo,

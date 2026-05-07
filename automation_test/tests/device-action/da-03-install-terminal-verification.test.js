@@ -22,8 +22,10 @@ const extendedTest = base.test.extend({
 const test = extendedTest;
 test.use({ storageState: authFile });
 
-test.describe('Section 2 — Install App Action: Terminal Verification', () => {
-  test('TC-DA-009: Install app and verify the package from Terminal', async ({ page }, testInfo) => {
+test.describe('Install App — Terminal verification (subset of TC-DA-E2E-003)', () => {
+  test('TC-DA-009 · TC-DA-E2E-003 (partial): Install app and verify the package from Terminal', async ({
+    page,
+  }, testInfo) => {
     test.setTimeout(8 * 60 * 1000);
 
     await test.step('Install, confirm package in Terminal, cleanup in fresh page', async () => {
