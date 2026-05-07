@@ -39,6 +39,19 @@ async function deleteTrackedBundlesForPage(page) {
     return;
   }
 
+  async function tryUiDeleteById(id, origin) {
+    const bd = new BulkDeploymentPage(page, {
+      appUrl: origin,
+      timeout: config.timeouts?.pageLoadMs || 30000,
+      registerDeployment: () => {},
+    });
+    await bd.gotoDetail(id).catch(() => null);
+    const canDelete = await bd.isDetailActionVisible(T.DELETE).catch(() => false);
+    if (canDelete) {
+      await bd.deleteFromDetail(true).catch(() => null);
+    }
+  }
+
   for (const id of [...ids].reverse()) {
     try {
       const res = await page.request.delete(`${origin}/api/v2/bundles/${encodeURIComponent(id)}`);
@@ -46,20 +59,11 @@ async function deleteTrackedBundlesForPage(page) {
       if (status === 200 || status === 204 || status === 404) {
         continue;
       }
-      if (status === 409) {
-        const bd = new BulkDeploymentPage(page, {
-          appUrl: origin,
-          timeout: config.timeouts?.pageLoadMs || 30000,
-          registerDeployment: () => {},
-        });
-        await bd.gotoDetail(id).catch(() => null);
-        const canDelete = await bd.isDetailActionVisible(T.DELETE).catch(() => false);
-        if (canDelete) {
-          await bd.deleteFromDetail(true).catch(() => null);
-        }
-      }
+      // If API deletion is rejected for any reason, attempt UI fallback.
+      await tryUiDeleteById(id, origin);
     } catch {
-      // best-effort cleanup per bundle
+      // Network/API exception: still attempt UI fallback.
+      await tryUiDeleteById(id, origin).catch(() => null);
     }
   }
 }
