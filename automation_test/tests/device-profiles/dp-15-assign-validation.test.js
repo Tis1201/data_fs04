@@ -9,6 +9,7 @@ const {
 } = require('../../utils/device-profiles-helpers');
 const {
     authFile,
+    config,
     PROFILE_WITH_DEVICES_ID,
     PROFILE_WITH_DEVICES_NAME,
     generateTestProfileNameWithSuffix,
@@ -124,9 +125,27 @@ test.describe('Section 17 — Assign Device Validation', () => {
 
     test('TC-DP-031: Assign device from another profile — shows reassign confirmation', async ({ dp, page }) => {
         const profileName = generateTestProfileNameWithSuffix('AutoTest_assign_other');
+        const ONLINE_DEVICE_ID = config.pageURL.devices.onlineDeviceId;
+        const API_BASE = config.apiBaseURL.replace(/\/auth\/login.*/, '');
+        let setupDeviceAssigned = false;
 
         let targetSearchTerm;
         await test.step('Verify source profile has devices and identify target', async () => {
+            // API setup: ensure source profile has a device before reading it
+            const cfgResp = await page.request.get(
+                `${API_BASE}/api/user/iot/devices/${ONLINE_DEVICE_ID}/configuration`
+            );
+            const cfgData = cfgResp.ok() ? await cfgResp.json() : {};
+            if ((cfgData.deviceProfile?.id ?? null) !== PROFILE_WITH_DEVICES_ID) {
+                const assignResp = await page.request.post(
+                    `${API_BASE}/api/device-profiles/${PROFILE_WITH_DEVICES_ID}/assign`,
+                    { data: { deviceIds: [ONLINE_DEVICE_ID] } }
+                );
+                expect(assignResp.ok(), `Setup: assign to source profile failed (${assignResp.status()})`).toBe(true);
+                setupDeviceAssigned = true;
+                console.log(`  Setup: assigned device to source profile "${PROFILE_WITH_DEVICES_ID}"`);
+            }
+
             const dpSource = new DeviceProfilePage(page, PROFILE_WITH_DEVICES_ID);
             await dpSource.gotoDetail();
             await dpSource.switchToTab('devices');
@@ -162,6 +181,15 @@ test.describe('Section 17 — Assign Device Validation', () => {
                 await dp.reassignCancelButton.click();
             });
         } finally {
+            if (setupDeviceAssigned) {
+                try {
+                    await page.request.post(
+                        `${API_BASE}/api/device-profiles/${PROFILE_WITH_DEVICES_ID}/unassign`,
+                        { data: { deviceIds: [ONLINE_DEVICE_ID] } }
+                    );
+                    console.log(`  Teardown: unassigned setup device from source profile`);
+                } catch (e) { console.error(`  Teardown unassign failed: ${e.message}`); }
+            }
             try {
                 await dp.deleteProfile(profileName);
             } catch (e) {

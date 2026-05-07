@@ -5,7 +5,7 @@ const expect = test.expect;
 
 test.describe('Section 6 — Security', () => {
 
-    test('TC-INFO-013: Security card displays masked API Key with copy functionality', async ({ dp }) => {
+    test('TC-INFO-012: Security card displays masked API Key with copy functionality', async ({ dp }) => {
         let fields;
 
         await test.step('Verify Security heading and masked API Key', async () => {
@@ -29,7 +29,7 @@ test.describe('Section 6 — Security', () => {
         });
     });
 
-    test('TC-INFO-014: Generate New Key flow — confirm dialog and key changes', async ({ dp, page }) => {
+    test('TC-INFO-013: Generate New Key flow — confirm dialog and key changes', async ({ dp, page }) => {
         const fieldsBefore = await dp.extractAllFieldValues();
         const oldKey = fieldsBefore['API Key'] || '';
 

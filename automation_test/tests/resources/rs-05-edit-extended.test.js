@@ -45,11 +45,10 @@ test.describe('Section 6 (extended) — Resources Edit & TC-RS-018 Delete In-Use
 
             await test.step('Change Release Type and save — verify in list', async () => {
                 await rs.releaseTypeDropdown.click();
-                // pick the first option that is not already selected
                 const firstOption = rs.page
                     .locator('[role="option"], [role="listbox"] li, [data-radix-select-item]')
                     .first();
-                const optionText = await firstOption.textContent();
+                const optionText = (await firstOption.textContent()).trim();
                 await firstOption.click();
                 await rs.saveResourceModal();
                 await rs.waitForSuccessToast();
@@ -57,6 +56,7 @@ test.describe('Section 6 (extended) — Resources Edit & TC-RS-018 Delete In-Use
                 await rs.searchFor(disposableName);
                 const row = rs.resourceRowByName(disposableName);
                 await expect(row).toBeVisible();
+                await expect(row).toContainText(new RegExp(optionText, 'i'));
             });
 
             await test.step('Reopen Edit — Package Name is disabled', async () => {
@@ -193,8 +193,16 @@ test.describe('Section 6 (extended) — Resources Edit & TC-RS-018 Delete In-Use
             await expect(rs.resourceRowByName(resourceName)).toBeHidden();
         });
 
+        await test.step('Bundle still exists and retains snapshot after resource deletion', async () => {
+            await page.goto(`${origin}/user/iot/bundles/${bundleId}`);
+            await page.waitForLoadState('domcontentloaded');
+            const detailContent = page.locator('[class*="card"], section, article').first();
+            await expect(detailContent).toBeVisible({ timeout: 15000 });
+            await expect(page.locator('body')).not.toContainText(/404|not found|error/i);
+        });
+
         await test.step('Cleanup: delete bundle', async () => {
-            await page.request.delete(`${origin}/api/user/iot/bundles/${bundleId}`).catch(() => {});
+            await page.request.delete(`${origin}/api/v2/bundles/${bundleId}`).catch(() => {});
         });
     });
 });
