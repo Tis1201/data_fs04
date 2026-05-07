@@ -1,7 +1,7 @@
 const { createBulkE2ETest, bulkTestData, T } = require('./bd-e2e-shared');
 const {
   createDraftOpenDetail,
-} = require('../../../pages/bulk-deployments/flows');
+} = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkE2ETest();
 const expect = test.expect;

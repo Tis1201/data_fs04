@@ -3,7 +3,7 @@ const {
   createDraftWithAssignments,
   createDraftOpenDetail,
   buildFutureSchedulePayload,
-} = require('../../../pages/bulk-deployments/flows');
+} = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkE2ETest();
 const expect = test.expect;

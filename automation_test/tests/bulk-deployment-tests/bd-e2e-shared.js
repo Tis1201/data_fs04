@@ -1,5 +1,5 @@
-const { createBulkTest, bulkTestData, bulkLimits, config } = require('../bd-shared');
-const { T } = require('../../../pages/bulk-deployments/flows');
+const { createBulkTest, bulkTestData, bulkLimits, config } = require('./bd-shared');
+const { T } = require('../../pages/bulk-deployments/flows');
 
 /**
  * E2E-level shared exports for Bulk Deployments.
