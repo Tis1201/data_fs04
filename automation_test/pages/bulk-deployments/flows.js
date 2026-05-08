@@ -178,6 +178,79 @@ async function createDraftWithAssignments(page, options = {}) {
   return { bulkPage: bd, deploymentId: created.id, payload: data };
 }
 
+async function getFirstOfflineDevice(page) {
+  const origin = bulkAppOrigin();
+  const res = await page.request.get(`${origin}/api/v2/devices/select?per_page=100`);
+  if (!res.ok()) {
+    throw new Error(`Unable to load devices for failed Bulk Deployment setup. Status: ${res.status()}`);
+  }
+  const body = await res.json().catch(() => ({}));
+  const devices = body?.data?.devices || body?.devices || [];
+  const offline = devices.find((device) => device && device.connected === false);
+  if (!offline) {
+    throw new Error('No offline device is available for failed Bulk Deployment E2E setup.');
+  }
+  return offline;
+}
+
+async function getFirstOfflineDeviceSearchTerm(page) {
+  const offline = await getFirstOfflineDevice(page);
+  return offline.macAddress || offline.name || offline.id;
+}
+
+async function getFirstOnlineDevice(page, preferredSearch = '') {
+  const origin = bulkAppOrigin();
+  const query = preferredSearch ? `search=${encodeURIComponent(preferredSearch)}&` : '';
+  const res = await page.request.get(`${origin}/api/v2/devices/select?${query}per_page=100`);
+  if (!res.ok()) {
+    throw new Error(`Unable to load online devices for failed Bulk Deployment setup. Status: ${res.status()}`);
+  }
+  const body = await res.json().catch(() => ({}));
+  const devices = body?.data?.devices || body?.devices || [];
+  const online = devices.find((device) => device && device.connected === true);
+  if (!online) {
+    throw new Error('No online device is available for failed Bulk Deployment E2E setup.');
+  }
+
+  const detailRes = await page.request.get(`${origin}/api/v2/devices/${encodeURIComponent(online.id)}`);
+  const detailBody = await detailRes.json().catch(() => ({}));
+  const detail = detailBody?.data || detailBody?.device || {};
+  return { ...online, ...detail };
+}
+
+async function createFailedDeploymentFromFlow(page, options = {}) {
+  const {
+    name = `Bulk E2E Failed ${Date.now()}`,
+    appName,
+    timeout = 4 * 60 * 1000,
+    registry = {},
+  } = options;
+
+  if (!appName) {
+    throw new Error('createFailedDeploymentFromFlow requires appName test data.');
+  }
+  const onlineDevice = options.onlineDevice || await getFirstOnlineDevice(page, options.onlineDeviceSearch || '');
+  const onlineDeviceName = onlineDevice.macAddress || onlineDevice.name || onlineDevice.id;
+
+  const created = await createDraftWithAssignments(page, {
+    payloadOverrides: {
+      name,
+      description: 'E2E failed deployment created from the real Bulk Deployment flow.',
+      version: options.version || '1.0.0',
+    },
+    appNames: [appName],
+    deviceNames: [onlineDeviceName],
+    registry,
+  });
+
+  const { bulkPage } = created;
+  await bulkPage.openDevicesTab();
+  await bulkPage.expectDeviceRowVisible(onlineDeviceName);
+  await bulkPage.publishFromDetail();
+  await bulkPage.waitForStatusOneOf(T.STATUS_FAILED, { timeout });
+  return { ...created, onlineDevice };
+}
+
 async function assertListPageStructure(bd) {
   await expect(bd.listTitle.first()).toBeVisible();
   await expect(bd.searchInput).toBeVisible();
@@ -278,6 +351,10 @@ module.exports = {
   openDeploymentForAppsTab,
   buildFutureSchedulePayload,
   createDraftWithAssignments,
+  getFirstOfflineDevice,
+  getFirstOfflineDeviceSearchTerm,
+  getFirstOnlineDevice,
+  createFailedDeploymentFromFlow,
   assertListPageStructure,
   assertDeploymentDetailShell,
   assertDevicesTabIsDefault,

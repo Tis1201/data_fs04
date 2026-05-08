@@ -3,6 +3,7 @@ const {
   T,
   createDraftOpenDetail,
   createDraftWithAssignments,
+  createFailedDeploymentFromFlow,
   buildFutureSchedulePayload,
 } = require('../../pages/bulk-deployments/flows');
 
@@ -79,12 +80,15 @@ test.describe('TC-BULK-DELETE', () => {
     await bulkPage.expectNoDeploymentResults();
   });
 
-  test('TC-BULK-DELETE-007: Failed deployment — Delete button visibility', async ({ page, bd }) => {
-    test.skip(!bulkTestData.failedDeploymentId, 'Set bulkDeployments.failedDeploymentId for this check');
-    await bd.gotoDetail(bulkTestData.failedDeploymentId);
-    await bd.waitForPageReady();
-    expect(await bd.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
-    const delVisible = await bd.isDetailActionVisible(T.DELETE);
-    expect(typeof delVisible).toBe('boolean');
+  test('TC-BULK-DELETE-007: Failed deployment — Delete button is visible', async ({ page }) => {
+    test.setTimeout(bulkTestData.publishFlowTimeoutMs);
+    const { bulkPage } = await createFailedDeploymentFromFlow(page, {
+      name: `Bulk DelFailed ${Date.now()}`,
+      appName: bulkTestData.counterNowAppName,
+      onlineDeviceSearch: bulkTestData.onlineDeviceSearch,
+      timeout: bulkTestData.publishFlowTimeoutMs,
+    });
+    expect(await bulkPage.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
+    await expect(bulkPage.deleteButton.first()).toBeVisible();
   });
 });

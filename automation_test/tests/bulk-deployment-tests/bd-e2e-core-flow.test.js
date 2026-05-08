@@ -36,10 +36,10 @@ test.describe('E2E — Bulk Deployment core flow', () => {
       await bulkPage.expectDeviceRowVisible(bulkTestData.onlineDeviceSearch);
     });
 
-    await test.step('Publish and verify status is no longer Draft', async () => {
+    await test.step('Publish and verify deployment enters a published/running status', async () => {
       await bulkPage.publishFromDetail();
       const status = await bulkPage.expectStatusBadgeVisible();
-      expect(status).not.toBe(T.STATUS_DRAFT);
+      expect([T.STATUS_PUBLISHED, T.STATUS_IN_PROGRESS, T.STATUS_COMPLETED]).toContain(status);
     });
 
     await test.step('Verify Batches tab is visible and metrics are numeric', async () => {

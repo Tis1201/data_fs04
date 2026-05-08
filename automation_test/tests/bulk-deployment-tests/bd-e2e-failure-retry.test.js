@@ -1,52 +1,62 @@
-const { createBulkE2ETest, failedDeploymentId, T } = require('./bd-e2e-shared');
+const { createBulkE2ETest, bulkTestData, T } = require('./bd-e2e-shared');
+const { createFailedDeploymentFromFlow } = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkE2ETest();
 const expect = test.expect;
 
 test.describe('E2E — Bulk failure/retry behavior', () => {
-  test('TC-BULK-E2E-040: Failed deployment exposes retry path (Run Deployment)', async ({ bd }) => {
-    test.skip(
-      !failedDeploymentId,
-      'Set pageURL.bulkDeployments.failedDeploymentId or BULK_FAILED_DEPLOYMENT_ID to validate retry on real failed deployment.'
-    );
-    test.setTimeout(8 * 60 * 1000);
+  test('TC-BULK-E2E-040: Failed deployment is created by flow before retry', async ({ page }) => {
+    test.setTimeout(bulkTestData.publishFlowTimeoutMs);
+    let bulkPage;
+    let deploymentId;
 
-    await test.step('Open existing Failed deployment', async () => {
-      await bd.gotoDetail(failedDeploymentId);
-      await bd.waitForPageReady();
-      expect(await bd.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
+    await test.step('Create deployment with online device and make that device report Failed', async () => {
+      const created = await createFailedDeploymentFromFlow(page, {
+        name: `Bulk E2E Retry Failed ${Date.now()}`,
+        appName: bulkTestData.counterNowAppName,
+        onlineDeviceSearch: bulkTestData.onlineDeviceSearch,
+        timeout: bulkTestData.publishFlowTimeoutMs,
+      });
+      bulkPage = created.bulkPage;
+      deploymentId = created.deploymentId;
+      expect(await bulkPage.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
     });
 
-    await test.step('Retry by Run Deployment from detail and verify UI still healthy', async () => {
-      await bd.runDeploymentFromDetail();
-      await bd.waitForPageReady();
-      await expect(bd.pageTitle).toBeVisible();
-      await expect(bd.overviewTitle).toBeVisible();
-      // Status may remain Failed or transition based on backend policy/timing.
-      expect(await bd.expectStatusBadgeVisible()).toBeTruthy();
+    await test.step('Retry from the same Failed deployment and verify retried status', async () => {
+      await bulkPage.gotoDetail(deploymentId);
+      await bulkPage.waitForPageReady();
+      expect(await bulkPage.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
+      await bulkPage.retryDeploymentFromDetail();
+      await expect(bulkPage.pageTitle).toBeVisible();
+      await expect(bulkPage.overviewTitle).toBeVisible();
+      await bulkPage.waitForStatusOneOf([T.STATUS_IN_PROGRESS, T.STATUS_FAILED], {
+        timeout: bulkTestData.publishFlowTimeoutMs,
+      });
     });
   });
 
   test('TC-BULK-E2E-041: Failed deployment action visibility (Delete/Run) is deterministic', async ({
-    bd,
+    page,
   }) => {
-    test.skip(
-      !failedDeploymentId,
-      'Set pageURL.bulkDeployments.failedDeploymentId or BULK_FAILED_DEPLOYMENT_ID to validate failed-action affordances.'
-    );
-    test.setTimeout(5 * 60 * 1000);
+    test.setTimeout(bulkTestData.publishFlowTimeoutMs);
+    let bulkPage;
 
-    await test.step('Open failed deployment and inspect actions', async () => {
-      await bd.gotoDetail(failedDeploymentId);
-      await bd.waitForPageReady();
-      expect(await bd.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
+    await test.step('Create deployment with online device that reaches Failed status', async () => {
+      const created = await createFailedDeploymentFromFlow(page, {
+        name: `Bulk E2E Failed Actions ${Date.now()}`,
+        appName: bulkTestData.counterNowAppName,
+        onlineDeviceSearch: bulkTestData.onlineDeviceSearch,
+        timeout: bulkTestData.publishFlowTimeoutMs,
+      });
+      bulkPage = created.bulkPage;
+      expect(await bulkPage.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
     });
 
     await test.step('Assert action affordances are present/absent in a stable way', async () => {
-      const runVisible = await bd.isDetailActionVisible(T.RUN_DEPLOYMENT);
-      const deleteVisible = await bd.isDetailActionVisible(T.DELETE);
-      expect(typeof runVisible).toBe('boolean');
-      expect(typeof deleteVisible).toBe('boolean');
+      await expect(bulkPage.page.getByRole('button', { name: T.RETRY }).first()).toBeVisible();
+      await expect(bulkPage.page.getByRole('button', { name: T.EDIT }).first()).toBeVisible();
+      await expect(bulkPage.page.getByRole('button', { name: T.DELETE }).first()).toBeVisible();
+      await expect(bulkPage.page.getByRole('button', { name: T.RUN_DEPLOYMENT }).first()).toBeHidden();
     });
   });
 });

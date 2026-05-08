@@ -70,7 +70,9 @@ test.describe('E2E — Bulk Deployment version matrix (older/equal/newer)', () =
 
     await test.step('Publish deployment', async () => {
       await bulkPage.publishFromDetail();
-      expect(await bulkPage.expectStatusBadgeVisible()).not.toBe(T.STATUS_DRAFT);
+      expect([T.STATUS_PUBLISHED, T.STATUS_IN_PROGRESS, T.STATUS_COMPLETED]).toContain(
+        await bulkPage.expectStatusBadgeVisible()
+      );
     });
 
     await test.step('Verify newer version still shown on detail and list', async () => {

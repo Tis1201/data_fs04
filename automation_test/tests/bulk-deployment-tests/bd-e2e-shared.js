@@ -11,10 +11,4 @@ module.exports = {
   bulkLimits,
   config,
   T,
-  /**
-   * Optional env-gated ID for an already Failed deployment to validate retry behavior.
-   * This is intentionally externalized to avoid forcing the suite to manufacture failure states.
-   */
-  failedDeploymentId:
-    bulkTestData.failedDeploymentId || process.env.BULK_FAILED_DEPLOYMENT_ID || '',
 };

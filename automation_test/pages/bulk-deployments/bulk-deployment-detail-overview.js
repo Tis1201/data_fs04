@@ -62,6 +62,32 @@ const bulkDeploymentDetailOverview = {
     throw new Error('No deployment status badge was visible.');
   },
 
+  async waitForStatusOneOf(expectedStatuses, options = {}) {
+    const statuses = Array.isArray(expectedStatuses) ? expectedStatuses : [expectedStatuses];
+    const normalizedExpected = statuses.map((status) => normalizeText(status));
+    const timeout = options.timeout || this.timeout;
+    const reload = options.reload !== false;
+
+    await expect
+      .poll(
+        async () => {
+          if (reload) {
+            await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => null);
+            await this.waitForPageReady().catch(() => null);
+          }
+          const status = normalizeText(await this.expectStatusBadgeVisible());
+          return normalizedExpected.includes(status);
+        },
+        {
+          timeout,
+          intervals: [2000, 3000, 5000, 10000],
+          message: `Expected deployment status to be one of: ${statuses.join(', ')}`,
+        }
+      )
+      .toBe(true);
+    return this.expectStatusBadgeVisible();
+  },
+
   async expectAuditInfoVisible() {
     await expect(this.page.getByText(new RegExp(T.CREATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });
     await expect(this.page.getByText(new RegExp(T.LAST_UPDATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });

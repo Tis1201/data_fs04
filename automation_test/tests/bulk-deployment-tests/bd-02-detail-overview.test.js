@@ -4,6 +4,7 @@ const {
   assertDeploymentDetailShell,
   assertDevicesTabIsDefault,
   assertOverviewKeyFieldsVisible,
+  createFailedDeploymentFromFlow,
   T,
 } = require('../../pages/bulk-deployments/flows');
 
@@ -62,13 +63,17 @@ test.describe('Section 2 — Deployment detail & overview (TC-BULK-INFO-001~004)
     });
   });
 
-  test('TC-BULK-INFO-003: Status badge on existing Failed deployment (optional)', async ({ page, bd }) => {
-    test.skip(!bulkTestData.failedDeploymentId, 'Set pageURL.bulkDeployments.failedDeploymentId or BULK_FAILED_DEPLOYMENT_ID');
+  test('TC-BULK-INFO-003: Status badge on Failed deployment created by flow', async ({ page }) => {
+    test.setTimeout(bulkTestData.publishFlowTimeoutMs);
 
-    await test.step('Open configured Failed deployment and assert Failed badge', async () => {
-      await bd.gotoDetail(bulkTestData.failedDeploymentId);
-      await bd.waitForPageReady();
-      const status = await bd.expectStatusBadgeVisible();
+    await test.step('Create deployment with online device reporting Failed and assert Failed badge', async () => {
+      const { bulkPage } = await createFailedDeploymentFromFlow(page, {
+        name: `Bulk FailedBadge ${Date.now()}`,
+        appName: bulkTestData.counterNowAppName,
+        onlineDeviceSearch: bulkTestData.onlineDeviceSearch,
+        timeout: bulkTestData.publishFlowTimeoutMs,
+      });
+      const status = await bulkPage.expectStatusBadgeVisible();
       expect(status).toBe(T.STATUS_FAILED);
     });
   });

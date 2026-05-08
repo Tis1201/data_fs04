@@ -36,6 +36,26 @@ const bulkDeploymentActions = {
     await this.waitForToastOrNetwork();
   },
 
+  async retryDeploymentFromDetail() {
+    const retryButton = this.page.getByRole('button', { name: T.RETRY }).first();
+    await expect(retryButton).toBeVisible({ timeout: this.timeout });
+    await retryButton.click();
+    const dialog = this.dialogByTitle(T.DIALOG_RETRY_DEPLOYMENT);
+    await expect(dialog).toBeVisible({ timeout: this.timeout });
+    const responsePromise = this.page
+      .waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          response.url().includes('/api/v2/bundles/') &&
+          response.url().includes('/retry'),
+        { timeout: this.timeout }
+      )
+      .catch(() => null);
+    await dialog.getByRole('button', { name: T.RETRY }).click();
+    await responsePromise;
+    await this.waitForToastOrNetwork();
+  },
+
   async duplicateFromDetail() {
     const currentUrl = this.page.url();
     await expect(this.duplicateButton.first()).toBeVisible({ timeout: this.timeout });

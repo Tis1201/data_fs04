@@ -75,7 +75,6 @@ const bulkDeploymentDevices = {
     for (const searchTerm of searchTerms) {
       await searchInput.fill('');
       await searchInput.fill(searchTerm);
-      await this.waitForUiSettled();
 
       const exactNameOption = this.page
         .locator('.device-selector-option')
@@ -88,6 +87,22 @@ const bulkDeploymentDevices = {
       const macOption = macAddress
         ? this.page.locator('.device-selector-option').filter({ hasText: macAddress }).first()
         : exactNameOption;
+
+      await expect
+        .poll(
+          async () => {
+            const exactVisible = await exactNameOption.isVisible().catch(() => false);
+            const macVisible = await macOption.isVisible().catch(() => false);
+            const emptyVisible = await this.getNoDevicesFoundText().isVisible().catch(() => false);
+            const loadingVisible = await this.page.getByText(/Loading/i).isVisible().catch(() => false);
+            return exactVisible || macVisible || (emptyVisible && !loadingVisible);
+          },
+          {
+            timeout: this.timeout,
+            message: `Expected Add Device search to finish for "${searchTerm}"`,
+          }
+        )
+        .toBe(true);
 
       if (await exactNameOption.isVisible().catch(() => false)) {
         option = exactNameOption;

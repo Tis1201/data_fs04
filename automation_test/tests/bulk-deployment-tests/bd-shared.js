@@ -22,8 +22,6 @@ const bulkTestData = {
   counterNowAppName: bulkCfg.counterNowAppName || 'counter_now',
   onlineDeviceSearch: bulkCfg.onlineDeviceSearch || '3576M',
   offlineDeviceSearch: bulkCfg.offlineDeviceSearch || 'DN76',
-  /** Optional: open an existing Failed deployment for TC-BULK-INFO-003 / DELETE-007 */
-  failedDeploymentId: bulkCfg.failedDeploymentId || process.env.BULK_FAILED_DEPLOYMENT_ID || '',
   /** Long publish / batch waits (ms) */
   publishFlowTimeoutMs: bulkCfg.publishFlowTimeoutMs ?? 10 * 60 * 1000,
   /** Days ahead for Future schedule tests */
