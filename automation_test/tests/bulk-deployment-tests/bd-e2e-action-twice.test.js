@@ -1,4 +1,4 @@
-const { createBulkE2ETest, bulkTestData, T } = require('./e2e/bd-e2e-shared');
+const { createBulkE2ETest, bulkTestData, T } = require('./bd-e2e-shared');
 const {
   createDraftOpenDetail,
   createDraftWithAssignments,

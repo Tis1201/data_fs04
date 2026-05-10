@@ -3,6 +3,7 @@ const {
   createDraftWithAssignments,
   createDraftOpenDetail,
   buildFutureSchedulePayload,
+  createFailedDeploymentFromFlow,
 } = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkE2ETest();
@@ -102,6 +103,53 @@ test.describe('E2E — Bulk Deployment core flow', () => {
         await bulkPage.searchDeployment(name);
       }
       await bulkPage.expectNoDeploymentResults();
+    });
+  });
+
+  test('TC-BULK-E2E-004: Device Deployments tab status matches Bulk Deployment Devices tab', async ({
+    page,
+  }) => {
+    test.setTimeout(bulkTestData.publishFlowTimeoutMs);
+    const name = `Bulk E2E Device Consistency ${Date.now()}`;
+    const device = bulkTestData.onlineDeviceSearch;
+    let bulkPage;
+    let bulkDeviceStatus;
+
+    await test.step('Create a deployment that reaches Failed with one assigned device', async () => {
+      const created = await createFailedDeploymentFromFlow(page, {
+        name,
+        appName: bulkTestData.counterNowAppName,
+        onlineDeviceSearch: device,
+        timeout: bulkTestData.publishFlowTimeoutMs,
+      });
+      bulkPage = created.bulkPage;
+      expect(await bulkPage.expectStatusBadgeVisible()).toBe(T.STATUS_FAILED);
+    });
+
+    await test.step('Read device deployment status from Bulk Deployment Devices tab', async () => {
+      bulkDeviceStatus = await bulkPage.getDeviceDeploymentStatusText(device);
+      expect(bulkDeviceStatus).toBe(T.STATUS_FAILED);
+    });
+
+    await test.step('Open assigned device from Bulk Deployment Devices tab', async () => {
+      await bulkPage.openDeviceDetailFromDevicesTab(device);
+    });
+
+    await test.step('Verify Device Deployments tab shows the same device-level status', async () => {
+      const deploymentsTab = page
+        .getByRole('button', { name: 'Deployments', exact: true })
+        .or(page.getByRole('tab', { name: 'Deployments' }));
+      await deploymentsTab.click();
+
+      const deploymentRow = page.locator('tbody tr').filter({ hasText: name }).first();
+      await expect(deploymentRow).toBeVisible({ timeout: bulkTestData.publishFlowTimeoutMs });
+
+      const statusCell = deploymentRow.locator('td[data-ds-col-id="status"]').first();
+      if ((await statusCell.count()) > 0) {
+        await expect(statusCell).toContainText(bulkDeviceStatus, { timeout: bulkTestData.publishFlowTimeoutMs });
+      } else {
+        await expect(deploymentRow).toContainText(bulkDeviceStatus, { timeout: bulkTestData.publishFlowTimeoutMs });
+      }
     });
   });
 });

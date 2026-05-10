@@ -36,6 +36,26 @@ const bulkDeploymentDevices = {
     return row;
   },
 
+  async openDeviceDetailFromDevicesTab(deviceNameOrMac) {
+    const row = await this.expectDeviceRowVisible(deviceNameOrMac);
+    const detailLink = row.locator('a[href*="/devices/"]').first();
+    await expect(detailLink).toBeVisible({ timeout: this.timeout });
+    await detailLink.click();
+    await this.page.waitForURL(/\/user\/iot\/devices\/[^/?#]+/, { timeout: this.timeout });
+    const deploymentsTab = this.page
+      .getByRole('button', { name: 'Deployments', exact: true })
+      .or(this.page.getByRole('tab', { name: 'Deployments' }));
+    await expect(deploymentsTab).toBeVisible({ timeout: this.timeout });
+  },
+
+  async getDeviceDeploymentStatusText(deviceNameOrMac) {
+    await this.openDevicesTab();
+    const row = await this.expectDeviceRowVisible(deviceNameOrMac);
+    const statusCell = row.locator('td[data-ds-col-id="deploymentStatus"]').first();
+    await expect(statusCell).toBeVisible({ timeout: this.timeout });
+    return normalizeText((await statusCell.textContent()) || '');
+  },
+
   async expectDeviceRowHidden(deviceNameOrMac) {
     await expect(this.deviceRowByNameOrMac(deviceNameOrMac)).toHaveCount(0, { timeout: this.timeout });
   },

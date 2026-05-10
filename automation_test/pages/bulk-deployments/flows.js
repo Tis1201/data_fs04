@@ -39,6 +39,9 @@ async function deleteTrackedBundlesForPage(page) {
     return;
   }
 
+  const cleanupTimeout = config.pageURL?.bulkDeployments?.cleanupTimeoutMs ?? 2 * 60 * 1000;
+  const cleanupFailures = [];
+
   async function tryUiDeleteById(id, origin) {
     const bd = new BulkDeploymentPage(page, {
       appUrl: origin,
@@ -52,19 +55,59 @@ async function deleteTrackedBundlesForPage(page) {
     }
   }
 
-  for (const id of [...ids].reverse()) {
-    try {
-      const res = await page.request.delete(`${origin}/api/v2/bundles/${encodeURIComponent(id)}`);
-      const status = res.status();
-      if (status === 200 || status === 204 || status === 404) {
-        continue;
-      }
-      // If API deletion is rejected for any reason, attempt UI fallback.
-      await tryUiDeleteById(id, origin);
-    } catch {
-      // Network/API exception: still attempt UI fallback.
-      await tryUiDeleteById(id, origin).catch(() => null);
+  async function deleteBundleByApi(id, apiPath) {
+    const res = await page.request.delete(`${origin}${apiPath}/${encodeURIComponent(id)}`);
+    const status = res.status();
+    if (status === 200 || status === 204 || status === 404) {
+      return { deleted: true, status, body: '' };
     }
+    const body = await res.text().catch(() => '');
+    return { deleted: false, status, body };
+  }
+
+  for (const id of [...ids].reverse()) {
+    let lastError = '';
+    try {
+      await expect
+        .poll(
+          async () => {
+            try {
+              const v2 = await deleteBundleByApi(id, '/api/v2/bundles');
+              if (v2.deleted) {
+                return true;
+              }
+
+              const userRoute = await deleteBundleByApi(id, '/api/user/iot/bundles');
+              if (userRoute.deleted) {
+                return true;
+              }
+
+              lastError = [
+                `v2 DELETE returned ${v2.status}${v2.body ? `: ${v2.body.slice(0, 180)}` : ''}`,
+                `user DELETE returned ${userRoute.status}${userRoute.body ? `: ${userRoute.body.slice(0, 180)}` : ''}`,
+              ].join('; ');
+              await tryUiDeleteById(id, origin);
+              return false;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : String(error);
+              await tryUiDeleteById(id, origin).catch(() => null);
+              return false;
+            }
+          },
+          {
+            timeout: cleanupTimeout,
+            intervals: [1000, 3000, 5000, 10000],
+            message: `Expected tracked Bulk Deployment "${id}" to be cleaned up`,
+          }
+        )
+        .toBe(true);
+    } catch {
+      cleanupFailures.push(`${id}: ${lastError || 'cleanup timed out'}`);
+    }
+  }
+
+  if (cleanupFailures.length) {
+    throw new Error(`Bulk Deployment cleanup failed:\n${cleanupFailures.join('\n')}`);
   }
 }
 
