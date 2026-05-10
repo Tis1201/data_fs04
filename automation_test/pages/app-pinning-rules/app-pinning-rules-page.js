@@ -68,8 +68,15 @@ class AppPinningRulesPage {
   }
 
   async openAddRuleModal() {
+    await expect(this.addRuleButton).toBeVisible({ timeout: this.timeout });
     await this.addRuleButton.click();
     const dialog = this.getDialogByText('Add Rule').last();
+    if (!(await dialog.isVisible().catch(() => false))) {
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await this.gotoList();
+      await this.waitForListReady();
+      await this.addRuleButton.click({ force: true });
+    }
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     return dialog;
   }

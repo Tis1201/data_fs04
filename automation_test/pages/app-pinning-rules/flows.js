@@ -1,4 +1,5 @@
 const config = require('../../config/config-loader');
+const { expect } = require('@playwright/test');
 const AppPinningRulesPage = require('./app-pinning-rules-page');
 
 const trackedRuleIds = [];
@@ -71,15 +72,49 @@ async function createPinRuleViaApi(page, overrides = {}) {
 }
 
 async function deletePinRuleById(page, id) {
-  if (!id) return;
+  if (!id) return { deleted: true, status: 0, body: '' };
   const origin = appOrigin();
-  await page.request.delete(`${origin}/api/v2/pin-rules/${encodeURIComponent(id)}`).catch(() => null);
+  const res = await page.request.delete(`${origin}/api/v2/pin-rules/${encodeURIComponent(id)}`);
+  const status = res.status();
+  const body = await res.text().catch(() => '');
+  return {
+    deleted: status === 200 || status === 204 || status === 404,
+    status,
+    body,
+  };
 }
 
 async function deleteTrackedPinRulesForPage(page) {
   const ids = takeTrackedRuleIds();
+  const failures = [];
   for (const id of ids.reverse()) {
-    await deletePinRuleById(page, id);
+    let lastError = '';
+    await expect
+      .poll(
+        async () => {
+          const result = await deletePinRuleById(page, id).catch((error) => {
+            lastError = error instanceof Error ? error.message : String(error);
+            return { deleted: false, status: 0, body: '' };
+          });
+          if (result.deleted) {
+            return true;
+          }
+          lastError = `DELETE returned ${result.status}${result.body ? `: ${result.body.slice(0, 250)}` : ''}`;
+          return false;
+        },
+        {
+          timeout: config.pageURL?.appPinningRules?.cleanupTimeoutMs ?? 60 * 1000,
+          intervals: [1000, 3000, 5000],
+          message: `Expected tracked App Pinning Rule "${id}" to be deleted`,
+        }
+      )
+      .toBe(true)
+      .catch(() => {
+        failures.push(`${id}: ${lastError || 'cleanup timed out'}`);
+      });
+  }
+  if (failures.length) {
+    throw new Error(`App Pinning Rules cleanup failed:\n${failures.join('\n')}`);
   }
 }
 
@@ -89,10 +124,38 @@ async function deletePinRulesByNamePrefix(page, prefix = PIN_RULE_PREFIX) {
   if (!res || !res.ok()) return;
   const body = await res.json().catch(() => ({}));
   const rules = body?.data?.rules || body?.rules || [];
+  const failures = [];
   for (const rule of rules) {
     if (rule?.id && String(rule.name || '').startsWith(prefix) && rule.ruleType !== 'user_default') {
-      await deletePinRuleById(page, rule.id);
+      const result = await deletePinRuleById(page, rule.id).catch((error) => ({
+        deleted: false,
+        status: 0,
+        body: error instanceof Error ? error.message : String(error),
+      }));
+      if (!result.deleted) {
+        failures.push(`${rule.id} (${rule.name}): DELETE returned ${result.status}${result.body ? `: ${result.body.slice(0, 250)}` : ''}`);
+      }
     }
+  }
+
+  const verify = await page.request.get(`${origin}/api/v2/pin-rules?search=${encodeURIComponent(prefix)}`).catch(() => null);
+  if (!verify || !verify.ok()) {
+    if (failures.length) {
+      throw new Error(`App Pinning Rules cleanup failed:\n${failures.join('\n')}`);
+    }
+    return;
+  }
+  const verifyBody = await verify.json().catch(() => ({}));
+  const remaining = (verifyBody?.data?.rules || verifyBody?.rules || [])
+    .filter((rule) => rule?.id && String(rule.name || '').startsWith(prefix) && rule.ruleType !== 'user_default');
+  if (failures.length || remaining.length) {
+    throw new Error(
+      [
+        'App Pinning Rules cleanup failed:',
+        ...failures,
+        ...remaining.map((rule) => `${rule.id} (${rule.name}): still present after cleanup`),
+      ].join('\n')
+    );
   }
 }
 
