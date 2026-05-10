@@ -1,5 +1,13 @@
 const { createAppPinningRulesE2ETest } = require('./apr-e2e-shared');
-const { createPinRulesPage } = require('../../pages/app-pinning-rules/flows');
+const config = require('../../config/config-loader');
+const {
+  createPinRulesPage,
+  createPinRuleViaApi,
+  expectDeviceAppPinned,
+  expectPinnedAppVisibleInDeviceResources,
+  getFirstInstalledAppForDevice,
+  openDeviceResourcesTab,
+} = require('../../pages/app-pinning-rules/flows');
 
 const test = createAppPinningRulesE2ETest();
 const expect = test.expect;
@@ -57,6 +65,41 @@ test.describe('E2E — App Pinning Rules create and validation', () => {
     await test.step('Cancel modal after validation checks', async () => {
       await dialog.getByRole('button', { name: 'Cancel' }).click();
       await expect(dialog).toBeHidden();
+    });
+  });
+
+  test('TC-PIN-E2E-016: Applied App Pinning Rule pins app on target device Resources tab', async ({
+    page,
+  }) => {
+    test.setTimeout(4 * 60 * 1000);
+    const deviceId = config.pageURL?.devices?.onlineDeviceId;
+    const preferredPackage = config.pageURL?.devices?.installApp?.packageName;
+    const name = `PIN E2E Device Resources ${Date.now()}`;
+    let installedApp;
+
+    await test.step('Create active pin rule for an installed app on the target device', async () => {
+      installedApp = await getFirstInstalledAppForDevice(page, deviceId, preferredPackage);
+      await createPinRuleViaApi(page, {
+        name,
+        appPackage: installedApp.packageName,
+        apps: [installedApp.packageName],
+        targetType: 'devices',
+        targetValue: [deviceId],
+        isActive: true,
+      });
+    });
+
+    await test.step('Verify pin state is applied for the target device', async () => {
+      await expectDeviceAppPinned(page, deviceId, installedApp.packageName);
+    });
+
+    await test.step('Open Device Resources tab and verify the app row is pinned', async () => {
+      await openDeviceResourcesTab(page, deviceId);
+      await expectPinnedAppVisibleInDeviceResources(
+        page,
+        installedApp.packageName,
+        installedApp.appName
+      );
     });
   });
 });

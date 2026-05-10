@@ -46,6 +46,34 @@ async function getFirstAvailableAppPackage(page) {
   return app.packageName;
 }
 
+async function getFirstInstalledAppForDevice(page, deviceId, preferredPackage = '') {
+  const origin = appOrigin();
+  const res = await page.request.get(
+    `${origin}/api/v2/devices/${encodeURIComponent(deviceId)}/apps-with-pins?page=1&limit=50&sortBy=name&sortOrder=asc`
+  );
+  if (!res.ok()) {
+    throw new Error(`Unable to load installed apps for device "${deviceId}". Status: ${res.status()}`);
+  }
+  const body = await res.json().catch(() => ({}));
+  const apps = body?.data?.apps || body?.data?.items || body?.apps || body?.items || [];
+  const installedApps = apps
+    .map((app) => ({
+      ...app,
+      appName: app.app_name || app.appName,
+      packageName: app.package_name || app.packageName,
+      isPinned: app.isPinned ?? app.is_pinned ?? false,
+    }))
+    .filter((app) => app.packageName);
+  const preferred = preferredPackage
+    ? installedApps.find((app) => app.packageName === preferredPackage)
+    : null;
+  const app = preferred || installedApps.find((item) => item.app_type !== 'System' && item.appType !== 'System') || installedApps[0];
+  if (!app?.packageName) {
+    throw new Error(`No installed app package is available for device "${deviceId}".`);
+  }
+  return app;
+}
+
 async function createPinRuleViaApi(page, overrides = {}) {
   const origin = appOrigin();
   const appPackage = overrides.appPackage || await getFirstAvailableAppPackage(page);
@@ -69,6 +97,72 @@ async function createPinRuleViaApi(page, overrides = {}) {
   const rule = body?.data?.rule || body?.rule;
   trackPinRuleId(rule?.id);
   return { rule, payload };
+}
+
+async function expectDeviceAppPinned(page, deviceId, packageName, options = {}) {
+  const origin = appOrigin();
+  const timeout = options.timeout || config.timeouts?.pageLoadMs || 30000;
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(
+          `${origin}/api/v2/devices/${encodeURIComponent(deviceId)}/apps-with-pins?page=1&limit=50&sortBy=name&sortOrder=asc`
+        );
+        const body = await res.json().catch(() => ({}));
+        const apps = body?.data?.apps || body?.data?.items || body?.apps || body?.items || [];
+        const app = apps.find((item) => (item.package_name || item.packageName) === packageName);
+        return Boolean(app && (app.isPinned ?? app.is_pinned));
+      },
+      {
+        timeout,
+        intervals: [1000, 2000, 5000],
+        message: `Expected package "${packageName}" to be pinned on device "${deviceId}"`,
+      }
+    )
+    .toBe(true);
+}
+
+async function openDeviceResourcesTab(page, deviceId) {
+  const origin = appOrigin();
+  await page.goto(`${origin}/user/iot/devices/${encodeURIComponent(deviceId)}?tab=resources`, {
+    waitUntil: 'domcontentloaded',
+    timeout: config.timeouts?.pageLoadMs || 30000,
+  });
+
+  const resourcesTab = page
+    .getByRole('button', { name: /^(Resources|Installed Apps)$/ })
+    .or(page.getByRole('tab', { name: /^(Resources|Installed Apps)$/ }));
+  await expect(resourcesTab).toBeVisible({ timeout: config.timeouts?.pageLoadMs || 30000 });
+  await resourcesTab.click().catch(() => null);
+
+  const resourcesHeading = page
+    .getByRole('heading', { name: /^(Installed Resources|Installed Apps)$/ })
+    .or(page.getByText(/List of installed (resources|apps)\. Pinned apps are shown first\./));
+  await expect(resourcesHeading.first()).toBeVisible({ timeout: config.timeouts?.pageLoadMs || 30000 });
+}
+
+async function expectPinnedAppVisibleInDeviceResources(page, packageName, appName = '') {
+  const searchInput = page.getByPlaceholder(/Search by name or package/i);
+  await expect(searchInput).toBeVisible({ timeout: config.timeouts?.pageLoadMs || 30000 });
+  await searchInput.fill(packageName);
+
+  const row = page.locator('tbody tr').filter({ hasText: packageName }).first();
+  await expect(row).toBeVisible({ timeout: config.timeouts?.pageLoadMs || 30000 });
+  if (appName) {
+    await expect(row).toContainText(appName);
+  }
+
+  const pinIcon = row.locator('td[data-ds-col-id="pin"] svg').first().or(row.locator('td').first().locator('svg').first());
+  await expect(pinIcon).toBeVisible({ timeout: config.timeouts?.pageLoadMs || 30000 });
+  await expect
+    .poll(
+      async () => (await pinIcon.getAttribute('fill').catch(() => '')) || '',
+      {
+        timeout: config.timeouts?.pageLoadMs || 30000,
+        message: `Expected package "${packageName}" to show filled pin icon in device Resources tab`,
+      }
+    )
+    .toMatch(/^(?!none$).+/);
 }
 
 async function deletePinRuleById(page, id) {
@@ -167,5 +261,9 @@ module.exports = {
   deleteTrackedPinRulesForPage,
   deletePinRulesByNamePrefix,
   getFirstAvailableAppPackage,
+  getFirstInstalledAppForDevice,
+  expectDeviceAppPinned,
+  openDeviceResourcesTab,
+  expectPinnedAppVisibleInDeviceResources,
   trackPinRuleId,
 };
