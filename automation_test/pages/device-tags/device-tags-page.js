@@ -131,20 +131,36 @@ class DeviceTagsPage {
   }
 
   async addDeviceBySearch(searchTerm) {
+    await this.addDeviceBySearchAndPick(searchTerm, searchTerm);
+  }
+
+  async addDeviceBySearchAndPick(searchTerm, pickMatch) {
     await this.addDeviceButton.click();
     const dialog = this.page.getByRole('dialog').filter({ hasText: /Add Device|Select Devices|Device/i }).last();
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     const search = dialog.locator('input').first();
     await expect(search).toBeVisible({ timeout: this.timeout });
     await search.fill(searchTerm);
-    const option = dialog.getByText(new RegExp(escapeRegExp(searchTerm), 'i')).first();
+    const option =
+      pickMatch instanceof RegExp
+        ? dialog.getByText(pickMatch).first()
+        : dialog.getByText(new RegExp(escapeRegExp(String(pickMatch)), 'i')).first();
     await expect(option).toBeVisible({ timeout: this.timeout });
     await option.click();
     await dialog.getByRole('button', { name: /^Add$/i }).click();
     await expect(dialog).toBeHidden({ timeout: this.timeout });
-    await expect(this.assignedDevicesTable).toContainText(new RegExp(escapeRegExp(searchTerm), 'i'), {
+    const assertNeedle = pickMatch instanceof RegExp ? pickMatch.source : String(pickMatch);
+    await expect(this.assignedDevicesTable).toContainText(new RegExp(escapeRegExp(assertNeedle), 'i'), {
       timeout: this.timeout,
     });
+  }
+
+  async expectDeviceDetailDoesNotShowTag(deviceId, tagName) {
+    await this.page.goto(`${this.appUrl}/user/iot/devices/${encodeURIComponent(deviceId)}`, {
+      waitUntil: 'domcontentloaded',
+    });
+    const tagHit = this.page.locator('.tags-row').filter({ hasText: tagName });
+    await expect(tagHit).toHaveCount(0);
   }
 
   async deleteFromDetail() {

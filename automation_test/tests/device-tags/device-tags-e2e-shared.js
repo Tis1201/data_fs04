@@ -11,6 +11,10 @@ const tagsCfg = config.pageURL?.deviceTags || {};
 
 const tagTestData = {
   deviceSearch: tagsCfg.deviceSearch || config.pageURL?.bulkDeployments?.onlineDeviceSearch || '3576M',
+  assignModalMultiSearch:
+    tagsCfg.assignModalMultiSearch || config.pageURL?.bulkDeployments?.onlineDeviceSearch || '3576M',
+  assignPickDeviceMatch: tagsCfg.assignPickDeviceMatch || '3576M-2',
+  assignExcludedDeviceId: tagsCfg.assignExcludedDeviceId || '',
 };
 
 function createDeviceTagsE2ETest() {
