@@ -15,6 +15,9 @@ const tagTestData = {
     tagsCfg.assignModalMultiSearch || config.pageURL?.bulkDeployments?.onlineDeviceSearch || '3576M',
   assignPickDeviceMatch: tagsCfg.assignPickDeviceMatch || '3576M-2',
   assignExcludedDeviceId: tagsCfg.assignExcludedDeviceId || '',
+  assignSecondDeviceSearch:
+    tagsCfg.assignSecondDeviceSearch || config.pageURL?.bulkDeployments?.offlineDeviceSearch || 'DN74',
+  assignSecondDevicePick: tagsCfg.assignSecondDevicePick || 'DN74',
 };
 
 function createDeviceTagsE2ETest() {

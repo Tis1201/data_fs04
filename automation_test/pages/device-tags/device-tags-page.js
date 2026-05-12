@@ -155,6 +155,41 @@ class DeviceTagsPage {
     });
   }
 
+  assignedDeviceDataRows() {
+    return this.assignedDevicesTable.locator('tbody tr').filter({ hasNotText: /no devices assigned/i });
+  }
+
+  async removeAssignedDeviceByRowMatch(rowTextMatch) {
+    const row = this.assignedDeviceDataRows().filter({ hasText: rowTextMatch }).first();
+    await expect(row).toBeVisible({ timeout: this.timeout });
+    await row.locator('td').last().locator('button').first().click();
+    const menu = this.page.getByRole('menu').last();
+    await expect(menu).toBeVisible({ timeout: this.timeout });
+    await menu.getByRole('menuitem', { name: /^Remove$/i }).click();
+    const confirm = this.page.getByRole('dialog').filter({ hasText: /Remove Device/i }).last();
+    await expect(confirm).toBeVisible({ timeout: this.timeout });
+    await confirm.getByRole('button', { name: /^Remove$/i }).click();
+    await expect(confirm).toBeHidden({ timeout: this.timeout });
+  }
+
+  async editTagFromListMenu(currentRowName, { name, description = '' }) {
+    await this.gotoList();
+    await this.searchByName(currentRowName);
+    const menu = await this.openRowActionMenu(currentRowName);
+    await menu.getByText('Edit', { exact: true }).click();
+    const dialog = this.tagDialog();
+    await expect(dialog).toBeVisible({ timeout: this.timeout });
+    await this.fillTagDialog(dialog, { name, description });
+    await this.submitTagDialog(dialog, /^Save$|Update/i);
+  }
+
+  async attemptSubmitNewTagWithEmptyName() {
+    const dialog = await this.openAddTagModal();
+    await this.fillTagDialog(dialog, { name: '', description: 'E2E empty-name attempt' });
+    await this.submitTagDialog(dialog, /^Add$|^Save$|Create/i);
+    return dialog;
+  }
+
   async expectDeviceDetailDoesNotShowTag(deviceId, tagName) {
     await this.page.goto(`${this.appUrl}/user/iot/devices/${encodeURIComponent(deviceId)}`, {
       waitUntil: 'domcontentloaded',
