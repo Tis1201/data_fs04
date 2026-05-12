@@ -65,7 +65,7 @@ reporter: [
     video: 'on-first-retry',
     trace: 'on-first-retry',
     launchOptions: {
-      slowMo: 300,
+      slowMo: Number.parseInt(process.env.PW_SLOW_MO || '300', 10) || 300,
     },
     // Set storage state for all browsers
     storageState: fs.existsSync(authFile) ? authFile : undefined,

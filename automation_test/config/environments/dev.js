@@ -122,6 +122,12 @@ module.exports = {
       onlineDeviceSearch: '3576M',
       offlineDeviceSearch: 'DN76',
       failedDeploymentId: '',
+      /**
+       * Optional: catalog labels for downgrade E2E (TC-BULK-E2E-042/043); also reads devices.installApp e2e* names.
+       * Device must have the newer build installed before running those tests.
+       */
+      e2eOlderCatalogAppName: '',
+      e2eNewerCatalogAppName: '',
     },
 
      deviceProfiles: {

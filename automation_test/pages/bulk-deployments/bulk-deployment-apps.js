@@ -93,6 +93,64 @@ const bulkDeploymentApps = {
     }
   },
 
+  /**
+   * Pick catalog apps when the Add App row label is not a simple exact name match (e.g. version-specific catalog entries).
+   * Tries strict name match first, then first result whose row text contains `matcher`.
+   */
+  async selectAppInModalFlexible(matcher) {
+    const searchInput = this.getAddAppSearchInput();
+    await searchInput.fill('');
+    await searchInput.fill(matcher);
+
+    await expect
+      .poll(async () => {
+        const loadingCount = await this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count();
+        return loadingCount;
+      }, {
+        timeout: this.timeout,
+        message: `Waiting for app search to settle for "${matcher}"`,
+      })
+      .toBe(0)
+      .catch(() => {});
+
+    const exactOption = this.page.locator('.add-app-result-option').filter({
+      has: this.page.locator('.add-app-result-option-text', {
+        hasText: new RegExp(`^${escapeRegExp(matcher)}$`),
+      }),
+    }).first();
+
+    if (await exactOption.isVisible().catch(() => false)) {
+      await exactOption.click();
+    } else {
+      const loose = this.page.locator('.add-app-result-option').filter({ hasText: matcher }).first();
+      await expect(loose).toBeVisible({
+        timeout: this.timeout,
+        message: `No Add App result matched "${matcher}"`,
+      });
+      await loose.click();
+    }
+
+    const selectedApp = this.page.locator('.add-app-selected-name').filter({ hasText: matcher }).first();
+    if (!(await selectedApp.isVisible().catch(() => false))) {
+      await expect(this.page.locator('.add-app-selected-name').first()).toBeVisible({ timeout: this.timeout });
+    }
+  },
+
+  async addAppsByFlexibleNames(matchers) {
+    await this.openAddAppModal();
+    for (const m of matchers) {
+      await this.selectAppInModalFlexible(m);
+    }
+    const dialog = this.dialogByTitle(T.DIALOG_ADD_APP);
+    const assignButton = dialog.getByRole('button', { name: T.ASSIGN });
+    await expect(assignButton).toBeEnabled({ timeout: this.timeout });
+    await assignButton.click();
+    await this.waitForToastOrNetwork();
+    for (const m of matchers) {
+      await expect(this.page.locator('tbody tr').filter({ hasText: m }).first()).toBeVisible({ timeout: this.timeout });
+    }
+  },
+
   async removeAppByName(appName) {
     await this.openAppsTab();
     await this.selectRowAction(appName, T.REMOVE);

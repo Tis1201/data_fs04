@@ -14,6 +14,7 @@ const config = require('../../config/config-loader');
 
 const authFile = path.join(__dirname, '..', '..', 'user.json');
 const bulkCfg = config.pageURL?.bulkDeployments || {};
+const installAppCfg = config.pageURL?.devices?.installApp || {};
 const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
 
 /** Strings used when assigning apps/devices; override per env in config.pageURL.bulkDeployments */
@@ -22,6 +23,12 @@ const bulkTestData = {
   counterNowAppName: bulkCfg.counterNowAppName || 'counter_now',
   onlineDeviceSearch: bulkCfg.onlineDeviceSearch || '3576M',
   offlineDeviceSearch: bulkCfg.offlineDeviceSearch || 'DN76',
+  /**
+   * Exact or unique substring matching a catalog row in Add App (for downgrade / version-matrix E2E).
+   * Prefer devices.installApp.e2eOlderResourceExactName / e2eNewerResourceExactName when set.
+   */
+  e2eOlderCatalogAppName: bulkCfg.e2eOlderCatalogAppName || installAppCfg.e2eOlderResourceExactName || '',
+  e2eNewerCatalogAppName: bulkCfg.e2eNewerCatalogAppName || installAppCfg.e2eNewerResourceExactName || '',
   /** Long publish / batch waits (ms) */
   publishFlowTimeoutMs: bulkCfg.publishFlowTimeoutMs ?? 10 * 60 * 1000,
   /** Days ahead for Future schedule tests */

@@ -88,6 +88,12 @@ const bulkDeploymentDetailOverview = {
     return this.expectStatusBadgeVisible();
   },
 
+  /** Terminal success for an immediate (non-future) publish: Completed or Published. */
+  async waitForDeploymentSuccessfulFinish(options = {}) {
+    const timeout = options.timeout || this.timeout;
+    return this.waitForStatusOneOf([T.STATUS_COMPLETED, T.STATUS_PUBLISHED], { timeout, reload: options.reload });
+  },
+
   async expectAuditInfoVisible() {
     await expect(this.page.getByText(new RegExp(T.CREATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });
     await expect(this.page.getByText(new RegExp(T.LAST_UPDATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });

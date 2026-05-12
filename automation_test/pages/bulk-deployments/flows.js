@@ -196,11 +196,13 @@ function buildFutureSchedulePayload(daysAhead = 45) {
 
 /**
  * Create draft then assign apps/devices on detail (TC-BULK-CREATE-001/002 style).
+ * Use `flexibleAppNames` for catalog rows that need fuzzy matching (e.g. version-specific labels).
  */
 async function createDraftWithAssignments(page, options = {}) {
   const {
     payloadOverrides = {},
     appNames = [],
+    flexibleAppNames = [],
     deviceNames = [],
     registry = {},
   } = options;
@@ -214,6 +216,9 @@ async function createDraftWithAssignments(page, options = {}) {
   await bd.waitForPageReady();
   if (appNames.length) {
     await bd.addAppsByNames(appNames);
+  }
+  if (flexibleAppNames.length) {
+    await bd.addAppsByFlexibleNames(flexibleAppNames);
   }
   if (deviceNames.length) {
     await bd.addDevicesByNames(deviceNames);
@@ -267,6 +272,7 @@ async function createFailedDeploymentFromFlow(page, options = {}) {
     appName,
     timeout = 4 * 60 * 1000,
     registry = {},
+    useFlexibleCatalogApp = false,
   } = options;
 
   if (!appName) {
@@ -281,7 +287,8 @@ async function createFailedDeploymentFromFlow(page, options = {}) {
       description: 'E2E failed deployment created from the real Bulk Deployment flow.',
       version: options.version || '1.0.0',
     },
-    appNames: [appName],
+    appNames: useFlexibleCatalogApp ? [] : [appName],
+    flexibleAppNames: useFlexibleCatalogApp ? [appName] : [],
     deviceNames: [onlineDeviceName],
     registry,
   });
@@ -291,7 +298,23 @@ async function createFailedDeploymentFromFlow(page, options = {}) {
   await bulkPage.expectDeviceRowVisible(onlineDeviceName);
   await bulkPage.publishFromDetail();
   await bulkPage.waitForStatusOneOf(T.STATUS_FAILED, { timeout });
-  return { ...created, onlineDevice };
+  return { ...created, onlineDevice, onlineDeviceName };
+}
+
+/**
+ * Publish an older catalog app to a device that already has a newer install — expect deployment to fail (downgrade guard).
+ * Requires env: catalog labels for older/newer app packages and the device pre-provisioned with the newer build.
+ */
+async function createFailedDeploymentFromDowngradePublish(page, options = {}) {
+  const olderCatalogAppName = options.olderCatalogAppName;
+  if (!olderCatalogAppName) {
+    throw new Error('createFailedDeploymentFromDowngradePublish requires olderCatalogAppName.');
+  }
+  return createFailedDeploymentFromFlow(page, {
+    ...options,
+    appName: olderCatalogAppName,
+    useFlexibleCatalogApp: Boolean(options.useFlexibleCatalogApp ?? true),
+  });
 }
 
 async function assertListPageStructure(bd) {
@@ -398,6 +421,7 @@ module.exports = {
   getFirstOfflineDeviceSearchTerm,
   getFirstOnlineDevice,
   createFailedDeploymentFromFlow,
+  createFailedDeploymentFromDowngradePublish,
   assertListPageStructure,
   assertDeploymentDetailShell,
   assertDevicesTabIsDefault,

@@ -10,7 +10,7 @@ const test = createBulkE2ETest();
 const expect = test.expect;
 
 test.describe('E2E — Bulk Deployment core flow', () => {
-  test('TC-BULK-E2E-001: Full flow — create draft -> assign app/device -> publish -> verify overview + batches', async ({
+  test('TC-BULK-E2E-001: Immediate publish — create draft, assign app and device, publish, verify successful finish and batches', async ({
     page,
   }) => {
     test.setTimeout(bulkTestData.publishFlowTimeoutMs);
@@ -37,33 +37,41 @@ test.describe('E2E — Bulk Deployment core flow', () => {
       await bulkPage.expectDeviceRowVisible(bulkTestData.onlineDeviceSearch);
     });
 
-    await test.step('Publish and verify deployment enters a published/running status', async () => {
+    await test.step('Publish and wait until overview shows a successful terminal status (Completed or Published)', async () => {
       await bulkPage.publishFromDetail();
+      await bulkPage.waitForDeploymentSuccessfulFinish({ timeout: bulkTestData.publishFlowTimeoutMs });
       const status = await bulkPage.expectStatusBadgeVisible();
-      expect([T.STATUS_PUBLISHED, T.STATUS_IN_PROGRESS, T.STATUS_COMPLETED]).toContain(status);
+      expect([T.STATUS_COMPLETED, T.STATUS_PUBLISHED]).toContain(status);
     });
 
-    await test.step('Verify Batches tab is visible and metrics are numeric', async () => {
+    await test.step('Verify assigned device shows Completed in the deployment Devices tab', async () => {
+      await bulkPage.openDevicesTab();
+      await bulkPage.expectDeviceRowVisible(bulkTestData.onlineDeviceSearch, T.STATUS_COMPLETED);
+    });
+
+    await test.step('Verify Batches tab metrics are numeric and show no failed batches for this run', async () => {
       await bulkPage.openBatchesTab();
       const metrics = await bulkPage.getBatchMetrics();
       Object.values(metrics).forEach((value) => {
         expect(Number.isFinite(value)).toBeTruthy();
         expect(value).toBeGreaterThanOrEqual(0);
       });
+      expect(metrics.failed).toBe(0);
     });
   });
 
-  test('TC-BULK-E2E-002: Full flow with Future schedule -> status Scheduled and Start On set', async ({
+  test('TC-BULK-E2E-002: Future schedule — publish reaches Scheduled state with Start On set, list row matches', async ({
     page,
   }) => {
     test.setTimeout(bulkTestData.publishFlowTimeoutMs);
     const future = buildFutureSchedulePayload(bulkTestData.futureScheduleDaysAhead);
+    const deploymentName = `Bulk E2E Future ${Date.now()}`;
 
     let bulkPage;
     await test.step('Create draft with future schedule + assignments', async () => {
       const created = await createDraftWithAssignments(page, {
         payloadOverrides: {
-          name: `Bulk E2E Future ${Date.now()}`,
+          name: deploymentName,
           ...future,
         },
         appNames: [bulkTestData.counterNowAppName],
@@ -72,14 +80,26 @@ test.describe('E2E — Bulk Deployment core flow', () => {
       bulkPage = created.bulkPage;
     });
 
-    await test.step('Publish and verify Scheduled state', async () => {
+    await test.step('Publish and wait until overview status is Scheduled (successful schedule publish)', async () => {
       await bulkPage.publishFromDetail();
+      await bulkPage.waitForStatusOneOf(T.STATUS_SCHEDULED, {
+        timeout: bulkTestData.publishFlowTimeoutMs,
+      });
       expect(await bulkPage.expectStatusBadgeVisible()).toBe(T.STATUS_SCHEDULED);
     });
 
     await test.step('Verify Start On is populated from future schedule', async () => {
       const startOn = await bulkPage.getOverviewValue(T.OVERVIEW_FIELD_START_ON);
       expect(startOn.length).toBeGreaterThan(4);
+    });
+
+    await test.step('Verify Bulk Deployments list row shows Scheduled status for this deployment', async () => {
+      await bulkPage.gotoList();
+      await bulkPage.waitForListReady();
+      await bulkPage.searchDeployment(deploymentName);
+      const row = bulkPage.rowByText(deploymentName);
+      await expect(row).toBeVisible();
+      await expect(row).toContainText(T.STATUS_SCHEDULED);
     });
   });
 
