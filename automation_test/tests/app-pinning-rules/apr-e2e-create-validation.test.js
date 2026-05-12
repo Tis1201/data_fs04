@@ -4,6 +4,7 @@ const {
   createPinRulesPage,
   createPinRuleViaApi,
   expectDeviceAppPinned,
+  expectDeviceAppNotPinned,
   expectPinnedAppVisibleInDeviceResources,
   getFirstInstalledAppForDevice,
   openDeviceResourcesTab,
@@ -100,6 +101,55 @@ test.describe('E2E — App Pinning Rules create and validation', () => {
         installedApp.packageName,
         installedApp.appName
       );
+    });
+  });
+
+  test('TC-PIN-E2E-017: Device-scoped rule pins app on target device only; excluded device stays unpinned', async ({
+    page,
+  }) => {
+    test.setTimeout(4 * 60 * 1000);
+
+    const targetDeviceId =
+      config.pageURL?.appPinningRules?.targetDeviceId || config.pageURL?.devices?.onlineDeviceId;
+    const excludedDeviceId =
+      config.pageURL?.appPinningRules?.excludedDeviceId ||
+      config.pageURL?.devices?.secondaryOnlineDeviceId;
+    const preferredPackage = config.pageURL?.devices?.installApp?.packageName;
+
+    test.skip(
+      !targetDeviceId || !excludedDeviceId,
+      'Set devices.onlineDeviceId and appPinningRules.excludedDeviceId (or devices.secondaryOnlineDeviceId).',
+    );
+    test.skip(
+      targetDeviceId === excludedDeviceId,
+      'Target and excluded device ids must be different for TC-PIN-E2E-017.',
+    );
+
+    const name = `PIN E2E Selected vs excluded ${Date.now()}`;
+    let installedOnTarget;
+
+    await test.step('Pick an installed package present on both devices', async () => {
+      installedOnTarget = await getFirstInstalledAppForDevice(page, targetDeviceId, preferredPackage);
+      await getFirstInstalledAppForDevice(page, excludedDeviceId, installedOnTarget.packageName);
+    });
+
+    await test.step('Create active pin rule targeting only the first device', async () => {
+      await createPinRuleViaApi(page, {
+        name,
+        appPackage: installedOnTarget.packageName,
+        apps: [installedOnTarget.packageName],
+        targetType: 'devices',
+        targetValue: [targetDeviceId],
+        isActive: true,
+      });
+    });
+
+    await test.step('Target device: API reports app pinned', async () => {
+      await expectDeviceAppPinned(page, targetDeviceId, installedOnTarget.packageName);
+    });
+
+    await test.step('Excluded device: same package must not be pinned by this rule', async () => {
+      await expectDeviceAppNotPinned(page, excludedDeviceId, installedOnTarget.packageName);
     });
   });
 });

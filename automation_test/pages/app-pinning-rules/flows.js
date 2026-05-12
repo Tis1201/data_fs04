@@ -122,6 +122,32 @@ async function expectDeviceAppPinned(page, deviceId, packageName, options = {}) 
     .toBe(true);
 }
 
+async function expectDeviceAppNotPinned(page, deviceId, packageName, options = {}) {
+  const origin = appOrigin();
+  const timeout = options.timeout || config.timeouts?.pageLoadMs || 30000;
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(
+          `${origin}/api/v2/devices/${encodeURIComponent(deviceId)}/apps-with-pins?page=1&limit=50&sortBy=name&sortOrder=asc`
+        );
+        const body = await res.json().catch(() => ({}));
+        const apps = body?.data?.apps || body?.data?.items || body?.apps || body?.items || [];
+        const app = apps.find((item) => (item.package_name || item.packageName) === packageName);
+        if (!app) {
+          return false;
+        }
+        return !(app.isPinned ?? app.is_pinned);
+      },
+      {
+        timeout,
+        intervals: [1000, 2000, 5000],
+        message: `Expected package "${packageName}" to stay unpinned on device "${deviceId}" (rule must not apply to this device)`,
+      }
+    )
+    .toBe(true);
+}
+
 async function openDeviceResourcesTab(page, deviceId) {
   const origin = appOrigin();
   await page.goto(`${origin}/user/iot/devices/${encodeURIComponent(deviceId)}?tab=resources`, {
@@ -263,6 +289,7 @@ module.exports = {
   getFirstAvailableAppPackage,
   getFirstInstalledAppForDevice,
   expectDeviceAppPinned,
+  expectDeviceAppNotPinned,
   openDeviceResourcesTab,
   expectPinnedAppVisibleInDeviceResources,
   trackPinRuleId,

@@ -124,6 +124,12 @@ module.exports = {
       failedDeploymentId: '',
     },
 
+    appPinningRules: {
+      /** TC-PIN-E2E-017: rule applies to targetDeviceId only; excluded device must not get pin */
+      targetDeviceId: 'cmo2cimuo012114b2csz0wxxm',
+      excludedDeviceId: 'cmo0yzd4z00c014b2fn8k4o7n',
+    },
+
      deviceProfiles: {
             url: 'https://app-dev-v2.datarealities.com/user/iot/device-profiles',
             profileWithDevicesId: 'cmmx6a4wx005m101ijldfeoww',
