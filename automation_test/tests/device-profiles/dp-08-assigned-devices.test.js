@@ -1,18 +1,53 @@
 const base = require('@playwright/test');
 const DeviceProfilePage = require('../../pages/device-profiles/device-profile-page');
+const config = require('../../config/config-loader');
 const {
     authFile,
     PROFILE_WITH_DEVICES_ID,
     PROFILE_WITHOUT_DEVICES_ID,
 } = require('./dp-shared');
 
-// Restore Fixture to DRY code
+// Fixture with API setup/teardown — ensures profile has a device before each test
 const test = base.test.extend({
     dp: async ({ page }, use) => {
+        const ONLINE_DEVICE_ID = config.pageURL.devices.onlineDeviceId;
+        const API_BASE = config.apiBaseURL.replace(/\/auth\/login.*/, '');
+
+        // Setup: check current assignment and assign if needed
+        const cfgResp = await page.request.get(
+            `${API_BASE}/api/user/iot/devices/${ONLINE_DEVICE_ID}/configuration`
+        );
+        const cfgData = cfgResp.ok() ? await cfgResp.json() : {};
+        const existingProfileId = cfgData.deviceProfile?.id ?? null;
+        const needsTeardown = existingProfileId !== PROFILE_WITH_DEVICES_ID;
+
+        if (needsTeardown) {
+            const assignResp = await page.request.post(
+                `${API_BASE}/api/device-profiles/${PROFILE_WITH_DEVICES_ID}/assign`,
+                { data: { deviceIds: [ONLINE_DEVICE_ID] } }
+            );
+            console.log(`  Setup: assigned device to profile "${PROFILE_WITH_DEVICES_ID}" (status: ${assignResp.status()})`);
+        } else {
+            console.log(`  Setup: device already in target profile "${PROFILE_WITH_DEVICES_ID}"`);
+        }
+
         const dp = new DeviceProfilePage(page, PROFILE_WITH_DEVICES_ID);
         await dp.gotoDetail();
         await dp.switchToTab('devices');
         await use(dp);
+
+        // Teardown: unassign if we changed the assignment
+        if (needsTeardown) {
+            try {
+                const unassignResp = await page.request.post(
+                    `${API_BASE}/api/device-profiles/${PROFILE_WITH_DEVICES_ID}/unassign`,
+                    { data: { deviceIds: [ONLINE_DEVICE_ID] } }
+                );
+                console.log(`  Teardown: unassign ${unassignResp.ok() ? 'OK' : `failed (${unassignResp.status()})`}`);
+            } catch (e) {
+                console.error(`  Teardown API failed: ${e.message}`);
+            }
+        }
     }
 });
 const expect = test.expect;

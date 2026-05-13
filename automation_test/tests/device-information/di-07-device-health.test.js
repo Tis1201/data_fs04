@@ -6,7 +6,7 @@ const expect = test.expect;
 
 test.describe('Section 7 — Device Health Panel', () => {
 
-    test('TC-INFO-015: Device Health — metrics, buttons, and Terminal cross-verify', async ({ dp }) => {
+    test('TC-INFO-014: Device Health — metrics, buttons, and Terminal cross-verify', async ({ dp }) => {
         test.setTimeout(180000);
 
         let metrics;
@@ -80,7 +80,7 @@ test.describe('Section 7 — Device Health Panel', () => {
         });
     });
 
-    test('TC-INFO-016: Health panel for offline device', async ({ page }) => {
+    test('TC-INFO-015: Health panel for offline device', async ({ page }) => {
         const dp = new DeviceDetailPage(page, OFFLINE_DEVICE_ID);
         await dp.gotoDeviceDetail();
 

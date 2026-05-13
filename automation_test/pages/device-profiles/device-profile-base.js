@@ -109,7 +109,8 @@ class DeviceProfileBase extends BasePage {
 
         // ── Filter Modal ───────────────────────────────────────────────
         this.filterModal = this.filterModalBase;
-        this.filterStatusDropdown = this.filterModalBase.locator('select, [class*="select"], button[class*="select"]').first();
+        // Use a more specific locator for the Dropdown component trigger
+        this.filterStatusDropdown = this.filterModalBase.locator('text=Status').locator('..').locator('[role="combobox"], button[class*="dropdown-trigger"], [class*="select"]').first();
         this.filterClearAllButton = this.filterModalBase.getByRole('button', { name: /Clear All/i }).first();
         this.filterApplyButton = this.filterModalBase.getByRole('button', { name: /Apply/i }).first();
 
