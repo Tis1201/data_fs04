@@ -123,6 +123,15 @@ module.exports = {
       failedDeploymentId: '',
     },
 
+    deviceTags: {
+      deviceSearch: '3576M',
+      assignModalMultiSearch: '3576M',
+      assignPickDeviceMatch: '3576M-2',
+      assignExcludedDeviceId: 'cmo2cimuo012114b2csz0wxxm',
+      assignSecondDeviceSearch: 'DN74',
+      assignSecondDevicePick: 'DN74',
+    },
+
      deviceProfiles: {
             url: 'https://app-dev-v2.datarealities.com/user/iot/device-profiles',
             profileWithDevicesId: 'cmmx6a4wx005m101ijldfeoww',
