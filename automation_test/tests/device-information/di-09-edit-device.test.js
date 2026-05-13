@@ -15,7 +15,7 @@ test.describe('Section 9 — Edit Device Modal', () => {
     test.beforeAll(beforeAllCapture);
     test.afterEach(afterEachRestore);
 
-    test('TC-INFO-021: Edit Device full flow — open, verify pre-fill, modify, and save', async ({ page }) => {
+    test('TC-INFO-018: Edit Device full flow — open, verify pre-fill, modify, and save', async ({ page }) => {
         const dp = new DeviceDetailPage(page, ETHERNET_DEVICE_ID);
         await dp.gotoDeviceDetail();
 
@@ -57,7 +57,7 @@ test.describe('Section 9 — Edit Device Modal', () => {
         });
     });
 
-    test('TC-INFO-022: Edit Device — cancel discards changes and validation prevents empty name', async ({ page }) => {
+    test('TC-INFO-019: Edit Device — cancel discards changes and validation prevents empty name', async ({ page }) => {
         const dp = new DeviceDetailPage(page, ETHERNET_DEVICE_ID);
         await dp.gotoDeviceDetail();
 
