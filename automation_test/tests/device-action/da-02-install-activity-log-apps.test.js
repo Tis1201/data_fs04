@@ -21,8 +21,10 @@ const extendedTest = base.test.extend({
 const test = extendedTest;
 test.use({ storageState: authFile });
 
-test.describe('Section 1 — Install App Action: Activity Log and Installed Apps', () => {
-  test('TC-DA-007~008: Install app and verify Activity Log and Installed Apps', async ({ page }, testInfo) => {
+test.describe('Install App — Activity Log and Installed Apps (subset of TC-DA-E2E-003)', () => {
+  test('TC-DA-007~008 · TC-DA-E2E-003 (partial): Install app and verify Activity Log and Installed Apps', async ({
+    page,
+  }, testInfo) => {
     test.setTimeout(6 * 60 * 1000);
 
     await test.step('Install app, verify Activity Log and Installed Apps, then cleanup', async () => {

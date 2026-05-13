@@ -44,7 +44,7 @@ const extendedTest = base.test.extend({
 const test = extendedTest;
 test.use({ storageState: authFile });
 
-test.describe('Section 1 — Push File Action: Precondition and Modal States', () => {
+test.describe('Push File — modal & validation (subset · TC-DA-E2E-018~022 / E2E push matrix)', () => {
   test('TC-DA-018~022: Precondition, modal initial state, and confirm button behaviour', async ({ page }, testInfo) => {
     await test.step('Push File modal: precondition, resource/destination rules, confirm state', async () => {
       const context = createPushFileContext(page);

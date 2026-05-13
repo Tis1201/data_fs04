@@ -229,6 +229,16 @@ const deviceDetailActivityLogs = {
   isControlRelatedText(text = '') {
     return DEVICE_DETAIL.PATTERNS.CONTROL_RELATED.some((pattern) => pattern.test(text));
   },
+  isRefreshRelatedText(text = '') {
+    return (
+      DEVICE_DETAIL?.PATTERNS?.REFRESH_RELATED || [
+        /refresh/i,
+        /refreshed/i,
+        /device info(?:rmation)?.*refresh/i,
+        /reload/i,
+      ]
+    ).some((pattern) => pattern.test(text));
+  },
   getInstallFinalStatusPattern() {
     return /success|failed|error/i;
   },
@@ -426,6 +436,15 @@ const deviceDetailActivityLogs = {
   },
   async waitForNewControlFailedLog(previousSignatures = [], maxRows = this.maxActivityLogRows) {
     return this.waitForNewFeatureLog('Control', this.isControlRelatedText, 'failed', { previousSignatures, maxRows });
+  },
+
+  // ── Refresh device info logs ───────────────────────────────────────
+
+  async waitForNewRefreshSuccessLog(previousSignatures = [], maxRows = this.maxActivityLogRows) {
+    return this.waitForNewFeatureLog('Refresh', this.isRefreshRelatedText, 'success', {
+      previousSignatures,
+      maxRows,
+    });
   },
 };
 

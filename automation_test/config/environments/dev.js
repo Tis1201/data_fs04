@@ -62,6 +62,10 @@ module.exports = {
         protectedPackagePrefixes: ['com.android.', 'android.'],
         finalStatusTimeoutMs: 180000,
         uninstallFinalStatusTimeoutMs: 180000,
+        /** Optional: exact catalog names for version-matrix E2E (TC-DA-E2E-013~015) when implemented */
+        e2eOlderResourceExactName: '',
+        e2eNewerResourceExactName: '',
+        e2eEqualResourceExactName: '',
       },
 
       control: {
