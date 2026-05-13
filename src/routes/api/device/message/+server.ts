@@ -1,0 +1,76 @@
+import { json } from '@sveltejs/kit';
+import { DeviceManager } from '$lib/server/device/deviceManager';
+import { logger } from '$lib/server/logger';
+import { generateId } from 'lucia';
+import type { RequestHandler } from './$types';
+import { MessageDispatcher } from '$lib/server/messaging/core/dispatcher';
+import type { UserInfo } from '$lib/server/types/user';
+import { userInfoByUserId } from '$lib/server/security/auth-utils';
+import { restrict_device } from '$lib/server/security/guards';
+
+export const POST: RequestHandler = async ({ request, locals }) => {
+    const result = await restrict_device({ locals, request });
+    
+    if ('error' in result) {
+        return json({
+            success: false,
+            error: result.error,
+            message: result.error
+        }, { status: result.response.status });
+    }
+    
+    const { device } = result;
+    
+    if (device.status !== 'ACTIVE') {
+        return json({
+            success: false,
+            error: 'Device not active',
+            message: 'Device not active'
+        }, { status: 404 });
+    }
+
+    logger.debug('Device message received');
+
+    const data = await request.json();
+
+    logger.debug(`-->: ${JSON.stringify(data)}`);
+
+  // Extra diagnostics for large screenshot responses without dumping raw base64
+  try {
+    const p: any = (data as any)?.payload || {};
+    const pType = typeof p.type === 'string' ? p.type : '';
+    if (pType.startsWith('screenshot:')) {
+      const img = (p as any)?.image || (data as any)?.image;
+      const fmt = (p as any)?.format || (data as any)?.format;
+      const reqId = (data as any)?.requestId || (p as any)?.requestId;
+      const imgLen = typeof img === 'string' ? img.length : 0;
+      logger.info(`[DeviceMessage] Screenshot payload received: requestId=${reqId}, format=${fmt || 'unknown'}, imageBase64Length=${imgLen}`);
+    }
+  } catch {}
+
+    const userInfo:UserInfo | null = await userInfoByUserId(device.user.id);
+
+    if (!userInfo) {
+        return json({
+            success: false,
+            error: 'User not found',
+            message: 'User not found'
+        }, { status: 404 });
+    }
+
+    data.payload.deviceId = device.id;
+    data.userInfo = userInfo;
+    
+    // Preserve sudo field from device messages
+    if (data.sudo === true) {
+        data.sudo = true;
+    }
+
+    await MessageDispatcher.dispatch(data);
+    
+    return json({
+        success: true,
+        message: 'Device message received successfully'
+    });
+
+}

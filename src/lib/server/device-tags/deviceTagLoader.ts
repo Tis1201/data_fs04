@@ -1,0 +1,177 @@
+import { error } from '@sveltejs/kit';
+import { logger } from '$lib/server/logger';
+import { fetchTableData } from '$lib/components/ui_components_sveltekit/table/utils/server';
+import { createDeviceTagTableOptions } from './deviceTagTableOptions';
+import { areDevicesOnline } from '$lib/server/device/devicePresence';
+import { superValidate } from 'sveltekit-superforms/server';
+import { zod } from 'sveltekit-superforms/adapters';
+
+/**
+ * Load device tag list data
+ * Per structural standard: load{Resource}List pattern
+ */
+export async function loadDeviceTagList(
+    locals: any,
+    url: URL,
+    options?: {
+        checkOwnership?: boolean;
+        userId?: string;
+        accountId?: string;
+    }
+) {
+    try {
+        // Create table options with optional ownership filtering
+        const tableOptions = options?.checkOwnership
+            ? createDeviceTagTableOptions({
+                checkOwnership: true,
+                userId: options.userId,
+                accountId: options.accountId
+            })
+            : createDeviceTagTableOptions(); // Admin can see all tags
+
+        // Add account filtering when ownership check is enabled
+        if (options?.checkOwnership) {
+            // When current account is set (user route), scope to that account only
+            if (options.accountId) {
+                tableOptions.baseWhere = {
+                    ...tableOptions.baseWhere,
+                    accountId: options.accountId
+                };
+            } else {
+                // Fallback: scope to all accounts the user is a member of (e.g. admin or legacy)
+                const userAccountMemberships = await locals.prisma.accountMembership.findMany({
+                    where: { userId: options.userId ?? '' },
+                    select: { accountId: true }
+                });
+                const accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+                if (accountIds.length > 0) {
+                    tableOptions.baseWhere = {
+                        ...tableOptions.baseWhere,
+                        accountId: { in: accountIds }
+                    };
+                }
+            }
+        }
+
+        // Fetch table data with the appropriate options
+        const result = await fetchTableData(locals, url, tableOptions);
+        
+        return {
+            deviceTags: result.records,
+            meta: result.meta
+        };
+    } catch (e) {
+        logger.error(`Error loading device tags: ${JSON.stringify(e)}`);
+        throw error(500, 'Failed to load device tags');
+    }
+}
+
+/**
+ * Load device tag detail data
+ * Per structural standard: load{Resource}Detail pattern
+ */
+export async function loadDeviceTagDetail(
+    locals: any,
+    tagId: string,
+    deviceTagSchema: any,
+    options?: {
+        checkOwnership?: boolean;
+        userId?: string;
+        accountId?: string;
+    }
+) {
+    try {
+        // Build where clause with optional ownership check
+        const where: any = { id: tagId };
+        
+        if (options?.checkOwnership) {
+            // When current account is set, scope to that account only
+            if (options.accountId) {
+                where.accountId = options.accountId;
+            } else if (options.userId) {
+                const userAccountMemberships = await locals.prisma.accountMembership.findMany({
+                    where: { userId: options.userId },
+                    select: { accountId: true }
+                });
+                const accountIds = userAccountMemberships.map((m: { accountId: string }) => m.accountId);
+                if (accountIds.length > 0) {
+                    where.accountId = { in: accountIds };
+                } else {
+                    throw error(404, 'Device tag not found');
+                }
+            } else {
+                throw error(404, 'Device tag not found');
+            }
+        }
+
+        // Fetch the device tag
+        const deviceTag = await locals.prisma.deviceTag.findFirst({
+            where,
+            select: {
+                id: true,
+                name: true,
+                description: true,
+                createdAt: true,
+                updatedAt: true,
+                devices: {
+                    select: {
+                        id: true,
+                        name: true,
+                        deviceType: true,
+                        status: true,
+                        connected: true,
+                        model: true,
+                        macAddress: true,
+                        createdAt: true,
+                        lastUsedAt: true
+                    }
+                },
+                account: {
+                    select: {
+                        id: true,
+                        name: true
+                    }
+                }
+            }
+        });
+
+        if (!deviceTag) {
+            throw error(404, 'Device tag not found');
+        }
+
+        // Override connected with real-time presence for devices
+        let devicesWithPresence = deviceTag.devices || [];
+        try {
+            const presenceMap = await areDevicesOnline(devicesWithPresence.map((d: any) => d.id));
+            devicesWithPresence = devicesWithPresence.map((d: any) => ({
+                ...d,
+                connected: presenceMap.get(d.id) ?? false
+            }));
+        } catch (presenceErr) {
+            logger.warn(`[DeviceTags] Failed to enrich device presence: ${presenceErr instanceof Error ? presenceErr.message : String(presenceErr)}`);
+        }
+
+        // Create form data from existing tag
+        const formData = {
+            name: deviceTag.name,
+            description: deviceTag.description || ''
+        };
+
+        const form = await superValidate(formData, zod(deviceTagSchema));
+
+        return {
+            form,
+            deviceTag: {
+                ...deviceTag,
+                devices: devicesWithPresence
+            }
+        };
+    } catch (err) {
+        if (err && typeof err === 'object' && 'status' in err) {
+            throw err; // Re-throw SvelteKit errors
+        }
+        logger.error(`Error loading device tag ${tagId}: ${err}`);
+        throw error(500, 'Failed to load device tag');
+    }
+}
+

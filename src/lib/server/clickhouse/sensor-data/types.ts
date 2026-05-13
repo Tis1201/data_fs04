@@ -1,0 +1,148 @@
+/**
+ * Sensor Data Types and MV Registry
+ *
+ * Central types for the SensorDataTable component and SensorDataService.
+ */
+
+// ============================================================================
+// Data Type Registry
+// ============================================================================
+
+export type SensorDataType = 'radar_session' | 'radar_path';
+
+export interface MVConfig {
+    mv: string;                    // ClickHouse MV name
+    defaultSort: string;           // Default sort column
+    defaultOrder: 'asc' | 'desc';  // Default sort order
+    searchFields: string[];        // Fields to search
+    allowedSortFields?: string[];  // Allowlist for ORDER BY column (prevents injection)
+    timeField?: string;            // Column used for startTime/endTime filters
+}
+
+export const MV_REGISTRY: Record<SensorDataType, MVConfig> = {
+    radar_session: {
+        mv: 'mv_radar_session',
+        defaultSort: 'log_creation_time',
+        defaultOrder: 'desc',
+        searchFields: ['target_id', 'sensor_id', 'sensor_name', 'mac_address'],
+        allowedSortFields: [
+            'processed_at',
+            'log_creation_time',
+            'target_id',
+            'sensor_id',
+            'sensor_name',
+            'device_id',
+            'mac_address',
+            'timezone_label',
+            'dwell_tracking_area_sec',
+            'proximity_m',
+        ],
+        timeField: 'log_creation_time',
+    },
+    radar_path: {
+        mv: 'mv_radar_path',
+        // "Date" on Path Tracking UI should reflect when the MV processed the row (processed_at).
+        defaultSort: 'processed_at',
+        defaultOrder: 'desc',
+        searchFields: ['target_id', 'sensor_id', 'sensor_name', 'mac_address', 'timezone_label'],
+        allowedSortFields: [
+            'processed_at',
+            'log_creation_time',
+            'target_id',
+            'sensor_id',
+            'sensor_name',
+            'device_id',
+            'mac_address',
+            'x_m',
+            'y_m',
+            'timezone_label',
+        ],
+        timeField: 'processed_at',
+    },
+};
+
+// ============================================================================
+// Query Parameters
+// ============================================================================
+
+export interface SensorDataQueryParams {
+    dataType: SensorDataType;
+    accountId: string;             // REQUIRED - enforced at service layer
+    deviceId?: string;
+    sensorId?: string;
+    macAddress?: string;
+    targetId?: string;
+    search?: string;
+    searchFields?: string[];
+    startTime?: string;            // ISO timestamp
+    endTime?: string;              // ISO timestamp
+    page?: number;
+    perPage?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+}
+
+// ============================================================================
+// Response Types
+// ============================================================================
+
+export interface PaginationInfo {
+    page: number;
+    per_page: number;
+    total_records: number;
+    total_pages: number;
+}
+
+export interface SortInfo {
+    field: string;
+    order: 'asc' | 'desc';
+}
+
+export interface SensorDataResponse<T = Record<string, unknown>> {
+    data: T[];
+    pagination: PaginationInfo;
+    sort: SortInfo;
+    /** Present when the API returned an empty result because ClickHouse was unavailable (e.g. local dev). */
+    meta?: {
+        clickHouseUnavailable?: boolean;
+        hint?: string;
+    };
+}
+
+// ============================================================================
+// Row Types (from MVs)
+// ============================================================================
+
+export interface RadarSessionRow {
+    processed_at: string;
+    account_id: string;
+    device_id: string;
+    log_creation_time: string;
+    timezone_offset: number;
+    timezone_label: string;
+    sensor_id: string;
+    sensor_name: string;
+    mac_address: string;
+    target_id: string;
+    dwell_tracking_area_sec: number;
+    zone_dwell_times_json: string;
+    proximity_m: number | null;
+}
+
+export interface RadarPathRow {
+    processed_at: string;
+    account_id: string;
+    device_id: string;
+    log_creation_time: string;
+    timezone_offset: number;
+    timezone_label: string;
+    sensor_id: string;
+    sensor_name: string;
+    mac_address: string;
+    target_id: string;
+    x_m: number;
+    y_m: number;
+}
+
+// Union type for all sensor data rows
+export type SensorDataRow = RadarSessionRow | RadarPathRow;

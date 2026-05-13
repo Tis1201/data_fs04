@@ -1,0 +1,92 @@
+// src/lib/server/messaging/core/subscriptionRegistry.ts
+import type { SubscriptionMeta, SubscriptionRegistry } from "../interfaces/subscriptionRegistry";
+import { v4 as uuidv4 } from 'uuid';
+import { subscriptionSharedStore } from "./stores/subscriptionSharedStore";
+import { logger } from "$lib/server/logger";
+
+export const subscriptionRegistry: SubscriptionRegistry = {
+    async add(subscription) {
+        // Add a SubscriptionMeta to the set for the given key
+        await subscriptionSharedStore.addMember(subscription.key, subscription);
+    },
+
+    async addSubscription(key, scope) {
+        logger.debug(`[SubscriptionRegistry] Adding subscription: ${key} for scope: ${scope}`);
+
+        // Check if subscription already exists to prevent duplicates
+        const existing = await subscriptionSharedStore.getMembers(key);
+        const duplicate = existing.find(sub => sub.scope === scope);
+        
+        if (duplicate) {
+            logger.debug(`[SubscriptionRegistry] Subscription already exists: ${key} for scope: ${scope} (id: ${duplicate.id}). Skipping duplicate.`);
+            return; // Already subscribed, no need to add again
+        }
+
+        const subscription: SubscriptionMeta = {
+            id: uuidv4(),
+            key,
+            scope
+        };
+        
+        try {
+            await subscriptionSharedStore.addMember(key, subscription);
+            logger.debug(`[SubscriptionRegistry] Successfully added subscription: ${key} for scope: ${scope} (id: ${subscription.id})`);
+        } catch (error) {
+            logger.error(`[SubscriptionRegistry] Failed to add subscription: ${key} for scope: ${scope}: ${error}`);
+            throw error;
+        }
+    },
+
+    async remove(key) {
+        // Remove all subscriptions for a topic/channel (removes the entire set)
+        await subscriptionSharedStore.remove(key);
+    },
+
+    async removeSubscription(key, scope) {
+        logger.debug(`Removing subscription: ${key} for scope: ${scope}`);
+        // Remove a specific subscriber from a topic/channel
+        const members = await subscriptionSharedStore.getMembers(key);
+        const toRemove = members.filter(sub => sub.scope === scope);
+        for (const sub of toRemove) {
+            await subscriptionSharedStore.removeMember(key, sub);
+        }
+    },
+
+    async getAll() {
+        // Return all SubscriptionMeta objects
+        return subscriptionSharedStore.getAllMembers();
+    },
+
+    async getByUser(userId) {
+        // Assumes scope follows 'subscriber:user:userId'
+        const all = await subscriptionSharedStore.getAllMembers();
+        return all.filter(sub => sub.scope === `subscriber:user:${userId}`);
+    },
+
+    async getByKey(key) {
+        // Get all subscriptions for a specific key (topic/channel)
+        const members = await subscriptionSharedStore.getMembers(key);
+        // logger.debug(`[SubscriptionRegistry] getByKey(${key}) returned ${members.length} members:`, members.map(m => `${m.scope} (id: ${m.id})`));
+        return members;
+    },
+
+    async getByScope(scope) {
+        // Get all subscriptions for a specific scope (subscriber)
+        const all = await subscriptionSharedStore.getAllMembers();
+        return all.filter(sub => sub.scope === scope);
+    },
+
+    async removeSubscriptionsByScope(scope) {
+        // Remove all subscriptions for a specific scope (e.g., when a connection closes)
+        logger.debug(`[SubscriptionRegistry] Removing all subscriptions for scope: ${scope}`);
+        const subscriptions = await this.getByScope(scope);
+        logger.debug(`[SubscriptionRegistry] Found ${subscriptions.length} subscriptions to remove for scope: ${scope}`);
+        
+        for (const sub of subscriptions) {
+            await this.removeSubscription(sub.key, sub.scope);
+        }
+        
+        logger.info(`[SubscriptionRegistry] Removed ${subscriptions.length} subscriptions for scope: ${scope}`);
+        return subscriptions.length;
+    }
+};

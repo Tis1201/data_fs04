@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "versionCode" INTEGER,
+ADD COLUMN IF NOT EXISTS "signature" TEXT;
+

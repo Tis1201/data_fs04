@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "Bundle" ADD COLUMN IF NOT EXISTS "activePeriodDays" INTEGER NOT NULL DEFAULT 1;
+
+

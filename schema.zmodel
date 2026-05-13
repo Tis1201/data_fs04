@@ -1,0 +1,2295 @@
+// This is your schema file,
+// learn more about it in the docs: https://zenstack.dev/docs/reference/zmodel-language
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// System-wide role enum
+// enum SystemRole {
+//   SUPER_ADMIN
+//   ADMIN
+//   USER
+// }
+
+// Core models for multi-tenancy and access control
+model Account {
+  id            String    @id @default(cuid())
+  name          String
+  slug          String    @unique // URL-friendly identifier
+  status        String    @default("ACTIVE")
+  isSystem      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  description   String?
+  logoUrl       String?
+  settings      String?   // JSON string for account settings
+  
+  // Relationships
+  companies     Company[]
+  members       AccountMembership[]
+  groups        Group[]
+  devices       Device[]  // Devices owned by this account
+  deviceTags    DeviceTag[]  // Device tags owned by this account
+  apiKeys       ApiKey[] // API keys associated with this account
+  primaryUsers  User[] @relation("UserPrimaryAccount") // Users who have this as their primary account
+  resources     Resource[] // Resources owned by this account
+  bundles       Bundle[] // Bundles owned by this account
+  refreshTokens RefreshToken[]
+  tokenUsageLogs TokenUsageLog[]
+  whatsappAccounts WhatsAppAccount[]
+  preclaimSets  PreclaimSet[]
+  preclaimDevices PreclaimDevice[]
+  factoryDevices FactoryDevice[] @relation("AccountFactoryDevices")
+  cronJobs      CronJob[] // CronJobs associated with this account
+  // Licensing & entitlements
+  licenses      License[]
+  entitlements  Entitlement[]
+  
+  // Device profiles
+  deviceProfiles DeviceProfile[]
+  
+  // Device app summaries
+  deviceAppSummaries DeviceAppSummary[]
+  
+  // Pin management
+  pinRules         PinRule[]
+
+  // Subscription
+  subscription  Subscription?
+  
+  // Permission overrides for users in this account
+  userPermissionOverrides UserPermissionOverride[]
+  
+  // Account-to-account relationships
+  parentAccountAssignments AccountAssignment[] @relation("ParentAccountAssignments")
+  childAccountAssignments  AccountAssignment[] @relation("ChildAccountAssignments")
+  
+  // Controllers and Sensors
+  controllers      Controller[]
+  sensors          Sensor[]
+  
+  // Sensor Templates
+  sensorTemplates  SensorTemplate[]
+  
+  // Resources shared into this account (admin catalog shares)
+  resourceShares ResourceAccountShare[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  //Allow user who assigned to this account to view
+  @@allow('read', auth() != null && members?[userId == auth().id])
+  
+  @@index([slug])
+}
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ipAddress     String?
+  actionType    String
+  tableName     String
+  recordId      String   
+  oldData       Json?
+  newData       Json?
+  changeSummary String?
+  timestamp     DateTime  @default(now())
+  
+  // Relationships
+  
+  // Authorization rules
+  @@allow('read,create', true)
+  @@allow('update,delete', false)
+  
+  @@index([userId])
+  @@index([actionType])
+  @@index([tableName])
+  @@index([timestamp])
+  @@index([tableName, actionType, timestamp])
+}
+
+
+
+model Company {
+  id            String    @id @default(cuid())
+  name          String
+  status        String    @default("ACTIVE")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  description   String?
+  address       String?
+  contactEmail  String?
+  contactPhone  String?
+  
+  // Relationships
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  devices       Device[]  // Devices assigned to this company
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,create,update', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  @@allow('read', account.members?[userId == auth().id])
+  
+  @@index([accountId])
+}
+
+model AccountMembership {
+  id            String    @id @default(cuid())
+  role          String    // OWNER, ADMIN, MEMBER
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relationships
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  groupMemberships GroupMembership[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth().id == userId)
+  @@allow('create,update,delete', account.members?[userId == auth().id && role == 'OWNER'])
+  
+  @@unique([userId, accountId])
+  @@index([userId])
+  @@index([accountId])
+}
+
+model AccountAssignment {
+  id               String   @id @default(cuid())
+
+  // Relationships
+  parentAccountId  String
+  parentAccount    Account  @relation("ParentAccountAssignments", fields: [parentAccountId], references: [id], onDelete: Cascade)
+
+  childAccountId   String
+  childAccount     Account  @relation("ChildAccountAssignments", fields: [childAccountId], references: [id], onDelete: Cascade)
+
+  relationshipType String   // OWNERSHIP, DELEGATION, VISIBILITY_ONLY
+  status           String   @default("ACTIVE") // ACTIVE, SUSPENDED
+
+  validFrom        DateTime?
+  validTo          DateTime?
+
+  createdById      String?
+  createdBy        User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Authorization rules
+  // Admins can manage all assignments
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  // Members of either account can see the link
+  @@allow('read', parentAccount.members?[userId == auth().id] || childAccount.members?[userId == auth().id])
+
+  // Only OWNER/ADMIN of the parent account can create/update/delete
+  @@allow('create,update,delete', parentAccount.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+  @@unique([parentAccountId, childAccountId, relationshipType])
+  @@index([parentAccountId])
+  @@index([childAccountId])
+}
+
+model Group {
+  id            String    @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  permissions   Permission[]  // Relation to permissions
+  
+  // Relationships
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members       GroupMembership[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
+  @@index([accountId])
+  @@unique([accountId, name])
+}
+
+model GroupMembership {
+  id            String    @id @default(cuid())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relationships
+  groupId       String
+  group         Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  membershipId  String
+  membership    AccountMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', membership.userId == auth().id || group.account.members?[userId == auth().id])
+  @@allow('create,update,delete', group.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
+  @@unique([groupId, membershipId])
+  @@index([groupId])
+  @@index([membershipId])
+}
+
+// Permission model
+model Permission {
+  id          String   @id @default(cuid())
+  groupId     String
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  module      String   // e.g., "DASHBOARD", "USERS"
+  action      String   // e.g., "VIEW", "EDIT"
+  allowed     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([groupId, module, action])
+  @@index([groupId])
+  @@index([module, action])
+  
+  // Authorization rules
+  @@allow('read', group.account.members?[userId == auth().id])
+  @@allow('create,update,delete', 
+    group.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']]
+  )
+}
+
+// User Permission Override model
+// Individual user permission overrides that take priority over group permissions
+// Use cases: 
+//   - Grant special access to specific users
+//   - Revoke access for specific users (e.g., temporary suspension)
+//   - Time-limited permissions (e.g., trial access)
+model UserPermissionOverride {
+  id          String    @id @default(cuid())
+  
+  // User this override applies to
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Account context
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Permission specification
+  module      String    // e.g., "USER_DEVICES", "USER_BUNDLES"
+  action      String    // e.g., "VIEW", "CREATE", "EDIT", "DELETE"
+  allowed     Boolean   // true = grant permission, false = deny (overrides group permission)
+  
+  // Metadata
+  reason      String?   // Why this override was created
+  expiresAt   DateTime? // Optional expiration (null = permanent)
+  isActive    Boolean   @default(true)
+  
+  // Audit trail
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String?   // User who created this override
+  creator     User?     @relation("OverrideCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  // Constraints
+  @@unique([userId, accountId, module, action])
+  @@index([userId, accountId])
+  @@index([accountId])
+  @@index([module, action])
+  @@index([expiresAt])
+  @@index([isActive])
+  
+  // Authorization rules
+  // Admins can manage all overrides
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // Account OWNER/ADMIN can manage overrides in their account
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  // Account members can read overrides that apply to them
+  @@allow('read', userId == auth().id && account.members?[userId == auth().id])
+  // Account OWNER/ADMIN can read all overrides in their account
+  @@allow('read', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+}
+
+// User model
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  status        String    @default("ACTIVE")  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  email         String    @unique
+  password      String
+  rolesString   String    @default("")  // Comma-separated list of roles
+  systemRole    String    @default("USER")  // SUPER_ADMIN, ADMIN, USER
+  primaryAccountId String? // Primary account for this user
+  
+  // Relationships
+  sessions      Session[]
+  keys          Key[]
+  apiKeys       ApiKey[]
+  whatsappAccounts WhatsAppAccount[]
+  listeners     ListenerEndpoint[]
+  devices       Device[]  // Devices created by this user
+  accountMemberships AccountMembership[]
+  primaryAccount Account? @relation("UserPrimaryAccount", fields: [primaryAccountId], references: [id], onDelete: SetNull)
+  invitationTokens InvitationToken[]
+  
+  // JWT Relations
+  jwtSigningKeys JwtSigningKey[]
+  tokenUsageLogs TokenUsageLog[]
+  refreshTokens  RefreshToken[]
+
+  // Relations to action logs (user as initiator)
+  actionLogs     DeviceActionLog[] @relation("UserToActionLogs")
+  bundleInstallSessions BundleInstallSession[] @relation("UserToBundleInstallSession")
+  cronJobs       CronJob[] // CronJobs created by this user
+  
+  // Pin management relations
+  pinRules       PinRule[]
+  userAppActions UserAppAction[]
+
+  // Account assignment relations (creator)
+  createdAccountAssignments AccountAssignment[]
+  
+  // Controller and Sensor relations
+  createdControllers Controller[]
+  createdSensors     Sensor[]
+  
+  // Sensor Template relations
+  createdSensorTemplates SensorTemplate[]
+  sensorTemplateAssignments SensorTemplateAssignment[]
+  
+  // Audit log relation
+  auditLogs          AuditLog[]
+  
+  // Permission override relations
+  permissionOverrides UserPermissionOverride[]  // Overrides applied to this user
+  createdOverrides   UserPermissionOverride[] @relation("OverrideCreator")  // Overrides created by this user
+
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  @@allow('read', auth() != null)  // Authenticated users can read
+  @@allow('create', true)  // Anyone can create (signup)
+  @@allow('update', auth().id == id)  // Users can update their own data
+  @@allow('delete', false)  // Only admin can delete (covered by 'all' rule above)
+  
+  @@index([primaryAccountId])
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  status    String?  @default("ACTIVE")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Allow session creation for login
+  @@allow('create', true)
+  // Allow users to manage their own sessions
+  @@allow('read,delete', auth().id == userId)
+  // Allow admins to manage all sessions
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model Key {
+  id             String  @id
+  hashedPassword String? @map("hashed_password")
+  userId         String  @map("user_id")
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  key         String   @unique
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId   String?
+  account     Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, name])
+
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  @@allow('read,update,delete', auth().id == userId)  // Users can manage their own API keys
+  @@allow('read,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  @@allow('create', auth() != null)  // Authenticated users can create API keys
+
+  @@index([userId])
+  @@index([key])
+  @@index([accountId])
+}
+
+
+
+model WebhookEndPoint{
+  id String @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  postfix String // appends to the back of http://localhost/webhook/{postfix}
+  name String
+  description String?
+  active Boolean @default(true)
+  expiresAt DateTime?
+  lastUsedAt DateTime?
+  createdBy     String
+  hourlyMetrics WebhookHourlyMetric[]
+  status String @default("ACTIVE")
+  listeners     ListenerWebhookEndpoint[] // Many-to-many relation to listeners
+
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  //@allow('read,update,delete', auth().id == userId)  // Users can manage their own webhook endpoints
+  @@allow('create', auth() != null)  // Authenticated users can create webhook endpoints
+
+  @@index([name])
+  @@index([description])
+}
+
+model WebhookHourlyMetric {
+  id String @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  webhookId String
+  webhook WebhookEndPoint @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  count Int @default(0)
+  hourOfDay DateTime @default(now())
+  
+  @@unique([webhookId, hourOfDay])
+}
+
+model ListenerEndpoint {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  name        String
+  description String?
+
+  postfix String // appends to the back of http://localhost/api/listen/{postfix}
+  
+
+  status      String   @default("ACTIVE")
+  expiresAt   DateTime?
+  lastSeenAt  DateTime @default(now())
+  
+  // User who owns this listener
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Many-to-many relationships for webhook endpoints and WhatsApp accounts
+  webhookEndpoints ListenerWebhookEndpoint[]
+  whatsappAccounts ListenerWhatsAppAccount[]
+  
+  listenToAll Boolean  @default(true) // If true, listen to all events regardless of specific endpoints
+  
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+  @@allow('read,update,delete', auth().id == userId)  // Users can manage their own listeners
+  @@allow('create', auth() != null)  // Authenticated users can create listeners
+
+  @@index([userId])
+}
+
+// Junction table for ListenerEndpoint to WebhookEndPoint many-to-many relationship
+model ListenerWebhookEndpoint {
+  id String @id @default(cuid())
+  
+  listenerId String
+  listener ListenerEndpoint @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  
+  webhookEndpointId String
+  webhookEndpoint WebhookEndPoint @relation(fields: [webhookEndpointId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([listenerId, webhookEndpointId])
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+}
+
+
+
+// Junction table for ListenerEndpoint to WhatsAppAccount many-to-many relationship
+model ListenerWhatsAppAccount {
+  id String @id @default(cuid())
+  
+  listenerId String
+  listener ListenerEndpoint @relation(fields: [listenerId], references: [id], onDelete: Cascade)
+  
+  whatsappAccountId String
+  whatsappAccount WhatsAppAccount @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([listenerId, whatsappAccountId])
+  @@allow('all', auth().systemRole == 'ADMIN')  // Admin can do everything
+}
+
+model WhatsAppAccount {
+  id            String   @id @default(cuid())
+  client_id     String @unique
+  client_status String @default("DISCONNECTED")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  phoneNumber   String
+  name          String?
+  description   String
+  createdBy     String
+  user          User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  listeners     ListenerWhatsAppAccount[]
+  api_key       String? @default(cuid())
+  status        String? @default("ACTIVE")
+  connectionState String? @default("disconnected")
+  lastConnectionUpdate DateTime?
+  lastError      String? 
+  isAuthenticated Boolean @default(false)
+  lastAuthenticated DateTime?
+  
+  // Account relationship
+  accountId     String? @default(cuid())
+  account       Account?   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN') // Admin can do everything
+  @@allow('read', auth() != null && (account == null || account.members?[userId == auth().id])) // Account members can read
+  @@allow('create,update,delete', auth() != null && createdBy == auth().id) // Creator can modify
+  
+  @@index([createdBy])
+  @@index([accountId])
+}
+
+model WhatsAppAuthData {
+  id        String   @id @default(cuid())
+  clientId  String               // Same as WhatsAppAccount.client_id
+  file      String
+  data      String               // Actual key/credential content
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+
+  @@unique([clientId, file])    // Ensure uniqueness per WhatsApp client
+  @@index([clientId])
+
+  @@allow('all', auth().systemRole == 'ADMIN')
+}
+
+
+//Device Model
+model Device {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  name          String
+  // Relations to factory token
+  factoryTokens FactoryToken[]
+  description   String?
+  status        String   @default("ACTIVE")
+  expiresAt     DateTime?
+  lastUsedAt    DateTime?
+  createdBy     String?
+  user          User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  // Account & Company ownership
+  accountId     String?
+  account       Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  companyId     String?
+  company       Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  // Device metadata
+  deviceType    String?  // e.g. "sensor", "gateway", "camera"
+  model         String?
+  manufacturer  String?
+  osVersion     String?
+  firmwareVersion String?
+  hardwareId    String?  // e.g. MAC address or serial number
+
+  // Network info
+  macAddress    String?
+  wifiMac       String?
+  lanMac        String?
+  ipAddress     String?
+
+  // Security & credentials
+  apiKey        String?  @unique // Device API key for auth
+  apiKeyCreatedAt DateTime?
+  apiKeyRotatedAt DateTime?
+  
+  // Device claim/ownership
+  claimedAt     DateTime?
+  claimedBy     String?  // User ID who claimed (redundant, but useful for audit)
+
+  factoryRecord FactoryDevice? @relation("DeviceFactoryRecord")
+
+  // Relationships
+  // logs          Log[]?    // Uncomment if you have a Log model
+  actionLogs   DeviceActionLog[] @relation("DeviceToActionLogs")
+  bundleInstallDevices BundleInstallDevice[]
+  tags      DeviceTag[]  @relation("DeviceTags")
+
+  preclaimDevices PreclaimDevice[]
+  // Connection status
+  connected     Boolean  @default(false)
+  connectedAt   DateTime?
+  disconnectedAt DateTime?
+
+  // Licensing
+  licenses      License[]
+  
+  // Device profile assignment
+  profileAssignment DeviceProfileAssignment?
+  
+  // Device-level profiles (copies of global profiles)
+  deviceProfiles DeviceProfile[]
+  
+  // Profile overrides (device-specific customizations)
+  profileOverrides DeviceProfileOverride[]
+  
+  // Device app data summaries
+  appSummaries DeviceAppSummary[]
+  
+  // Pin management relations
+  userActions  UserAppAction[]
+  
+  // Controller relation
+  controllers   Controller[]
+
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'USER', 'MEMBER']])
+  
+  @@index([createdBy])
+  @@index([hardwareId])
+  @@index([status])
+  @@index([accountId])
+  @@index([companyId])
+  @@index([name])
+  @@index([connected])
+  @@index([claimedAt])
+}
+
+model FactoryDevice {
+  id                 String    @id @default(cuid())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  status             String    @default("PENDING")
+  hardwareFingerprint String?  @unique
+  factoryJwtId       String?
+  metadata           String?
+  claimedAt          DateTime?
+  expiresAt          DateTime?
+  lastSeenAt         DateTime?
+  lastSeenIp         String?
+  lastSeenUserAgent  String?
+  registrationPin    String?   @unique
+
+  accountId          String?
+  account            Account?  @relation("AccountFactoryDevices", fields: [accountId], references: [id], onDelete: SetNull)
+
+  claimedDeviceId    String?   @unique
+  claimedDevice      Device?   @relation("DeviceFactoryRecord", fields: [claimedDeviceId], references: [id], onDelete: SetNull)
+
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account != null && account.members?[userId == auth().id])
+
+  @@index([accountId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model DeviceTag {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  devices      Device[]   @relation("DeviceTags")
+  accountId    String?
+  account      Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  // Access policies
+  // Admins can do everything
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && accountId != null && account.members?[userId == auth().id])
+  @@allow('create,update,delete', auth() != null && accountId != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'USER', 'MEMBER']])
+}
+
+// Generic device action log for all operations (firmware update, screenshot, etc.)
+model DeviceActionLog {
+  id           String   @id @default(cuid())
+  deviceId     String
+  actionType   String   // 'screenshot', 'terminal', 'remote_desktop', 'install', 'firmware_update', 'restart', 'snapshot', 'ping', 'status_check', 'config_update'
+  status       String   // 'initiated', 'in_progress', 'success', 'failed', 'cancelled', 'timeout'
+  initiatedBy  String
+  initiatedAt  DateTime @default(now())
+  completedAt  DateTime?
+  durationMs   Int?
+  progress     Int?
+  message      String?
+  error        String?
+  metadata     Json?
+  requestId    String?
+  connectionId String?
+  protocol     String?  // 'sse', 'pushpin', 'websocket', ...
+  sequenceNumber Int?
+
+  // Relations
+  device       Device   @relation("DeviceToActionLogs", fields: [deviceId], references: [id], onDelete: Cascade)
+  user         User     @relation("UserToActionLogs", fields: [initiatedBy], references: [id], onDelete: Cascade)
+
+  // Indexes
+  @@index([deviceId])
+  @@index([actionType])
+  @@index([status])
+  @@index([initiatedBy])
+  @@index([initiatedAt])
+  @@index([deviceId, actionType, status])
+  @@index([deviceId, initiatedAt])
+  @@index([deviceId, sequenceNumber])
+  @@unique([deviceId, sequenceNumber])
+  
+  @@index([deviceId, status, initiatedAt]) // For filtering active logs
+  @@index([status, initiatedAt])           // For global dashboards
+  @@index([actionType, status, initiatedAt]) // For analytics
+  @@index([initiatedBy, initiatedAt])      // For user audit trails
+
+  // Access policies
+  // Admins can do everything
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // The user who initiated can read
+  @@allow('read', auth() != null && initiatedBy == auth().id)
+  // Account members can read action logs for devices in their accounts
+  @@allow('read', auth() != null && device.accountId != null && device.account.members?[userId == auth().id])
+}
+
+model Setting {
+  id          String   @id @default(cuid())
+  isActive    Boolean  @default(true)
+  data        String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updatedBy   String
+  createdBy   String
+  
+  // Admin has full access
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // Others have no access by default
+  @@deny('all', true)
+
+  @@index([isActive])
+  
+}
+
+//Email Service Provider Model
+model EmailServiceProvider {
+  id          String   @id @default(cuid())
+  name        String   // Display name (e.g., "Company SMTP", "SendGrid Production")
+  type        String   // "smtp", "sendgrid", "mailgun", "ses", "resend", "postmark"
+  isDefault   Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  
+  // Common fields
+  fromEmail   String   // Default "from" email address
+  fromName    String?  // Optional "from" name
+  
+  // SMTP Configuration
+  smtpHost    String?  // SMTP server host
+  smtpPort    Int?     // SMTP port
+  smtpUser    String?  // SMTP username
+  smtpPass    String?  // SMTP password
+  smtpSecure  Boolean  @default(true) // Use SSL/TLS
+  smtpAuth    Boolean  @default(true) // Use authentication
+  
+  // API-based providers (SendGrid, Mailgun, etc.)
+  apiKey      String?  // API key for the service
+  apiSecret   String?  // API secret (if needed)
+  domain      String?  // Domain for services that need it (Mailgun)
+  region      String?  // AWS region for SES
+
+  // Webhook/Event configuration
+  webhookUrl  String?  // For receiving delivery events
+  webhookKey  String?  // For webhook authentication
+
+  // Tracking
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+  lastUsedAt  DateTime?
+  totalSent   Int      @default(0)
+
+  status String @default("ACTIVE")
+  
+  // Validation
+  //@@validate(type in ["smtp", "sendgrid", "mailgun", "ses", "resend", "postmark"], "Invalid provider type")
+  
+  // Admin has full access
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  @@index([isActive])
+  @@index([isDefault])
+  @@index([type])
+}
+
+model InvitationToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  user      User      @relation(fields: [userId], references: [id])
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Zenstack permissions
+  @@allow('create', auth() == null || auth().systemRole == "ADMIN")
+  @@allow('read', auth() == null || auth().systemRole == "ADMIN")
+  @@allow('update', auth().systemRole == "ADMIN")
+  @@allow('delete', auth().systemRole == "ADMIN")
+}
+
+// Who may see a resource beyond its owning account (Phase 2+ API uses this)
+enum ResourceShareScope {
+  NONE
+  ALL_ACCOUNTS
+  SELECTED_ACCOUNTS
+  /// Developer SDK catalog: admin-managed; not listed under account Resources; latest shown on developer pages.
+  PUBLIC_DEVELOPER
+}
+
+//Create a standalone Resource table
+model Resource {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  type        String   // "file", "image", "video", "document", "binary"
+  target      String   @default("user") // "device", "account", "user"
+  /// Admin-controlled sharing; NONE = only owning account (+ admins). API enforcement in later phases.
+  shareScope  ResourceShareScope @default(NONE)
+  version     String? @default("1.0.0") // Release version number for binary
+  versionCode Int?     // Version code extracted from APK (read-only)
+  signature   String?  // APK signature extracted using apk-signature (read-only)
+  releaseType String? @default("Production") // "Alpha", "Beta", "Production"
+  format      String? // File format for binary, "apk", "bin", "exe", "sh"
+  packageName String? // Package name for binary
+  path        String   // File path or URL
+  size        Int      // File size in bytes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+  accountId   String
+  
+  // Relationships
+  account     Account @relation(fields: [accountId], references: [id])
+
+  bundleApps   BundleApp[]
+  /// When shareScope = SELECTED_ACCOUNTS, these accounts may read/install per API rules (Phase 2+).
+  sharedWithAccounts ResourceAccountShare[]
+  
+  // Permission rules
+  // Admin has full access to all resources
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  // Allow users to create resources if they are the creator
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  // Allow users to read, update, delete resources if they created them
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+
+  // Allow users to read if they are members of the account
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+
+  // Admin-shared catalog: readable by any signed-in user (list/detail APIs still apply account-scoped where clauses)
+  @@allow('read', auth() != null && shareScope == ALL_ACCOUNTS)
+
+  // Selected accounts: user must be a member of an account that has a ResourceAccountShare row for this resource
+  @@allow('read', auth() != null && shareScope == SELECTED_ACCOUNTS && sharedWithAccounts?[account.members?[userId == auth().id]])
+  
+  @@index([name])
+  @@index([type])
+  @@index([createdBy])
+  @@index([shareScope])
+}
+
+model ResourceAccountShare {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, accountId])
+  @@index([accountId])
+  @@index([resourceId])
+
+  // Phase 4: admin-only mutations. Tighten reads in Phase 2 if using ZenStack client for shares.
+  @@allow('all', auth().systemRole == 'ADMIN')
+}
+
+// JWT Token Issuer Subsystem
+// Manages API keys, tokens, and key rotation for device authentication
+
+// JWT Signing Keys for different token types
+model JwtSigningKey {
+  id          String   @id @default(cuid())
+  keyId       String   // Key ID used in JWT header (kid)
+  keyType     String   // Type of key (RUNTIME, FACTORY, INVITATION)
+  
+  // Key material
+  privateKey  String   // Encrypted with type-specific KMS key
+  publicKey   String   // Public key for verification
+  algorithm   String   @default('RS256')
+  
+  // Key lifecycle
+  isActive    Boolean  @default(true)
+  isPrimary   Boolean  @default(false)
+  rotatedAt   DateTime? // When this key was rotated out
+  expiresAt   DateTime? // Scheduled rotation date
+  
+  // Metadata
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdById String
+  
+  // Relations
+  factoryTokens FactoryToken[]
+  licenses      License[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Only one primary key per type
+  // @@unique([keyType, isPrimary], map: "unique_primary_key_per_type")
+  // Key ID must be unique within same type
+  @@unique([keyType, keyId], map: "unique_key_id_per_type")
+  
+  // Only system admins can manage keys
+  @@allow('create,read,update,delete', auth().systemRole == 'ADMIN')
+  
+  // Helper indexes
+  @@index([keyType, isActive])
+  @@index([expiresAt])
+}
+
+// Types of JWT signing keys - using String instead of enum for SQLite compatibility
+// Valid values: RUNTIME, FACTORY, INVITATION
+
+// Factory-issued JWT tokens for device onboarding
+model FactoryToken {
+  id            String   @id @default(cuid())
+  name          String?
+  token         String
+  // Device Information
+  hardwareModel String
+  firmwareVersion String
+  batchNumber   String?
+  
+  // Security
+  isUsed        Boolean  @default(false)
+  usedAt        DateTime?
+  usedByIp      String?
+  
+  // Metadata
+  issuedAt      DateTime @default(now())
+  expiresAt     DateTime
+  issuedBy      String   // User/System that issued the token
+  notes         String?  // Any additional notes
+  
+  // Relations
+  factory_signing_key_id String
+  factory_signing_key JwtSigningKey @relation(fields: [factory_signing_key_id], references: [id])
+  
+  // Relation to Device
+  device        Device?  @relation(fields: [deviceId], references: [id])
+  deviceId      String?
+  
+  @@index([isUsed])
+  @@index([expiresAt])
+  
+  // Only system admins can manage factory tokens
+  @@allow('create,read,update,delete', auth().systemRole == 'ADMIN')
+}
+
+// Track issued refresh tokens for runtime authentication
+model RefreshToken {
+  id           String   @id @default(cuid())
+  tokenHash    String   @unique // Hashed token
+  deviceId     String?  // Optional device identifier
+  userAgent    String?  // Device user agent
+  ipAddress    String?  // IP address of the device
+  
+  // Relations
+  account      Account  @relation(fields: [accountId], references: [id])
+  accountId    String
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  
+  // Token metadata
+  isRevoked    Boolean  @default(false)
+  revokedAt    DateTime?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  
+  @@index([accountId])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([isRevoked])
+  @@index([expiresAt, isRevoked])
+  
+  // Users can manage their own tokens, admins can manage all
+  @@allow('create,read,update,delete', auth().id == userId)
+  @@allow('read,delete', auth().systemRole == 'ADMIN')
+}
+
+// Track token usage for security monitoring
+model TokenUsageLog {
+  id           String   @id @default(cuid())
+  tokenId      String?  // Reference to RefreshToken.id
+  tokenType    String   // 'access' | 'refresh' | 'api_key'
+  action       String   // 'issue' | 'refresh' | 'revoke' | 'use' | 'rotate'
+  
+  // Request details
+  ipAddress    String?
+  userAgent    String?
+  
+  // Relations
+  account      Account? @relation(fields: [accountId], references: [id])
+  accountId    String?
+  user         User?    @relation(fields: [userId], references: [id])
+  userId       String?
+  
+  // Metadata
+  success      Boolean  @default(true)
+  error        String?
+  metadata     String?  // Additional context (JSON string)
+  
+  createdAt    DateTime @default(now())
+  
+  @@index([accountId])
+  @@index([userId])
+  @@index([tokenId])
+  @@index([createdAt])
+  
+  // Only admins can view logs
+  @@allow('read', auth().systemRole == 'ADMIN')
+  @@allow('create', true) // Allow system to create logs
+}
+
+//Log failed login attempts
+model FailedLoginLog {
+  id           String   @id @default(cuid())
+  email        String   // The email that was attempted
+  ipAddress    String?  // IP address of the attempt
+  userAgent    String?  // Browser/client info
+  reason       String   // Reason for failure (invalid password, user not found, etc.)
+  attemptedAt  DateTime @default(now())
+  
+  // Optional relations
+  accountId    String?  // If the email is associated with an account
+  
+  @@index([email])
+  @@index([ipAddress])
+  @@index([attemptedAt])
+  @@index([accountId])
+  
+  // Only admins can view logs
+  @@allow('read', auth().systemRole == 'ADMIN')
+  @@allow('create', true) // Allow system to create logs
+}
+
+// Track user session activities (login, logout, etc.)
+model UserSessionLog {
+  id           String   @id @default(cuid())
+  action       String   // 'login', 'logout', 'timeout', 'revoked'
+  sessionId    String?  // Reference to the session if available
+  ipAddress    String?  // IP address of the request
+  userAgent    String?  // Browser/client info
+  deviceInfo   String?  // Additional device information (JSON)
+  timestamp    DateTime @default(now())
+  
+  // Relations
+  userId       String
+  accountId    String?
+  
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@index([sessionId])
+  @@index([accountId])
+  
+  // Only admins can view logs, system can create
+  @@allow('read', auth().systemRole == 'ADMIN')
+  @@allow('create', true)
+}
+
+/*************************************************
+*
+*
+* Bundles
+*
+*************************************************/
+
+model Bundle {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  os          String       // e.g., "ANDROID"
+  reboot      Boolean      @default(false)
+  autoOpen    Boolean      @default(false)
+  forceUpdate Boolean      @default(false)
+  status      String       // "DRAFT", "PUBLISHED", "CANCELLED" "COMPLETED", "FAILED"
+  version     String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  cancelAt    DateTime?
+  createdBy   String
+  updatedBy   String
+  accountId   String?
+  waveSize    Int          @default(500)
+  scheduledAt DateTime?
+  scheduledAtTimezone String?
+  scheduledAtStartIfMissed Boolean @default(false) 
+  activePeriodDays Int     @default(1)
+  /// First device reported start / last device reported end (see migration add_bundle_actual_start_end_times)
+  actualStartedAt DateTime?
+  actualEndedAt   DateTime?
+
+  // Relationships
+  apps        BundleApp[]
+  waves       BundleWave[]
+  devices     BundleDevice[]  // Add this line
+  progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
+  bundleInstallBundles     BundleInstallBundle[]
+  account     Account? @relation(fields: [accountId], references: [id])
+  
+
+  // Permission rules
+  // Admin has full access to all bundles
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  // Allow users to create resources if they are the creator
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  // Allow users to read, update, delete resources if they created them
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow users to read if they are members of the account
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+
+  @@index([name])
+  @@index([version])
+  @@index([createdBy])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BundleApp {
+  id          String   @id @default(cuid())
+  bundleId    String
+  resourceId  String?  // Optional: set to null when Resource is deleted (onDelete: SetNull)
+  order       Int      // Installation order
+  autoOpen    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+
+  // Snapshot fields (captured when app is added; used when resource is deleted)
+  resourceNameSnapshot         String?
+  resourcePackageNameSnapshot  String?
+  resourceVersionSnapshot      String?
+  resourceSizeSnapshot         Int?
+  resourceFormatSnapshot       String?
+
+  // Relationships
+  bundle      Bundle   @relation(fields: [bundleId], references: [id])
+  resource    Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading apps if the user created the parent bundle or is a member of the bundle's account
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
+
+  @@index([bundleId])
+  @@index([resourceId])
+}
+
+model BundleDevice {
+  id          String   @id @default(cuid())
+  bundleId    String
+  deviceId    String
+  status      String   @default("PENDING") // "PENDING", "INCLUDED", "EXCLUDED"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String
+  updatedBy   String
+
+  // Relationships
+  bundle      Bundle   @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  //device      Device   @relation(fields: [deviceId], references: [id])
+  progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
+
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading devices if the user created the parent bundle or is a member of the bundle's account
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
+  
+  @@unique([bundleId, deviceId])  // A device can only be in a bundle once
+  @@index([bundleId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+model BundleDeviceProgress {
+  id            String       @id @default(cuid())
+  bundleId      String       // Reference to the bundle
+  waveId        String       // Reference to the wave
+  bundleDeviceId String      // Reference to the BundleDevice entry
+  transactionId String?      // For correlating commands/responses
+  status        String       @default("PENDING") // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "ROLLED_BACK"
+  result        String?      // Detailed installation result
+  errorDetails  String?      // Detailed error information if failed
+  startedAt     DateTime?    // When installation started
+  completedAt   DateTime?    // When installation completed/failed
+  retryCount    Int          @default(0)
+  metadata      String?        // For any additional progress data
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  createdBy     String       // Who initiated this deployment
+  updatedBy     String
+
+  // Relationships
+  bundle        Bundle       @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  wave          BundleWave   @relation(fields: [waveId], references: [id], onDelete: Cascade)
+  bundleDevice  BundleDevice @relation(fields: [bundleDeviceId], references: [id], onDelete: Cascade)
+
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading progress if the user created the parent bundle or is a member of the bundle's account
+  // (Progress rows are created by the system publisher with createdBy='system' during auto-publish)
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
+  
+  @@index([bundleId])
+  @@index([waveId])
+  @@index([bundleDeviceId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model BundleWave {
+  id          String            @id @default(cuid())
+  bundleId    String
+  name        String
+  status      String            // "PENDING", "IN_PROGRESS", "COMPLETED", "FAILED"
+  maxDevices  Int               @default(500)
+  startTime   DateTime?
+  endTime     DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   String
+  updatedBy   String
+
+  // Relationships
+  bundle      Bundle            @relation(fields: [bundleId], references: [id])
+  progress    BundleDeviceProgress[]  // Replaces tasks: WaveInstallTask[]
+
+
+  
+  // Permission rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('create', auth() != null && createdBy == auth().id)
+  
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+
+  // Allow reading waves if the user created the parent bundle or is a member of the bundle's account
+  // (Waves are created by the system publisher with createdBy='system' during auto-publish)
+  @@allow('read', auth() != null && bundle.createdBy == auth().id)
+  @@allow('read', auth() != null && bundle.account.members?[userId == auth().id])
+
+  @@index([bundleId])
+  @@index([status])
+}
+
+// Bundle Install System Models
+model BundleInstallSession {
+  id                String                 @id @default(cuid())
+  name              String
+  description       String?
+  status            String                 @default("PENDING")
+  totalDevices      Int
+  totalBundles      Int
+  totalBatches      Int
+  completedBatches  Int                    @default(0)
+  successfulDevices Int                    @default(0)
+  failedDevices     Int                    @default(0)
+  pendingDevices    Int                    @default(0)
+  initiatedBy       String
+  initiatedAt       DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  estimatedDuration Int?
+  actualDuration    Int?
+  metadata          Json?
+  batches           BundleInstallBatch[]
+  devices           BundleInstallDevice[]
+  bundles           BundleInstallBundle[]
+  errors            BundleInstallError[]
+  user              User                   @relation("UserToBundleInstallSession", fields: [initiatedBy], references: [id], onDelete: Cascade)
+
+  @@index([initiatedBy])
+  @@index([status])
+  @@index([initiatedAt])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,create,update', auth() != null && initiatedBy == auth().id)
+}
+
+model BundleInstallBatch {
+  id                String                 @id @default(cuid())
+  sessionId         String
+  batchNumber       Int
+  status            String                 @default("PENDING")
+  deviceCount       Int
+  successfulDevices Int                    @default(0)
+  failedDevices     Int                    @default(0)
+  pendingDevices    Int                    @default(0)
+  initiatedAt       DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  duration          Int?
+  error             String?
+  metadata          Json?
+  session           BundleInstallSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  devices           BundleInstallDevice[]
+  bundles           BundleInstallBundle[]
+
+  @@index([sessionId])
+  @@index([batchNumber])
+  @@index([status])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+model BundleInstallDevice {
+  id                String                 @id @default(cuid())
+  sessionId         String
+  batchId           String
+  deviceId          String
+  status            String                 @default("PENDING")
+  progress          Int                    @default(0)
+  currentBundle     String?
+  currentBundleIdx  Int                    @default(0)
+  totalBundles      Int
+  successfulBundles Int                    @default(0)
+  failedBundles     Int                    @default(0)
+  initiatedAt       DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  duration          Int?
+  error             String?
+  metadata          Json?
+  session           BundleInstallSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch             BundleInstallBatch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device            Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bundles           BundleInstallBundle[]
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([status])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+model BundleInstallBundle {
+  id         String               @id @default(cuid())
+  sessionId  String
+  batchId    String
+  deviceId   String
+  bundleId   String
+  status     String               @default("PENDING")
+  progress   Int                  @default(0)
+  message    String?
+  error      String?
+  initiatedAt DateTime             @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?
+  metadata    Json?
+  session    BundleInstallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  batch      BundleInstallBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  device     BundleInstallDevice  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  bundle     Bundle               @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([bundleId])
+  @@index([status])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+// Bundle Install Error Logging
+model BundleInstallError {
+  id           String   @id @default(cuid())
+  sessionId    String
+  batchId      String?
+  deviceId     String?
+  bundleId     String?
+  errorType    String   // DEVICE, BATCH, SESSION, NETWORK, TIMEOUT, VALIDATION
+  errorCode    String
+  errorMessage String
+  retryCount   Int      @default(0)
+  maxRetries   Int      @default(3)
+  timestamp    DateTime @default(now())
+  metadata     Json?
+  session      BundleInstallSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([batchId])
+  @@index([deviceId])
+  @@index([bundleId])
+  @@index([errorType])
+  @@index([timestamp])
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && session.initiatedBy == auth().id)
+}
+
+model License{
+	id            String   @id @default(cuid())
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+	createdBy     String
+	updatedBy     String
+  description   String?
+
+	// Ownership
+	accountId     String
+	account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+	deviceId      String?
+	device        Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+	// Status & validity
+	status        String   @default("ACTIVE") // ACTIVE, REVOKED, EXPIRED, SUSPENDED
+	issuedAt      DateTime @default(now())
+	expiresAt     DateTime
+
+	// JWT snapshot (current)
+	jwt           String   // Current JWT blob
+	keyId         String   // kid
+	algorithm     String   @default("RS256") // alg
+	
+	// Signing key reference (TOKEN key that signed this license)
+	signingKeyId  String
+	signingKey    JwtSigningKey @relation(fields: [signingKeyId], references: [id])
+
+	// Relations
+	renewals      LicenseRenewal[]
+	entitlements  Entitlement[]
+
+	// Authorization rules
+	@@allow('all', auth().systemRole == 'ADMIN')
+	@@allow('read', account.members?[userId == auth().id])
+	//@@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+	// Indexes & constraints
+	@@index([accountId])
+	@@index([deviceId])
+	@@index([status])
+	@@index([signingKeyId])
+	// Best-effort constraint to allow only one ACTIVE license per (accountId, deviceId)
+	// Note: partial unique index (status='ACTIVE') is not supported here; enforce strictly in service if needed
+	@@unique([accountId, deviceId, status])
+}
+
+model LicenseRenewal{
+	id             String   @id @default(cuid())
+	createdAt      DateTime @default(now())
+	updatedAt      DateTime @updatedAt
+	createdBy      String
+	updatedBy      String
+
+	// Relation to license
+	licenseId      String
+	license        License  @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+	// Old/new validity windows
+	oldIssuedAt    DateTime?
+	oldExpiresAt   DateTime?
+	newIssuedAt    DateTime
+	newExpiresAt   DateTime
+
+	// Snapshot & provenance
+	jwtSnapshot    String   // JWT at time of renewal/reissue
+	source         String   // billing | manual | api
+	transactionId  String?
+	metadata       String?  // JSON string for extra details
+	performedBy    String?  // User ID if applicable
+
+	// Authorization via owning account
+	@@allow('all', auth().systemRole == 'ADMIN')
+	@@allow('read', license.account.members?[userId == auth().id])
+	//@@allow('create,update,delete', license.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+	@@index([licenseId])
+	@@index([transactionId])
+}
+
+model Entitlement{
+	id            String   @id @default(cuid())
+	createdAt     DateTime @default(now())
+	updatedAt     DateTime @updatedAt
+	createdBy     String
+	updatedBy     String
+
+  // Entitlement definition
+	code          String   // e.g., max_devices, feature_x, throughput_cap
+	value         String?  // e.g., "100", "true", "basic"
+	metadata      String?  // JSON string for additional info
+	status        String   @default("ACTIVE")
+	startsAt      DateTime?
+	endsAt        DateTime?
+
+	// Scope (either account-wide or bound to a license)
+	accountId     String?
+	account       Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+	licenseId     String?
+	license       License? @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+	// Authorization rules
+	@@allow('all', auth().systemRole == 'ADMIN')
+	@@allow('read', account != null && account.members?[userId == auth().id])
+	@@allow('read', license != null && license.account.members?[userId == auth().id])
+	//@@allow('create,update,delete', account != null && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+	//@@allow('create,update,delete', license != null && license.account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+
+	// Indexes & constraints
+	@@index([accountId])
+	@@index([licenseId])
+	@@index([status])
+	@@unique([licenseId, code])
+	@@unique([accountId, code])
+}
+
+// Pre-claim enums
+enum ClaimStatus {
+  PENDING
+  FULFILLED
+  EXPIRED
+  REVOKED
+}
+
+enum SetStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+// Device pre-claim set uploaded by admin
+model PreclaimSet {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  status      SetStatus  @default(ACTIVE)
+  expiresAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdBy   String
+
+  // Ownership
+  accountId   String
+  account     Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Device Profile Assignment (optional)
+  profileId   String?
+  profile     DeviceProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  // Relations
+  claims      PreclaimDevice[]
+
+  // Authorization rules (RLS)
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']] || createdBy == auth().id)
+
+  // Indexes & constraints
+  @@index([accountId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([profileId])
+  @@unique([accountId, name])
+}
+
+// Individual device pre-claim rows within a set
+model PreclaimDevice {
+  id          String       @id @default(cuid())
+  macId       String       // normalized MAC (uppercase, no separators)
+  name        String?
+  description String?
+  status      ClaimStatus  @default(PENDING)
+  expiresAt   DateTime?
+  claimedAt   DateTime?
+  claimedBy   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Ownership
+  accountId   String
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // Parent set
+  setId       String
+  set         PreclaimSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+
+  // Linked device when fulfilled
+  deviceId    String?
+  device      Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  // Authorization rules (RLS)
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']] || set.createdBy == auth().id)
+
+  // Indexes & constraints
+  @@unique([setId, macId])
+  @@index([macId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([accountId])
+}
+
+// Device Profile Models
+model DeviceProfile {
+  id          String   @id @default(cuid())
+  name        String   // e.g., "Retail Kiosk Profile"
+  description String?  // e.g., "Standard configuration for retail kiosk devices"
+  isActive    Boolean  @default(true)
+  level       String   @default("GLOBAL") // "GLOBAL" for account-level, "DEVICE" for device-level copy
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
+  createdBy   String
+  updatedBy   String?
+  
+  // Ownership
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Device relationship (only for DEVICE level profiles)
+  deviceId    String?
+  device      Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  // Relationships
+  settings    DeviceProfileSetting[]
+  assignments DeviceProfileAssignment[]
+  preclaimSets PreclaimSet[]
+  overrides   DeviceProfileOverride[] @relation("ProfileOverrides") // Device-specific customizations
+  
+  // Permissions
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'MEMBER']])
+  
+  @@index([accountId])
+  @@index([createdBy])
+  @@index([level])
+  @@index([deviceId])
+}
+
+model DeviceProfileSetting {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   DeviceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  
+  // Setting definition
+  key       String   // e.g., "kiosk_lock_mode", "display_resolution"
+  value     String   // e.g., "enabled", "1920x1080"
+  dataType  String   // "boolean", "string", "number", "select", "time"
+  
+  // Metadata
+  label     String   // Display label
+  category  String?  // Grouping category
+  order     Int      // Display order
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt()
+  
+  @@unique([profileId, key])
+  @@index([profileId])
+  
+  // Permissions - any account member can read/write/delete
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', profile.account.members?[userId == auth().id])
+}
+
+model DeviceProfileAssignment {
+  id        String   @id @default(cuid())
+  profileId String
+  deviceId  String
+  profile   DeviceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  // Assignment metadata
+  assignedAt DateTime @default(now())
+  assignedBy String
+  status     String   @default("ACTIVE") // "ACTIVE", "PENDING", "FAILED"
+  
+  // Application tracking
+  appliedAt  DateTime?
+  lastSyncAt DateTime?
+  
+  @@unique([deviceId]) // One profile per device
+  @@index([profileId])
+  @@index([deviceId])
+
+  // Permissions - any account member can read/write/delete
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', profile.account.members?[userId == auth().id])
+}
+
+// Device Profile Override Model
+// Stores device-specific customizations (delta from global profile)
+model DeviceProfileOverride {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt()
+  createdBy       String
+  updatedBy       String?
+  
+  // Device reference
+  deviceId        String
+  device          Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  // Global profile reference
+  globalProfileId String
+  globalProfile   DeviceProfile @relation("ProfileOverrides", fields: [globalProfileId], references: [id], onDelete: Cascade)
+  
+  // Overridden settings (only settings that differ from global)
+  overriddenSettings DeviceProfileOverrideSetting[]
+  
+  // Permissions
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', globalProfile.account.members?[userId == auth().id])
+  
+  // Constraints
+  @@unique([deviceId, globalProfileId]) // One override per device-profile pair
+  @@index([deviceId])
+  @@index([globalProfileId])
+}
+
+// Device Profile Override Setting Model
+// Individual setting overrides for a device
+model DeviceProfileOverrideSetting {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt()
+  
+  // Parent override
+  overrideId  String
+  override    DeviceProfileOverride @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+  
+  // Setting data (only key, value, dataType needed - label/category come from global)
+  key         String   // e.g., "brightness_level"
+  value       String   // e.g., "90" (overridden value)
+  dataType    String   // e.g., "range"
+  
+  // Permissions
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('all', override.globalProfile.account.members?[userId == auth().id])
+  
+  // Constraints
+  @@unique([overrideId, key]) // One override per setting per device
+  @@index([overrideId])
+}
+
+// Device App Data Summary Model
+// Stores processed summaries of device app data from ClickHouse
+model DeviceAppSummary {
+  id                String   @id @default(cuid())
+  deviceId          String   @unique
+  accountId         String
+  totalAppsCount    Int      @default(0)
+  systemAppsCount   Int      @default(0)
+  normalAppsCount   Int      @default(0)
+  lastAppSync       DateTime?
+  lastProcessedAt   DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relationships
+  device            Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  @@allow('create,update,delete', account.members?[userId == auth().id && role in ['OWNER', 'ADMIN', 'MEMBER']])
+  
+  @@index([deviceId])
+  @@index([accountId])
+  @@index([lastProcessedAt])
+}
+
+// Pin Management System Models
+// Hierarchical pin rules for device app management
+
+model PinRule {
+  id                    String   @id @default(cuid())
+  ruleType              String   // 'admin_default', 'user_default', 'admin_custom', 'user_custom'
+  createdBy             String   // user_id who created it
+  accountId             String?  // null for admin_default, required for others
+  name                  String
+  description           String?
+  apps                  String[] // ["com.app1", "com.app2"]
+  targetType            String?  // 'all', 'tags', 'os', 'devices'
+  targetValue           String[] // ["tag:retail"] or ["android"] or ["device-1"]
+  priority              Int      // 1=default (admin_default/user_default), higher numbers override
+  isActive              Boolean  @default(true)
+  isSystemRule          Boolean  @default(false) // true = per-account system rule, auto-created, always active, cannot delete
+  isDraft               Boolean  @default(false) // true when saved via "Save as Draft" (work in progress)
+  fallbackScreenEnabled Boolean  @default(false) // show custom image/video when kiosk app crashes
+  fallbackScreenUrl     String?  // storage path or URL of uploaded fallback image/video
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt()
+  
+  // Relationships
+  createdByUser User @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  account       Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  userActions   UserAppAction[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', ruleType == 'admin_default')
+  // Allow any account member to read account-scoped defaults and customs
+  @@allow('read', (ruleType == 'user_default' || ruleType == 'user_custom') && account.members?[userId == auth().id])
+  // Creator can manage their own user_custom rules
+  @@allow('create,update,delete', ruleType == 'user_custom' && createdBy == auth().id)
+  // Account OWNER/ADMIN can manage account default rules
+  @@allow('create,update,delete', ruleType == 'user_default' && account.members?[userId == auth().id && role in ['OWNER', 'ADMIN']])
+  
+  @@index([ruleType])
+  @@index([accountId])
+  @@index([createdBy])
+  @@index([priority])
+  @@index([isActive])
+}
+
+
+model UserAppAction {
+  id           String   @id @default(cuid())
+  userId        String
+  deviceId      String
+  action        String   // 'pin', 'unpin', 'install', 'uninstall'
+  packageName   String
+  ruleId        String?  // which rule triggered this action
+  createdAt     DateTime @default(now())
+  
+  // Relationships
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  rule          PinRule? @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', user == auth())
+  @@allow('read', device.account.members?[userId == auth().id])
+  @@allow('create', user == auth())
+  
+  @@index([userId])
+  @@index([deviceId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+
+model MqttConnection {
+	clientId       String   @id                    // EMQX clientid, e.g. "device:<id>_suffix"
+	username       String                            // MQTT username
+	kind           String                            // 'device', 'user', 'worker', etc.
+
+	status         String   @default("CONNECTED")   // CONNECTED, DISCONNECTED
+	connectedAt    DateTime @default(now())
+	disconnectedAt DateTime?
+	lastEventAt    DateTime @default(now())
+	node           String?
+	reason         String?
+
+	@@index([username])
+	@@index([status])
+	@@index([lastEventAt])
+
+	@@allow('all', auth().systemRole == 'ADMIN')
+}
+
+// Controller Management Models
+// Controller represents an app managing one or more sensors (e.g., Radar App, Camera App)
+model Controller {
+  id            String    @id @default(cuid())
+  name          String
+  type          String    // "radar", "camera", "ble", etc.
+  serialNumber  String    @unique
+  status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
+  isDeleted     Boolean   @default(false)
+  
+  // Link to Device (1:N - device can have multiple controllers of different types)
+  deviceId      String
+  device        Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  description   String?
+
+  connected       Boolean   @default(false)
+  connectedAt     DateTime?
+  disconnectedAt  DateTime?
+  
+  // Relationships - sensors managed by this controller
+  sensors       Sensor[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // Any account member may manage controllers for their account (not only the row creator).
+  @@allow('read,create,update,delete', auth() != null && account.members?[userId == auth().id])
+  
+  // Custom constraint: Only one active controller per device/type, but multiple deleted ones allowed
+  // We'll handle this in application logic since Prisma doesn't support conditional unique constraints
+  @@index([accountId])
+  @@index([deviceId])
+  @@index([type])
+  @@index([status])
+  @@index([connected])
+}
+
+// Sensor Model - Single Table Inheritance
+// All sensor types (radar, camera, ble) stored in one table with `type` discriminator
+// Type-specific configuration stored in JSON `config` field
+model Sensor {
+  id            String    @id @default(cuid())
+  name          String
+  type          String    // "radar", "camera", "ble", etc.
+  serialNumber  String    @unique
+  status        String    @default("INACTIVE") // ACTIVE, INACTIVE, MAINTENANCE
+  
+  // Link to Controller
+  controllerId  String
+  controller    Controller @relation(fields: [controllerId], references: [id], onDelete: Cascade)
+  
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  description   String?
+  location      String?
+  firmware      String?
+  
+  // Type-specific configuration (validated by application layer)
+  // Radar: { trackingArea: {...}, zones: [...], dwellBuckets: [...] }
+  // Camera: { resolution: "1080p", fps: 30, ... }
+  config        Json?
+  
+  // Config sync tracking (for offline-first save/push pattern)
+  configVersion Int       @default(0)       // Incremented on each save
+  syncStatus    String    @default("SYNCED") // SYNCED, PENDING, FAILED
+  lastSyncedAt  DateTime?                    // When config was last pushed to device
+  lastSyncError String?                      // Error message if sync failed
+  
+  // Template assignments
+  templateAssignments SensorTemplateAssignment[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  // Any account member may manage sensors for their account (not only the row creator).
+  @@allow('read,create,update,delete', auth() != null && account.members?[userId == auth().id])
+  
+  @@index([controllerId])
+  @@index([accountId])
+  @@index([type])
+  @@index([status])
+}
+
+// Sensor Template - Reusable configuration templates for sensors
+enum SensorTemplateType {
+  CONFIGURATION
+  ALERT
+}
+
+model SensorTemplate {
+  id            String              @id @default(cuid())
+  name          String
+  description   String?
+  type          SensorTemplateType  @default(CONFIGURATION)
+  isDefault     Boolean             @default(false)
+  
+  // Configuration data (JSON)
+  // For CONFIGURATION type: { trackingArea, zones, deviceSettings }
+  // For ALERT type: { alertRules, notifications }
+  config        Json?
+  
+  // Account ownership
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Audit fields
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  createdBy     String?
+  creator       User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  // Many-to-many: Templates can be assigned to multiple sensors
+  sensorAssignments SensorTemplateAssignment[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([accountId])
+  @@index([type])
+  @@index([isDefault])
+}
+
+// Junction table for Template-Sensor many-to-many relationship
+model SensorTemplateAssignment {
+  id            String          @id @default(cuid())
+  
+  templateId    String
+  template      SensorTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  sensorId      String
+  sensor        Sensor          @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+  
+  assignedAt    DateTime        @default(now())
+  assignedBy    String?
+  assigner      User?           @relation(fields: [assignedBy], references: [id], onDelete: SetNull)
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,create,delete', auth() != null && template.account.members?[userId == auth().id])
+  
+  @@unique([templateId, sensorId])
+  @@index([templateId])
+  @@index([sensorId])
+}
+
+// CronJob System - Database-driven task scheduler
+enum CronJobStatus {
+  ACTIVE
+  INACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model CronJob {
+  id            String         @id @default(cuid())
+  name          String
+  functionName  String
+  args          Json?
+  cronExpression String?        // Nullable for one-time jobs
+  timezone      String?        @default("UTC")
+  status        CronJobStatus  @default(ACTIVE)
+  isRecurring   Boolean        @default(true)  // false for one-time jobs
+  lastRunAt     DateTime?
+  nextRunAt     DateTime?
+  lastResult    String?
+  lastError     String?
+  retryCount    Int            @default(0)
+  maxRetries    Int            @default(3)
+  timeout       Int?
+  isRunning     Boolean        @default(false)
+  totalRuns     Int            @default(0)
+  successCount  Int            @default(0)
+  failureCount  Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  createdBy     String?
+  creator       User?          @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  accountId     String?
+  account       Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  
+  // Execution history
+  executions    CronJobExecution[]
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read,update,delete', auth() != null && createdBy == auth().id)
+  @@allow('read', auth() != null && account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([status])
+  @@index([nextRunAt])
+  @@index([isRunning])
+  @@index([accountId])
+  @@index([createdBy])
+  @@index([functionName])
+  @@index([isRecurring])
+}
+
+model CronJobExecution {
+  id          String    @id @default(cuid())
+  cronJobId   String
+  cronJob     CronJob   @relation(fields: [cronJobId], references: [id], onDelete: Cascade)
+  status      String    @default("PENDING")
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  duration    Int?
+  result      String?
+  error       String?
+  metadata    Json?
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && cronJob.account.members?[userId == auth().id])
+  @@allow('create', auth() != null)
+  
+  @@index([cronJobId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+// ========================================
+// Subscription & Billing System
+// ========================================
+
+// Represents a billing tier (Syncs from Stripe Product/Price)
+model Plan {
+  id              String   @id @default(cuid())
+  code            String   @unique // 'free', 'pro', 'enterprise' - stable lookup key
+  name            String   // Display name: "Free Tier", "Pro Plan"
+  stripeProductId String?  @unique
+  stripePriceId   String?  // Monthly price ID for Stripe Checkout
+  isActive        Boolean  @default(true)
+  
+  // Entitlements defined by this plan
+  maxDevices      Int      @default(5)
+  maxUsers        Int      @default(1)
+  maxLogLinesPerMonth Int  @default(10000) // Monthly log line limit
+  dataRetentionDays Int    @default(7)
+  features        Json     @default("[]") // e.g., ["sso", "audit_logs", "white_label"]
+  
+  subscriptions   Subscription[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', auth() != null && isActive == true)
+  
+  @@index([isActive])
+  @@index([code])
+}
+
+// Connects an Account to a Plan
+model Subscription {
+  id              String   @id @default(cuid())
+  accountId       String   @unique // One entry per account
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  planId          String
+  plan            Plan     @relation(fields: [planId], references: [id])
+  
+  source          String   @default("stripe") // 'stripe' | 'license'
+  status          String   @default("active") // active, trialing, past_due, pending_cancel, canceled, incomplete, expired
+  
+  // Stripe Data (for SaaS, source='stripe')
+  stripeCustomerId     String?
+  stripeSubscriptionId String? @unique
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean @default(false)
+  trialEndsAt          DateTime? // For trial periods
+  
+  // License Data (for Self-Hosted, source='license')
+  licenseKey           String?
+  licenseExpiresAt     DateTime? // Expiration for offline validation
+  
+  // Overrides (for custom deals)
+  overrideMaxDevices   Int?
+  overrideMaxUsers     Int?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  @@allow('read', account.members?[userId == auth().id])
+  
+  @@index([status])
+  @@index([planId])
+  @@index([source])
+}
+
+// Stripe Webhook Event Tracking (for idempotency)
+model WebhookEvent {
+  id        String   @id // Stripe event ID (e.g., evt_xxx)
+  type      String   // Event type (e.g., checkout.session.completed)
+  objectId  String?  // Related object ID for debugging (e.g., sub_xxx)
+  createdAt DateTime @default(now())
+  
+  // Authorization rules
+  @@allow('all', auth().systemRole == 'ADMIN')
+  
+  @@index([type])
+}

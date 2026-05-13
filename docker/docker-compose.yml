@@ -1,0 +1,30 @@
+# FS04 Web Application Docker Compose Configuration
+version: '3.8'
+name: 'fs04-web'
+services:
+  fs04-web-app:
+    platform: linux/amd64
+    image: ${IMAGE_NAME:-registry.gitlab.com/fs040/web:dev-latest}
+    container_name: fs04-web-app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3000
+      # Set SEED=true on first run if you want to auto-seed admin user
+      # - SEED=true
+    env_file:
+      - ../.env
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3000:3000"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+
+

@@ -1,0 +1,15 @@
+/* =============================================================================
+   DESIGN SYSTEM - TOKENS INDEX
+   
+   Import all design tokens from this single file.
+   
+   Usage in app.postcss:
+   @import '$lib/design-system/tokens/index.css';
+   ============================================================================= */
+
+@import './colors.css';
+@import './typography.css';
+@import './spacing.css';
+@import './radius.css';
+@import './shadows.css';
+@import './transitions.css';

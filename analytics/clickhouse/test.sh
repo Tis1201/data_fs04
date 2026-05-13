@@ -1,0 +1,5 @@
+# curl -u uKxLFfRVSdnJfy5Hvt9eeEic3TzknNwqh:04F2wTv51Q90y3ILzsF3aUfAjYhZuUEwTqXu6f8K6SyskhGoV0UkBYqh3aT8Iwfg -H 'Content-type: plain/text' -X POST 'https://eu-nbg-2-connect.betterstackdata.com?output_format_pretty_row_numbers=0' \
+# -d "SELECT query_collection || '_' || type AS named_collection, multiIf( type = 'events', 'SELECT dt, raw FROM remote(' || query_collection || '_events) LIMIT 10 UNION ALL SELECT dt, raw FROM s3Cluster(primary, ' || query_collection || '_s3) WHERE _row_type = 5 LIMIT 10', type = 'metrics', 'SELECT toStartOfHour(dt) AS time, countMerge(events_count) FROM remote(' || query_collection || '_metrics) GROUP BY time ORDER BY time DESC LIMIT 10', null ) AS query_with FROM VALUES('query_collection String, type String', ('t489545_dev', 'events'), ('t489545_dev', 'metrics')) ORDER BY named_collection FORMAT Pretty"
+
+curl -u uKxLFfRVSdnJfy5Hvt9eeEic3TzknNwqh:04F2wTv51Q90y3ILzsF3aUfAjYhZuUEwTqXu6f8K6SyskhGoV0UkBYqh3aT8Iwfg -H 'Content-type: plain/text' -X POST 'https://eu-nbg-2-connect.betterstackdata.com?output_format_pretty_row_numbers=0' \
+-d "create database fs04"

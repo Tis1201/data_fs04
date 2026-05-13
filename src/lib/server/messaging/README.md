@@ -1,0 +1,550 @@
+# Messaging System
+
+This directory implements the secure, extensible, and type-safe real-time messaging system for FS0 Web. It supports WebSocket and other protocols, and is designed for modularity, security, and clarity.
+
+---
+
+## Store Design Decisions
+
+### Set-Based Storage Pattern
+- All shared stores use a `Map<string, Set<T>>` pattern, where each key can map to multiple members.
+- This design supports efficient one-to-many relationships (e.g., subscriptions, connections) and prevents accidental overwrites.
+
+### Unified API for In-Memory and Redis
+- The `SharedStore<T>` interface is designed to be compatible with both in-memory and Redis Set operations.
+- Methods include:
+  - `set(id, members)`: Overwrite the set for a key.
+  - `addMember(id, member)`: Add a member to a set.
+  - `removeMember(id, member)`: Remove a member from a set.
+  - `getMembers(id)`: Get all members for a key.
+  - `getSingle(id)`: Get a single member for a key.
+  - `getAllMembers()`: Retrieve all members across all keys.
+  - `count()`: Total number of members across all keys.
+  - `remove(id)`: Remove the entire set for a key.
+
+### Extensible for TTL and Metadata
+- The API includes a `ttlSeconds` parameter for future compatibility with Redis TTL, even though it is ignored in the in-memory implementation.
+
+### Subscription Key & Subscriber Scope Design
+- **Subscription keys** follow the convention: `subscription:<type>:<resourceId>`, e.g., `subscription:whatsapp:clientId123` or `subscription:webrtc:clientId456`.
+- **Subscriber scopes** follow the convention: `subscriber:<type>:<id>`, e.g., `subscriber:user:userId123`, `subscriber:connection:connectionId456`, `subscriber:group:groupId789`.
+- This namespacing ensures efficient querying, prevents key collisions, and supports future extensibility for new subscriber types.
+- Helper functions are used to generate and parse these keys and scopes for consistency.
+
+#### Example SubscriptionMeta
+```typescript
+export interface SubscriptionMeta {
+  id: string; // unique subscription id
+  key: string; // e.g., 'subscription:whatsapp:clientId123'
+  scope: string; // e.g., 'subscriber:user:userId123', 'subscriber:connection:connectionId456'
+}
+```
+
+#### Helper Functions
+```typescript
+function makeSubscriptionKey(type: string, resourceId: string) {
+  return `subscription:${type}:${resourceId}`;
+}
+function makeSubscriberScope(type: string, id: string) {
+  return `subscriber:${type}:${id}`;
+}
+```
+
+### Rationale
+- This approach makes it easy to migrate to Redis or other distributed stores in the future.
+- It is robust for multi-subscriber and multi-connection scenarios.
+- The API is simple, predictable, and avoids ambiguity between single and multiple member operations.
+
+---
+
+## Connection and Request Tracking
+
+### `senderConnectionId` for Routing and Responses
+
+The `senderConnectionId` is a critical field used for message routing and response handling:
+
+- **Purpose**: Identifies the specific connection that sent a message, enabling accurate routing of responses back to the correct client connection.
+- **Generation**: Automatically assigned by the server when a new connection is established (e.g., during SSE or WebSocket handshake).
+- **Persistence**: Must be included in all client-originated messages and is preserved throughout the message lifecycle.
+- **Response Routing**: Used by the server to route responses back to the specific client connection that made the request.
+- **Format**: UUID v4 string (e.g., `8e8d4b20-4c72-4a8d-8afe-e8a2ae7cdff4`).
+
+### Request-Response Correlation with `requestId`
+
+All messages in the system support `requestId` as a first-class property to enable request-response correlation:
+
+- **Request-Response Pattern**: When a client sends a message with a `requestId`, any response to that message should include the same `requestId`.
+- **Automatic Generation**: If not provided, a unique `requestId` is automatically generated using `generateRequestId()`.
+- **Cross-Protocol Support**: Works consistently across WebSocket and MQTT protocols (SSE has been migrated to MQTT).
+
+#### 1. MQTT Message Example (SSE has been migrated to MQTT)
+```json
+{
+  "type": "message",
+  "scope": "connection:0954c685-f574-4500-824d-34c001f13df3",
+  "payload": {"content": "test"},
+  "requestId": "req_y1f9ik1bik",
+  "timestamp": "2025-06-14T08:28:43.367Z"
+}
+```
+
+#### 2. Full Message Response with Sender Context
+```json
+{
+  "id": "3a271eca-92c4-479c-8bfd-bcd05b5e5bbf",
+  "type": "message",
+  "scope": "connection:0954c685-f574-4500-824d-34c001f13df3",
+  "payload": {
+    "content": "test"
+  },
+  "requestId": "req_ms0z7rx4j3",
+  "senderId": "cm8ygueii0000hsswg8xuc0yz",
+  "senderConnectionId": "8e8d4b20-4c72-4a8d-8afe-e8a2ae7cdff4",
+  "senderConnectionProtocol": "mqtt",
+  "sudo": false,
+  "timestamp": "2025-06-14T08:33:03.024Z"
+}
+```
+
+#### 3. System-Generated Message
+```json
+{
+  "id": "b5256df2-a852-431b-bae6-e2db6d6dafd2",
+  "timestamp": "2025-06-14T08:29:28.290Z",
+  "status": 200,
+  "severity": "info",
+  "category": "system",
+  "message": "Connection heartbeat",
+  "meta": {
+    "connectionId": "0954c685-f574-4500-824d-34c001f13df3"
+  },
+  "event": "ping"
+}
+```
+
+## Message State Model
+
+The message pipeline is built on **three clearly separated message types**:
+
+### 1. InMessage
+- **Source:** Any external input (WebSocket, MQTT, webhook, etc.)
+- **Purpose:** Represents the raw message received from a client or external system.
+- **Fields:**
+  - `type`: Message type identifier
+  - `scope`: Target scope (e.g., `user:123`, `room:abc`)
+  - `payload`: Message payload (data)
+  - `userInfo`: Authenticated user info (server-attached)
+  - `protocol`, `connectionId`: Server-side connection metadata
+  - `[key: string]: unknown`: Additional metadata
+- **Security:** Never sent to recipients. Used only for validation, authorization, and routing.
+
+### 2. RoutingMessage
+- **Source:** Created by the server from an `InMessage` (or system-generated event)
+- **Purpose:** Internal envelope used for routing, authorization, and logging. May contain sensitive metadata.
+- **Connection Tracking:** Always includes the original `senderConnectionId` to ensure responses can be routed back to the correct client connection.
+- **Fields:**
+  - All `InMessage` fields, plus:
+    - `id`: Unique message identifier (UUID)
+    - `systemGenerated?`: True if generated by the server, not a client
+- **Security:** Never sent to recipients. Used only by the server for internal processing.
+
+### 3. OutMessage
+- **Source:** Created from a `RoutingMessage` by the publisher before delivery
+- **Purpose:** Sanitized, client-facing message. Contains only safe fields for delivery.
+- **Fields:**
+  - `id`: Unique message identifier
+  - `type`, `scope`, `payload`
+  - `senderId?`, `senderConnectionId?`, `senderConnectionProtocol?`: Metadata about the sender (if safe)
+- **Security:** Only this type is sent to clients. No sensitive internal metadata is included.
+
+---
+
+## Message Flow (End-to-End)
+
+1. **Reception:**
+   - Client/external system sends a message → parsed as `InMessage`.
+2. **Conversion:**
+   - `MessageFactory.toRoutingMessage` creates a `RoutingMessage` (adds server context, unique id, etc.).
+3. **Authorization & Routing:**
+   - `scopeAuthorizer` checks if sender is allowed to publish to the requested scope (e.g., `user:self` is allowed for everyone).
+   - `router` resolves the scope to a list of connection IDs. Special logic (see below) for `user:self`.
+4. **Delivery:**
+   - Publisher converts `RoutingMessage` to `OutMessage` (removes sensitive/internal fields).
+   - `OutMessage` is delivered to all resolved recipients via `ConnectionManager`.
+
+**System-generated events** (e.g., server notifications) are created directly as `RoutingMessage` and follow the same flow.
+
+---
+
+## Scope Handling & Special Cases
+
+- **`user:self`**: This scope is dynamically resolved to the sender's own user ID by the router. This allows clients to use `user:self` for self-directed messages without knowing their own ID.
+- **`subscription:whatsapp:<accountId>`**: This scope targets all active subscriptions for a specific WhatsApp account. Use this pattern to send messages or events to every client or service subscribed to updates for the given WhatsApp account.
+  - **Example:** To send a message to all subscribers of WhatsApp account `abc123`, use `scope: subscription:whatsapp:abc123` in your RoutingMessage.
+  - This pattern is extensible and can be used for other integrations (e.g., `subscription:telegram:<accountId>`, `subscription:room:<roomId>`, etc.).
+- **Other scopes**: The router and authorizers can be extended for rooms, groups, etc.
+
+---
+
+## Audit Logging
+
+The messaging system includes comprehensive audit logging to track all message flows for debugging and monitoring purposes.
+
+### Message Trace Interface
+
+```typescript
+export interface MessageTrace {
+  id: string;                     // Unique trace ID
+  timestamp: string;              // ISO timestamp
+  from: string;                   // Sender's user ID
+  to: string;                     // Recipient ID or 'system'
+  userEmail?: string;             // Sender's email
+  recipientEmail?: string;        // Recipient's email (when available)
+  direction: 'IN' | 'OUT';        // Message direction (IN for received, OUT for sent)
+  authorized: boolean;            // Whether the message was authorized
+  status: 'success' | 'error';    // Delivery status
+  messageType: string;            // Message type
+  messageScope: string;           // Message scope (e.g., 'user:self')
+  payloadType?: string;           // Type of the payload
+  payloadPreview?: string;        // Redacted preview of the payload
+  payload?: any;                  // Full message payload (redacted)
+  error?: string;                 // Error message (if any)
+  connectionId?: string;          // Connection ID (if applicable)
+   protocol?: string;              // Protocol used (e.g., 'mqtt', 'websocket')
+  sudo?: boolean;                 // Whether sudo was used
+}
+```
+
+### Key Features
+
+1. **Direction Tracking**
+   - `IN`: Messages received by the system (from clients or external sources)
+   - `OUT`: Messages sent from the system (to clients or external destinations)
+
+2. **User Identification**
+   - Sender and recipient emails are included when available
+   - User IDs are always logged for traceability
+   - System-generated messages are marked with `from: 'system'`
+
+3. **Payload Handling**
+   - Full payloads are stored securely with sensitive fields redacted
+   - Payload previews are generated for quick inspection
+   - Common sensitive fields (passwords, tokens, etc.) are automatically redacted
+
+4. **Status Tracking**
+   - `success`: Message was successfully processed and delivered
+   - `error`: Message processing or delivery failed
+   - Authorization failures are logged with details
+
+### Usage in Debug UI
+
+The message traces are displayed in the admin debug UI with the following features:
+
+- **From/To Columns**: Show user emails alongside user IDs for easy identification
+- **Direction Badges**: Color-coded indicators for IN/OUT messages
+- **Status Badges**: Visual indicators for success/error states
+- **Expandable Details**: View full message details including payload and error information
+
+## Security & Best Practices
+- **Sensitive data (userInfo, protocol, etc.) is never leaked to clients.**
+- **All message boundaries are strictly typed and enforced.**
+- **Authorization and routing are always performed on the full internal envelope (RoutingMessage).**
+- **Only OutMessage is ever sent to the client.**
+- **Always use MessageFactory for conversion between message types.**
+- **Log and debug at each stage for traceability.**
+- **Sudo Flag for Privileged Operations:**
+  - The `sudo` flag can be set on `RoutingMessage` and `OutMessage` to bypass normal authorization checks.
+  - Use sparingly and only for system-generated messages that need to bypass standard authorization flows (e.g., device claiming, system notifications).
+  - When `sudo: true`, the message will bypass all authorization checks in the `ScopeAuthorizer` and underlying authorizers.
+  - Example usage in `MessageFactory`:
+    ```typescript
+    // For system-generated messages
+    const message = MessageFactory.createSystemMessage(
+      'system',
+      'user:123',
+      { action: 'notify' },
+      systemUser,
+      { sudo: true }  // Bypass authorization
+    );
+    
+    // For device-related messages
+    const deviceMsg = MessageFactory.createDeviceMessage(
+      'registered',
+      'device-123',
+      'connection-456',
+      systemUser,
+      'connection-456',
+      'websocket',
+      undefined,  // No additional payload
+      true        // Set sudo to true
+    );
+    ```
+  - **Security Note:** Only set `sudo: true` for messages that are generated by trusted system components, never for user-initiated messages.
+
+---
+
+## Example Type Definitions
+
+```typescript
+// InMessage: received from client/external
+interface InMessage {
+  type: string;
+  scope: string;
+  payload: Record<string, unknown>;
+  userInfo: UserInfo;
+  protocol: ConnectionProtocol;
+  connectionId: string;
+  [key: string]: unknown;
+}
+
+// RoutingMessage: internal routing/authorization envelope
+interface RoutingMessage extends InMessage {
+  id: string;
+  systemGenerated?: boolean;
+}
+
+// OutMessage: delivered to client
+interface OutMessage {
+  id: string;
+  type: string;
+  scope: string;
+  payload: Record<string, unknown>;
+  senderId?: string;
+  senderConnectionId?: string;
+  senderConnectionProtocol?: ConnectionProtocol;
+}
+```
+
+---
+
+## Message Conversion Utilities
+
+Use the `MessageFactory` utility to convert between message types:
+
+```typescript
+const routingMessage = MessageFactory.toRoutingMessage(inMessage);
+const outMessage = MessageFactory.toOutMessage(routingMessage);
+```
+
+---
+
+## Temporary Subscriptions from the Frontend
+
+The messaging system supports dynamic, temporary subscriptions—ideal for real-time UIs such as forms, modals, or dashboards.
+
+**How it works:**
+- When a frontend component (e.g., a form) wants to receive messages for a specific scope (such as a WhatsApp account), it uses MQTT notifications or WebSocket subscriptions using an explicit, extensible structure:
+
+  ```json
+  {
+    "type": "subscribe",                  // The action to perform
+    "subscription": "subscription:whatsapp:<accountId>", // The topic or event stream to subscribe to
+    "subscriber": "subscriber:connection:self",           // Who is subscribing ("self" will be resolved by the backend)
+    "scope": "user:self"                   // Context for authorization (can be used for further access checks)
+  }
+  ```
+
+  - The backend resolves `subscriber:connection:self` to the actual connection ID associated with the current session.
+  - This structure is extensible: you can support other subscription or subscriber types (e.g., users, webhooks, MQ endpoints) by changing the `subscription` and `subscriber` fields.
+  - Including `scope` allows for flexible authorization and is optional if your backend can infer the user from the connection/session.
+
+- The backend registers the current connection as a subscriber for that scope using its unique connection ID: `subscriber:connection:<connectionId>`.
+- While subscribed, the frontend receives all messages/events for that scope.
+
+### Unsubscribe: Why and When
+- **Always send an `unsubscribe` message** (with the same structure, but `type: "unsubscribe"`) when a component is destroyed (e.g., form is closed), a user logs out, or a connection is intentionally closed.
+- This ensures:
+  - Resource efficiency (no memory leaks)
+  - Users stop receiving messages they no longer want
+  - The backend can clean up subscribers and optimize delivery
+- The backend should also automatically clean up on connection loss.
+
+  ```json
+  {
+    "type": "unsubscribe",
+    "subscription": "subscription:whatsapp:<accountId>",
+    "subscriber": "subscriber:connection:self",
+    "scope": "user:self"
+  }
+  ```
+
+### Subscription Authorization (Security)
+- **Every subscribe request must be authorized on the backend.** Never trust the client-supplied scope or resource alone.
+- The backend must verify that the subscriber (user, connection, etc.) has legitimate access to the resource (e.g., WhatsApp account, MQTT topic, etc.) before registering the subscription.
+- Use Zenstack or your access control logic to enforce this. For example:
+
+  ```typescript
+  function subscriptionAuthorizer({ subscriber, subscription, userInfo }) {
+    const resourceId = parseResourceId(subscription);
+    return zenstack.canAccess(userInfo, resourceId); // true if allowed, false if not
+  }
+  ```
+- If the subscriber is not authorized, reject the subscription and log the attempt.
+- This is critical to prevent spoofing and unauthorized data access in multi-tenant or sensitive systems.
+
+    "type": "unsubscribe",
+    "scope": "subscription:whatsapp:<accountId>"
+  }
+  ```
+- This ensures only active, interested UI components receive updates, and subscriptions are cleaned up automatically.
+
+**Benefits:**
+- Ephemeral: Only active UI gets messages.
+- Resource efficient: No memory leaks; subscriptions are cleaned up on disconnect/unmount.
+- Simple: Works for any temporary or long-lived UI state.
+
+---
+
+## Authorizers & Router
+- **Authorizers** (e.g., `userAuthorizer`, `scopeAuthorizer`) enforce publishing permissions for each scope. For example, only a user can publish to `user:self`.
+- **Router** resolves the scope to the correct set of connection IDs. For `user:self`, it automatically substitutes the sender's ID.
+
+---
+
+## Extending the System
+- Add new authorizers for custom scopes (e.g., rooms, groups).
+- Extend the router to support new routing rules.
+- Use the message factories to ensure all new message types are properly constructed.
+- Always keep internal and external message boundaries clear and secure.
+
+---
+
+## Implementation Notes
+
+---
+
+## Authorization and Routing Architecture
+
+### Modular Directory Structure
+- **authorizers/**: Contains all scope-based authorizers (connection, subscription, user). Each authorizer enforces security rules for publishing to its respective scope. Authorizers share a common interface and log all decisions for traceability.
+- **connections/**: Implements protocol-specific connection logic (e.g., MQTT, WebSocket). Note: SSE connections have been migrated to MQTT.
+- **core/**: Contains the core messaging logic, including:
+  - `connectionManager.ts`: Manages live connections, user-to-connection mapping, and connection registration/unregistration.
+  - `router.ts`: Resolves message scopes to connection IDs using specialized routers (user, subscription, connection).
+  - `publisher.ts`: Main entry point for publishing messages, enforcing authorization via `ScopeAuthorizer` before delivery.
+  - `scopeAuthorizer.ts`: Delegates authorization checks to the appropriate authorizer based on scope kind.
+- **handlers/**: Message and device handler logic for specific message types.
+- **interfaces/**: TypeScript interfaces for authorizers, connections, messages, publishers, routers, and shared stores.
+- **routers/**: Specialized routers for resolving user, subscription, and connection scopes to connection IDs.
+
+### Authorizer Patterns
+- **connectionAuthorizer**: Admins can publish to any connection; non-admins can only publish to their own connections. Sudo mode (via a flag) bypasses normal checks.
+- **subscriptionAuthorizer**: Allows only if all target connections belong to the sender, unless sudo is set.
+- **userAuthorizer**: Allows messages to `user:self` or if the sender's user ID matches the target; otherwise denies. Sudo bypasses.
+
+All authorizers implement the `Authorizer` interface and log their decisions for security and debugging.
+
+### Security Enforcement
+- All message publishing is routed through `ScopeAuthorizer`, which dispatches to the correct authorizer based on the message's scope kind (`user`, `subscription`, `connection`).
+- Sudo mode allows trusted system components to bypass normal authorization checks. Never set `sudo: true` for user-originated messages.
+- All authorization and routing logic is modular and extensible for future scope kinds (e.g., group, role, room).
+
+### Routing and Delivery
+- The system uses a scope-based routing pattern. Each message's `scope` determines which router and authorizer are used.
+- Routers resolve the scope to a set of connection IDs; authorizers check if the sender is permitted to publish to those connections.
+- Only after passing authorization are messages delivered to recipients via the `ConnectionManager`.
+
+For more details, see the relevant files in each directory and the code comments for each authorizer and router.
+
+---
+
+
+### Connection ID Handling
+
+1. **Client-Side (MQTT Client)**:
+   - The MQTT client automatically includes connection context in all outgoing messages
+   - Connection management is handled automatically by the MQTT client
+   - Example usage with `mqttClient`:
+     ```typescript
+     const response = await mqttClient.request('whatsapp.request_qr', {}, { timeoutMs: 15000 });
+     // Connection context is automatically included by the MQTT client
+     ```
+
+2. **Server-Side (MQTT Handler)**:
+   - The server preserves connection context in all routing messages
+   - Used to route responses back to the specific client connection
+   - Example in MQTT handler:
+     ```typescript
+     const routingMessage: RoutingMessage = {
+       // ...other fields
+       senderConnectionId: message.senderConnectionId || '',
+       senderConnectionProtocol: 'mqtt',
+     };
+     ```
+
+3. **Device-Side (Response Handling)**:
+   - The device includes the original `senderConnectionId` in its response
+   - Used to route the response back to the specific client connection
+   - Example in Go:
+     ```go
+     response := map[string]interface{}{
+         "type": "device",
+         "requestId": requestID,
+         "payload": map[string]interface{}{
+             // ...payload data
+         },
+         "scope": fmt.Sprintf("connection:%s", connectionID), // Use the original connection ID
+     }
+     ```
+
+### Error Handling
+- If `senderConnectionId` is missing, the system will attempt to generate a fallback ID based on the connection protocol
+- All errors related to missing connection IDs are logged for debugging purposes
+- The MQTT client includes retry logic for cases where the connection isn't immediately available
+
+## Contributing
+- Update message interfaces/types for new features.
+- Document any changes to the message flow or security model.
+- Maintain backward compatibility and type safety.
+
+---
+
+## License
+This code is part of the FS0 Web project and is subject to the project's license terms.
+
+---
+
+## TODO & Ideas: Advanced Routing and Delivery
+
+- **Subscription Module Design & Implementation:**
+  - Design and implement a modular `subscription` module under `messaging/`.
+  - Support dynamic registration and unregistration of subscriptions (in-memory for ephemeral, persistent for durable if needed).
+  - Allow multiple subscriber types: user, connection, MQ endpoint, webhook, etc.
+  - Use a clear and extensible scope pattern: `subscriber:<type>:<id>`.
+  - Provide secure, extensible APIs for registering, listing, and removing subscriptions.
+  - Enforce authorization checks for all subscription actions (use Zenstack policies for access control).
+  - Integrate subscription delivery with the messaging router for efficient event/message fan-out to all active subscriptions.
+  - Ensure robust unregistration and cleanup to prevent memory leaks (especially for temporary UI or connection-based subscriptions).
+  - Document subscription conventions, patterns, and extension points for team clarity.
+
+- **Protocol-based Delivery:**
+  - Enable routing to only specific protocols (e.g., WebSocket, MQTT, etc.) by filtering connections based on `protocol`.
+  - Example: Deliver only to WebSocket connections, or only to MQTT connections for a given user.
+
+- **Connection/Device-based Targeting:**
+  - Support scopes like `connection:<connectionId>` or `device:<connectionId>` to deliver to a specific device/session.
+  - Example: Direct a message to a particular browser tab or device by its connectionId.
+
+- **Sender-aware Delivery:**
+  - Use fields like `echoToSender` or `deliverToSenderConnection` to control whether the sender's own connection receives the message ("echo/no-echo" logic).
+  - Example: Exclude the sender's connection from a broadcast, or send only to the sender.
+
+- **Device Reply Pattern:**
+  - When a device receives a message, it can use the `senderConnectionId` from the original message as a "return address" for direct replies (e.g., by setting `scope: device:<senderConnectionId>`).
+  - This enables device-to-device direct messaging and advanced workflows (e.g., responses routed only to the originating device, not all of a user's devices).
+  - **Security:** Device-to-device replies are secure because a connection authorizer always checks that the sender is allowed to target the given connectionId before any message is delivered. This prevents unauthorized access or hijacking even if a connectionId is guessed or leaked.
+
+- **Hybrid/Custom Routing Rules:**
+  - Combine userId, protocol, and connectionId for fine-grained delivery (e.g., send to all of a user's connections except the sender, or only to mobile devices).
+
+- **Extensible Scope System:**
+  - Continue to extend the `scope` convention for targeting rooms, groups, devices, etc.
+
+- **Future:**
+  - Add more advanced delivery controls, such as device type, session state, or presence-based targeting.
+
+- **Scalability/Production TODO:**
+  - Implement a Redis-backed (or other distributed) `SharedStore` for connection/session state. This will allow your messaging system to scale horizontally across multiple app instances and support high-volume, production-grade deployments. See `interfaces/sharedStore.ts` for the abstraction point. For local or dev, use an in-memory implementation; for production, use Redis or a similar distributed store.
+
+Contributions and suggestions for these features are welcome! See the relevant interfaces and router logic for extension points.
+

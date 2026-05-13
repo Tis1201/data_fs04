@@ -1,0 +1,787 @@
+import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
+import { restrict, type AuthenticatedEvent } from '$lib/server/security/guards';
+import { SystemRole } from '$lib/types/roles';
+import { logger } from '$lib/server/logger';
+import { ActionLogger } from '$lib/server/action-logger';
+import prisma from '$lib/server/prisma';
+import { queueNotification } from '$lib/server/mqtt/core/queue';
+import { DeviceNotificationType } from '$lib/server/mqtt/core/publish';
+import * as crypto from 'node:crypto';
+import { TimeoutConfig } from '$lib/server/config/timeoutConfig';
+import { generatePresignedUrl, getStorageConfig } from '$lib/server/storage';
+import { isCloudStorageUrl, convertGCloudUrlToSignedDownloadUrl } from '$lib/server/storage/gcloudUrlUtils';
+import path from 'path';
+import { broadcastDeviceActionUpdate } from '$lib/server/mqtt/handlers/notifications/device_action_broadcaster';
+
+const ACTION_CONFIGS = {
+    reboot: {
+        actionType: 'reboot',
+        mqttAction: 'device:actionRequest', 
+        timeout: 2 * 60 * 1000, // 2 minutes
+        requiredFields: []
+    },
+    restart: {
+        actionType: 'restart',
+        mqttAction: 'device:actionRequest', 
+        timeout: 1 * 60 * 1000, // 1 minute
+        requiredFields: []
+    },
+    refresh: {
+        actionType: 'refresh',
+        mqttAction: 'device:actionRequest', 
+        timeout: 1 * 60 * 1000, // 1 minute
+        requiredFields: []
+    },
+    installApp: {
+        actionType: 'install_app',
+        mqttAction: 'device:actionRequest', 
+        timeout: TimeoutConfig.DEVICE_ACTION,
+        requiredFields: ['packageName']
+    },
+    pushFile: {
+        actionType: 'push_file',
+        mqttAction: 'device:actionRequest', 
+        timeout: TimeoutConfig.DEVICE_ACTION + (5 * 60 * 1000), // 15 minutes (10 + 5)
+        requiredFields: ['sourcePath', 'destinationPath']
+    },
+    pullFile: {
+        actionType: 'pull_file',
+        mqttAction: 'device:actionRequest', 
+        timeout: TimeoutConfig.DEVICE_ACTION,
+        requiredFields: ['sourcePath', 'destinationPath']
+    },
+    updateFirmware: {
+        actionType: 'update_firmware',
+        mqttAction: 'device:actionRequest', 
+        timeout: 30 * 60 * 1000, // 30 minutes
+        requiredFields: ['firmwareVersion']
+    },
+    getLogs: {
+        actionType: 'get_logs',
+        mqttAction: 'device:actionRequest', 
+        timeout: TimeoutConfig.DEVICE_ACTION,
+        requiredFields: ['format']
+    },
+    screenshot: {
+        actionType: 'screenshot',
+        mqttAction: 'device:actionRequest', 
+        timeout: 2 * 60 * 1000, // 2 minutes
+        requiredFields: []
+    },
+    uninstall: {
+        actionType: 'uninstall_app',
+        mqttAction: 'device:actionRequest', 
+        timeout: 5 * 60 * 1000, // 5 minutes
+        requiredFields: ['packageName']
+    },
+    restartApp: {
+        actionType: 'restart_app',
+        mqttAction: 'device:actionRequest', 
+        timeout: 2 * 60 * 1000, // 2 minutes
+        requiredFields: ['packageName']
+    },
+    config: {
+        actionType: 'config_app',
+        mqttAction: 'device:actionRequest', 
+        timeout: 3 * 60 * 1000, // 3 minutes
+        requiredFields: ['packageName']
+    }
+} as const;
+
+type ActionType = keyof typeof ACTION_CONFIGS;
+
+export const POST: RequestHandler = restrict(
+    async (event: AuthenticatedEvent) => {
+        const { params, request } = event;
+        const deviceId = params.id;
+        
+        logger.info(`[UnifiedActionAPI] ========== REQUEST START ==========`);
+        logger.info(`[UnifiedActionAPI] Device ID: ${deviceId}`);
+        
+        if (!event.auth?.user) {
+            return json({
+                success: false,
+                error: {
+                    code: 'UNAUTHORIZED',
+                    message: 'User not authenticated'
+                }
+            }, { status: 401 });
+        }
+        
+        const user = event.auth.user;
+        logger.info(`[UnifiedActionAPI] User: ${user.email} (${user.systemRole})`);
+        logger.info(`[UnifiedActionAPI] User ID: ${user.id}`);
+        
+        if (!deviceId) {
+            logger.warn(`[UnifiedActionAPI] Missing device ID`);
+            return json({ 
+                success: false, 
+                error: { 
+                    code: 'INVALID_REQUEST', 
+                    message: 'Device ID is required',
+                    timestamp: new Date().toISOString(),
+                    requestId: crypto.randomUUID()
+                }
+            }, { status: 400 });
+        }
+
+        try {
+            const body = await request.json();
+            const { action, ...payload } = body;
+            
+            logger.info(`[UnifiedActionAPI] Request body:`, { action, payload });
+
+            if (!action || !(action in ACTION_CONFIGS)) {
+                logger.warn(`[UnifiedActionAPI] Invalid action: ${action}`);
+                return json({ 
+                    success: false, 
+                    error: { 
+                        code: 'INVALID_REQUEST', 
+                        message: `Invalid action. Supported actions: ${Object.keys(ACTION_CONFIGS).join(', ')}`,
+                        timestamp: new Date().toISOString(),
+                        requestId: crypto.randomUUID()
+                    }
+                }, { status: 400 });
+            }
+
+            const actionConfig = ACTION_CONFIGS[action as ActionType];
+            logger.info(`[UnifiedActionAPI] Action config:`, actionConfig);
+            
+            // Validate required fields
+            for (const field of actionConfig.requiredFields) {
+                if (!payload[field] || !String(payload[field]).trim()) {
+                    logger.warn(`[UnifiedActionAPI] Missing required field: ${field}`);
+                    return json({ 
+                        success: false, 
+                        error: { 
+                            code: 'INVALID_REQUEST', 
+                            message: `Missing required field: ${field}`,
+                            timestamp: new Date().toISOString(),
+                            requestId: crypto.randomUUID()
+                        }
+                    }, { status: 400 });
+                }
+            }
+
+            logger.info(`[UnifiedActionAPI] Fetching device from database...`);
+            // Verify device exists and user has access
+            const device = await prisma.device.findUnique({
+                where: { id: deviceId },
+                select: { 
+                    id: true, 
+                    name: true, 
+                    connected: true, 
+                    status: true,
+                    createdBy: true,
+                    accountId: true,
+                    account: {
+                        select: {
+                            members: {
+                                select: {
+                                    userId: true
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (device) {
+                logger.info(`[UnifiedActionAPI] Device query result:`, { id: device.id, name: device.name, connected: device.connected, createdBy: device.createdBy, accountId: device.accountId });
+            } else {
+                logger.info(`[UnifiedActionAPI] Device query result: null`);
+            }
+
+            if (!device) {
+                logger.warn(`[UnifiedActionAPI] Device not found: ${deviceId}`);
+                return json({ 
+                    success: false, 
+                    error: { 
+                        code: 'DEVICE_NOT_FOUND', 
+                        message: 'Device not found',
+                        timestamp: new Date().toISOString(),
+                        requestId: crypto.randomUUID()
+                    }
+                }, { status: 404 });
+            }
+
+            // Check if user has access to this device
+            if (user.systemRole !== SystemRole.ADMIN) {
+                // Check direct ownership
+                const isOwner = device.createdBy === user.id;
+                
+                // Check account membership if device has an account
+                const isAccountMember = device.accountId && device.account?.members?.some(
+                    (member: { userId: string }) => member.userId === user.id
+                );
+                
+                if (!isOwner && !isAccountMember) {
+                    logger.warn(`[UnifiedActionAPI] Access denied: user ${event.auth.user.id} tried to access device owned by ${device.createdBy || 'unknown'} (accountId: ${device.accountId || 'none'})`);
+                    return json({ 
+                        success: false, 
+                        error: { 
+                            code: 'FORBIDDEN', 
+                            message: 'Access denied to this device',
+                            timestamp: new Date().toISOString(),
+                            requestId: crypto.randomUUID()
+                        }
+                    }, { status: 403 });
+                }
+            }
+
+            // Reboot is allowed when offline (queued for delivery when device reconnects); other actions require device online
+            if (!device.connected && action !== 'reboot') {
+                logger.warn(`[UnifiedActionAPI] Device is offline: ${deviceId}`);
+                return json({
+                    success: false,
+                    error: {
+                        code: 'DEVICE_OFFLINE',
+                        message: 'Device is offline',
+                        timestamp: new Date().toISOString(),
+                        requestId: crypto.randomUUID()
+                    }
+                }, { status: 400 });
+            }
+            if (!device.connected && action === 'reboot') {
+                logger.info(`[UnifiedActionAPI] Device is offline; queuing reboot for delivery when device reconnects: ${deviceId}`);
+            }
+
+            logger.info(`[UnifiedActionAPI] Creating action log entry...`);
+            
+            // For pullFile action, generate upload URL before creating action log
+            let uploadUrlData: {
+                uploadUrl: string;
+                objectPath: string;
+                bucket: string;
+                expires: number;
+                contentType: string;
+            } | null = null;
+            
+            // For pushFile action, generate download URL if sourcePath is a GCloud URL
+            let downloadUrlData: {
+                downloadUrl: string;
+                objectPath: string;
+                bucket: string;
+                expires: number;
+            } | null = null;
+            
+            if (action === 'pushFile') {
+                try {
+                    const sourcePath = payload.sourcePath as string;
+                    const resourceId = payload.resourceId as string | undefined;
+                    
+                    logger.info(`[UnifiedActionAPI] Processing pushFile action`, {
+                        sourcePath,
+                        resourceId
+                    });
+                    
+                    // Fetch file metadata (name and size) from Resource table if resourceId is provided
+                    if (resourceId) {
+                        try {
+                            const resource = await prisma.resource.findUnique({
+                                where: { id: resourceId },
+                                select: {
+                                    name: true,
+                                    size: true,
+                                    packageName: true,
+                                    path: true
+                                }
+                            });
+
+                            if (resource) {
+                                // Use packageName if available, otherwise use name
+                                const packageName = resource.packageName || resource.name;
+                                payload.packageName = packageName;
+                                payload.packageSize = resource.size;
+                                
+                                // If resource has a path and sourcePath is not set, use resource path
+                                if (resource.path && !sourcePath) {
+                                    payload.sourcePath = resource.path;
+                                }
+                                
+                                logger.info(`[UnifiedActionAPI] Added file metadata from Resource table to pushFile payload`, {
+                                    resourceId,
+                                    packageName: packageName,
+                                    packageSize: resource.size,
+                                    resourcePath: resource.path
+                                });
+                            } else {
+                                logger.warn(`[UnifiedActionAPI] Resource not found for resourceId: ${resourceId}`);
+                            }
+                        } catch (resourceError) {
+                            logger.warn(`[UnifiedActionAPI] Failed to get resource metadata, continuing without it:`, {
+                                error: resourceError instanceof Error ? resourceError.message : String(resourceError)
+                            });
+                            // Continue without metadata if retrieval fails
+                        }
+                    }
+                    
+                    // Check if sourcePath is a GCloud URL and convert to signed download URL
+                    const finalSourcePath = payload.sourcePath || sourcePath;
+                    if (finalSourcePath && isCloudStorageUrl(finalSourcePath)) {
+                        const result = await convertGCloudUrlToSignedDownloadUrl(finalSourcePath, 3600);
+                        
+                        if (result) {
+                            downloadUrlData = {
+                                downloadUrl: result.downloadUrl,
+                                objectPath: result.objectPath,
+                                bucket: result.bucket,
+                                expires: result.expires
+                            };
+                            
+                            // Replace sourcePath in payload with signed download URL
+                            payload.sourcePath = downloadUrlData.downloadUrl;
+                            // Add HMAC auth when CDN+HMAC configured (device must send x-timestamp, x-mac headers)
+                            if (result.downloadAuth) {
+                                payload.downloadAuth = result.downloadAuth;
+                            }
+                            
+                            logger.info(`[UnifiedActionAPI] Converted GCloud URL to signed download URL for push_file`, {
+                                originalSourcePath: finalSourcePath,
+                                signedDownloadUrl: downloadUrlData.downloadUrl,
+                                objectPath: downloadUrlData.objectPath,
+                                bucket: downloadUrlData.bucket
+                            });
+                        } else {
+                            logger.error(`[UnifiedActionAPI] Failed to convert GCloud URL to signed download URL`, {
+                                sourcePath: finalSourcePath
+                            });
+                            return json({
+                                success: false,
+                                error: {
+                                    code: 'OPERATION_FAILED',
+                                    message: 'Failed to generate download URL for push_file',
+                                    details: 'Could not convert GCloud URL to signed download URL'
+                                }
+                            }, { status: 500 });
+                        }
+                    } else {
+                        logger.info(`[UnifiedActionAPI] pushFile sourcePath is not a GCloud URL, using as-is`, {
+                            sourcePath: finalSourcePath
+                        });
+                    }
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to process pushFile action`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to process pushFile action',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500 });
+                }
+            }
+            
+            if (action === 'pullFile') {
+                try {
+                    const sourcePath = payload.sourcePath as string;
+                    const fileName = sourcePath ? path.basename(sourcePath) : 'file';
+                    const timestamp = Date.now();
+                    const objectPath = `devices/${deviceId}/pull-files/${timestamp}/${fileName}`;
+                    
+                    const storageConfig = getStorageConfig();
+                    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+                        throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
+                    }
+                    
+                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for pull_file`, {
+                        mode: storageConfig.mode,
+                        bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
+                        objectPath
+                    });
+                    
+                    const presignedUrlResult = await generatePresignedUrl(
+                        objectPath,
+                        'application/octet-stream',
+                        3600
+                    );
+                    
+                    uploadUrlData = {
+                        uploadUrl: presignedUrlResult.url,
+                        objectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        expires: presignedUrlResult.expires,
+                        contentType: presignedUrlResult.contentType
+                    };
+                    
+                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully`, {
+                        constructedObjectPath: objectPath,
+                        returnedObjectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        uploadUrlData,
+                        mode: storageConfig.mode
+                    });
+                    
+                    // Validate that the returned objectPath matches what we constructed
+                    if (presignedUrlResult.objectPath !== objectPath) {
+                        logger.warn(`[UnifiedActionAPI] ObjectPath mismatch!`, {
+                            constructed: objectPath,
+                            returned: presignedUrlResult.objectPath,
+                            bucket: presignedUrlResult.bucket
+                        });
+                    }
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for pull_file`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate upload URL',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500                     });
+                }
+            }
+            
+            if (action === 'getLogs') {
+                try {
+                    const format = (payload.format as string) || 'zip';
+                    const timestamp = Date.now();
+                    const fileName = `device_logs_${timestamp}.${format === 'zip' ? 'zip' : 'txt'}`;
+                    const objectPath = `devices/${deviceId}/logs/${timestamp}/${fileName}`;
+                    
+                    const storageConfig = getStorageConfig();
+                    if (storageConfig.mode === 'R2' && !storageConfig.r2Bucket) {
+                        throw new Error('R2 bucket not configured (CLOUDFLARE_R2_BUCKET_NAME)');
+                    }
+                    
+                    logger.info(`[UnifiedActionAPI] Generating presigned upload URL for get_logs`, {
+                        mode: storageConfig.mode,
+                        bucket: storageConfig.mode === 'R2' ? storageConfig.r2Bucket : 'local',
+                        objectPath,
+                        format
+                    });
+                    
+                    const presignedUrlResult = await generatePresignedUrl(
+                        objectPath,
+                        format === 'zip' ? 'application/zip' : 'text/plain',
+                        3600
+                    );
+                    
+                    uploadUrlData = {
+                        uploadUrl: presignedUrlResult.url,
+                        objectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        expires: presignedUrlResult.expires,
+                        contentType: presignedUrlResult.contentType
+                    };
+                    
+                    logger.info(`[UnifiedActionAPI] Upload URL generated successfully for get_logs`, {
+                        objectPath: presignedUrlResult.objectPath,
+                        bucket: presignedUrlResult.bucket,
+                        mode: storageConfig.mode
+                    });
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate upload URL for get_logs`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate upload URL for get_logs',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500 });
+                }
+            }
+            
+            if (action === 'installApp') {
+                try {
+                    const resourceId = payload.resourceId as string | undefined;
+                    
+                    if (!resourceId) {
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'INVALID_REQUEST',
+                                message: 'resourceId is required for install_app action'
+                            }
+                        }, { status: 400 });
+                    }
+                    
+                    logger.info(`[UnifiedActionAPI] Processing installApp action`, {
+                        resourceId,
+                        packageName: payload.packageName
+                    });
+                    
+                    // Fetch resource from database
+                    const resource = await prisma.resource.findUnique({
+                        where: { id: resourceId },
+                        select: {
+                            id: true,
+                            name: true,
+                            path: true,
+                            size: true,
+                            type: true,
+                            packageName: true
+                        }
+                    });
+                    
+                    if (!resource) {
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'RESOURCE_NOT_FOUND',
+                                message: 'Resource not found'
+                            }
+                        }, { status: 404 });
+                    }
+                    
+                    if (!resource.path) {
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'INVALID_RESOURCE',
+                                message: 'Resource has no file path'
+                            }
+                        }, { status: 400 });
+                    }
+                    
+                    // Add resource metadata to payload (packageName, packageSize)
+                    const packageName = resource.packageName || resource.name;
+                    payload.packageName = payload.packageName || packageName; // Use provided packageName or resource packageName
+                    payload.packageSize = resource.size;
+                    payload.appName = packageName; // For backward compatibility
+                    
+                    // Extract filename with extension from path
+                    const { extractFilenameWithExtension } = await import('$lib/server/storage/gcloudUrlUtils');
+                    const filename = extractFilenameWithExtension(resource.path, resource.name);
+                    
+                    // Generate signed download URL for the app file
+                    const result = await convertGCloudUrlToSignedDownloadUrl(resource.path, 3600, filename);
+                    
+                    if (result) {
+                        downloadUrlData = {
+                            downloadUrl: result.downloadUrl,
+                            objectPath: result.objectPath,
+                            bucket: result.bucket,
+                            expires: result.expires
+                        };
+                        
+                        // Add download URL to payload sent to device
+                        payload.downloadUrl = downloadUrlData.downloadUrl;
+                        payload.appPath = resource.path; // Keep original path for reference
+                        if (result.downloadAuth) payload.downloadAuth = result.downloadAuth;
+                        
+                        logger.info(`[UnifiedActionAPI] Generated signed download URL for install_app`, {
+                            resourceId,
+                            resourceName: resource.name,
+                            packageName: packageName,
+                            packageSize: resource.size,
+                            signedDownloadUrl: downloadUrlData.downloadUrl,
+                            objectPath: downloadUrlData.objectPath,
+                            bucket: downloadUrlData.bucket
+                        });
+                    } else {
+                        logger.error(`[UnifiedActionAPI] Failed to generate download URL for install_app`, {
+                            resourceId,
+                            resourcePath: resource.path
+                        });
+                        return json({
+                            success: false,
+                            error: {
+                                code: 'OPERATION_FAILED',
+                                message: 'Failed to generate download URL for app file',
+                                details: 'Could not convert resource path to signed download URL'
+                            }
+                        }, { status: 500 });
+                    }
+                } catch (error) {
+                    logger.error(`[UnifiedActionAPI] Failed to generate download URL for install_app`, {
+                        error: error instanceof Error ? error.message : String(error),
+                        stack: error instanceof Error ? error.stack : undefined
+                    });
+                    return json({
+                        success: false,
+                        error: {
+                            code: 'OPERATION_FAILED',
+                            message: 'Failed to generate download URL for install_app',
+                            details: error instanceof Error ? error.message : String(error)
+                        }
+                    }, { status: 500 });
+                }
+            }
+            
+            // Create action log entry
+            const requestId = crypto.randomUUID();
+            const actionLogMetadata = {
+                action,
+                payload,
+                initiatedBy: user.email,
+                ...(uploadUrlData ? {
+                    objectPath: uploadUrlData.objectPath,
+                    bucket: uploadUrlData.bucket,
+                    fileName: path.basename(uploadUrlData.objectPath)
+                } : {})
+            };
+            
+            logger.info(`[UnifiedActionAPI] Creating action log with metadata:`, { 
+                logId: 'pending',
+                requestId,
+                metadata: actionLogMetadata,
+                uploadUrlData: uploadUrlData ? {
+                    objectPath: uploadUrlData.objectPath,
+                    bucket: uploadUrlData.bucket
+                } : null
+            });
+            
+            const created = await ActionLogger.createInitiated({
+                deviceId,
+                actionType: actionConfig.actionType as any, // Type assertion needed due to type mismatch
+                initiatedBy: user.id,
+                requestId,
+                connectionId: 'api',
+                protocol: 'api',
+                metadata: actionLogMetadata,
+                initialMessage: action === 'pullFile' ? 'Preparing file upload...' : `Initiating ${action} action`
+            });
+            
+            logger.info(`[UnifiedActionAPI] Action log created:`, { 
+                logId: created.id, 
+                requestId,
+                storedMetadata: created.metadata
+            });
+
+            // Broadcast initial "initiated" status to UI
+            try {
+                if (device.accountId) {
+                    logger.info(`[UnifiedActionAPI] Broadcasting initial status for action log ${created.id}`, {
+                        logId: created.id,
+                        action: actionConfig.actionType,
+                        deviceId,
+                        accountId: device.accountId
+                    });
+
+                    await broadcastDeviceActionUpdate({
+                        prisma,
+                        deviceId,
+                        logId: created.id,
+                        action: actionConfig.actionType,
+                        status: 'initiated',
+                        message: `${action} action initiated`,
+                        accountId: device.accountId
+                    });
+
+                    logger.debug(`[UnifiedActionAPI] Broadcasted initial status for action log ${created.id}`);
+                } else {
+                    logger.warn(`[UnifiedActionAPI] Cannot broadcast initial status: device missing accountId`, {
+                        deviceId,
+                        accountId: device.accountId
+                    });
+                }
+            } catch (broadcastErr) {
+                // Non-fatal error - log but don't fail the action
+                logger.warn(`[UnifiedActionAPI] Failed to broadcast initial status:`, broadcastErr);
+            }
+
+            // Prepare message payload for MQTT (use device action type, e.g. get_logs, not API name getLogs)
+            const deviceActionType = actionConfig.actionType;
+            const messagePayload: any = {
+                action: deviceActionType,
+                deviceId,
+                ...payload,
+                logId: created.id,
+                requestId
+            };
+            
+            // Add upload URL data for pull_file actions
+            if (uploadUrlData) {
+                messagePayload.uploadUrl = uploadUrlData.uploadUrl;
+                messagePayload.objectPath = uploadUrlData.objectPath;
+                messagePayload.bucket = uploadUrlData.bucket;
+                messagePayload.expires = uploadUrlData.expires;
+                messagePayload.contentType = uploadUrlData.contentType;
+            }
+            
+            // Get accountId for MQTT topic (use device accountId or user's current account)
+            const userAccountId = device.accountId || event.auth?.currentAccount?.account.id || null;
+            
+            if (!userAccountId) {
+                logger.warn(`[UnifiedActionAPI] No accountId available for MQTT topic, using device accountId from device object`);
+            }
+            
+            // Queue MQTT notification for worker to send to device
+            const flowId = crypto.randomUUID();
+            
+            logger.info(`[UnifiedActionAPI] Queueing MQTT notification for device...`, { 
+                action, 
+                deviceId,
+                logId: created.id,
+                hasUploadUrl: !!uploadUrlData,
+                accountId: userAccountId
+            });
+
+            await queueNotification({
+                sub: `user:${user.id}:${userAccountId || 'system'}`,
+                recipient: `device:${deviceId}`,
+                type: DeviceNotificationType.ActionRequest,
+                flowId,
+                params: messagePayload,
+                expiresIn: '30m'
+            });
+            
+            logger.info(`[UnifiedActionAPI] MQTT notification queued successfully`);
+
+            // Set up timeout
+            setTimeout(async () => {
+                try {
+                    const current = await prisma.deviceActionLog.findUnique({ 
+                        where: { id: created.id }, 
+                        select: { status: true } 
+                    });
+                    if (!current) return;
+                    
+                    if (current.status === 'initiated' || current.status === 'in_progress') {
+                        await ActionLogger.finalize(created.id, 'failed', `${action} timed out after ${Math.floor(actionConfig.timeout / 60000)} minutes`);
+                    }
+                } catch (timeoutErr) {
+                    logger.warn(`[UnifiedActionAPI] Failed to process ${action} timeout for ${created.id}: ${String(timeoutErr)}`);
+                }
+            }, actionConfig.timeout);
+
+            logger.info(`[UnifiedActionAPI] ${action} action initiated for device ${deviceId} by user ${user.email}`);
+            logger.info(`[UnifiedActionAPI] ========== REQUEST END (SUCCESS) ==========`);
+
+            return json({
+                success: true,
+                data: {
+                    operationId: created.id,
+                    deviceId,
+                    action,
+                    status: 'initiated',
+                    message: `${action} action initiated`,
+                    payload,
+                    timestamp: new Date().toISOString(),
+                    requestId
+                }
+            });
+
+        } catch (error) {
+            logger.error(`[UnifiedActionAPI] Error handling action request: ${String(error)}`);
+            const errorStack = error instanceof Error ? error.stack : 'No stack';
+            logger.error(`[UnifiedActionAPI] Error stack:`, { stack: errorStack });
+            logger.error(`[UnifiedActionAPI] ========== REQUEST END (ERROR) ==========`);
+            return json({ 
+                success: false, 
+                error: { 
+                    code: 'OPERATION_FAILED', 
+                    message: 'Failed to initiate action',
+                    details: String(error),
+                    timestamp: new Date().toISOString(),
+                    requestId: crypto.randomUUID()
+                }
+            }, { status: 500 });
+        }
+    },
+    [SystemRole.ADMIN, SystemRole.USER]
+);

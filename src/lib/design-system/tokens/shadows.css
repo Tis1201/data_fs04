@@ -1,0 +1,71 @@
+/* =============================================================================
+   DESIGN SYSTEM - SHADOW TOKENS
+   
+   Box shadow values for elevation and depth.
+   ============================================================================= */
+
+:root {
+  /* =========================================================================
+     SHADOW SCALE
+     ========================================================================= */
+  --ds-shadow-none: none;
+  --ds-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --ds-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --ds-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --ds-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --ds-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --ds-shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --ds-shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+
+  /* =========================================================================
+     COLORED SHADOWS (for buttons, etc.)
+     ========================================================================= */
+  --ds-shadow-primary: 0 4px 14px 0 rgb(59 130 246 / 0.25);
+  --ds-shadow-success: 0 4px 14px 0 rgb(34 197 94 / 0.25);
+  --ds-shadow-warning: 0 4px 14px 0 rgb(245 158 11 / 0.25);
+  --ds-shadow-error: 0 4px 14px 0 rgb(239 68 68 / 0.25);
+
+  /* =========================================================================
+     COMPONENT-SPECIFIC SHADOWS
+     ========================================================================= */
+  
+  /* Cards */
+  --ds-card-shadow: var(--ds-shadow-sm);
+  --ds-card-shadow-hover: var(--ds-shadow-md);
+  --ds-card-shadow-elevated: var(--ds-shadow-lg);
+  
+  /* Modals */
+  --ds-modal-shadow: var(--ds-shadow-xl);
+  
+  /* Dropdowns */
+  --ds-dropdown-shadow: var(--ds-shadow-lg);
+  
+  /* Popovers */
+  --ds-popover-shadow: var(--ds-shadow-lg);
+  
+  /* Tooltips */
+  --ds-tooltip-shadow: var(--ds-shadow-md);
+  
+  /* Buttons */
+  --ds-button-shadow: var(--ds-shadow-sm);
+  --ds-button-shadow-hover: var(--ds-shadow-md);
+  
+  /* Input Focus */
+  --ds-input-shadow-focus: 0 0 0 3px rgb(59 130 246 / 0.15);
+  --ds-input-shadow-error: 0 0 0 3px rgb(239 68 68 / 0.15);
+  --ds-input-shadow-success: 0 0 0 3px rgb(34 197 94 / 0.15);
+}
+
+/* Dark mode shadow adjustments */
+.dark {
+  --ds-shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --ds-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
+  --ds-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
+  --ds-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
+  --ds-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+  --ds-shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+  
+  --ds-input-shadow-focus: 0 0 0 3px rgb(59 130 246 / 0.3);
+  --ds-input-shadow-error: 0 0 0 3px rgb(239 68 68 / 0.3);
+  --ds-input-shadow-success: 0 0 0 3px rgb(34 197 94 / 0.3);
+}

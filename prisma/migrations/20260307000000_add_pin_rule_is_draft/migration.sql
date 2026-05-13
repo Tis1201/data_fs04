@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "PinRule" ADD COLUMN "isDraft" BOOLEAN NOT NULL DEFAULT false;

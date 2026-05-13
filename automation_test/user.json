@@ -1,0 +1,25 @@
+{
+  "cookies": [
+    {
+      "name": "auth_session",
+      "value": "v5f2fu74bfpqrlj567n5qtnk7fiw7ofl2ewfzalx",
+      "domain": "app-dev-v2.datarealities.com",
+      "path": "/",
+      "expires": 1779005524.358895,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "current_account_id",
+      "value": "cmlhwqca4000y8sicue7x9f1q",
+      "domain": "app-dev-v2.datarealities.com",
+      "path": "/",
+      "expires": 1779005524.679799,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}
