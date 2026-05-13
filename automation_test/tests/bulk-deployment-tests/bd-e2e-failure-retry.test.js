@@ -62,10 +62,10 @@ test.describe('E2E — Bulk failure, retry, and downgrade recovery', () => {
     });
 
     await test.step('Verify primary actions: Retry, Edit, Delete are available; Run Deployment is not offered', async () => {
-      await expect(bulkPage.page.getByRole('button', { name: T.RETRY }).first()).toBeVisible();
-      await expect(bulkPage.page.getByRole('button', { name: T.EDIT }).first()).toBeVisible();
-      await expect(bulkPage.page.getByRole('button', { name: T.DELETE }).first()).toBeVisible();
-      await expect(bulkPage.page.getByRole('button', { name: T.RUN_DEPLOYMENT }).first()).toBeHidden();
+      await expect(bulkPage.getRetryButton()).toBeVisible();
+      await expect(bulkPage.editButton.first()).toBeVisible();
+      await expect(bulkPage.deleteButton.first()).toBeVisible();
+      await expect(bulkPage.getRunDeploymentButton()).toBeHidden();
     });
   });
 

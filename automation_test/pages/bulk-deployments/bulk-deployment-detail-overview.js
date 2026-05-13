@@ -1,6 +1,6 @@
 const { expect } = require('@playwright/test');
 const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
-const { escapeRegExp, normalizeText } = require('./bulk-deployment-pom-utils');
+const { normalizeText } = require('./bulk-deployment-pom-utils');
 
 const T = BULK_DEPLOYMENT.UI_TEXT;
 
@@ -12,22 +12,13 @@ const bulkDeploymentDetailOverview = {
   },
 
   async getOverviewValue(label) {
-    const field = this.page
-      .locator('.overview-field')
-      .filter({ has: this.page.locator('.overview-label', { hasText: new RegExp(`^${escapeRegExp(label)}$`, 'i') }) })
-      .first();
-
-    const value = field.locator('.overview-value, .badge, [class*="badge"]').first();
+    const field = this.getOverviewField(label);
+    const value = this.getOverviewValueLocator(field);
     return normalizeText((await value.textContent().catch(() => '')) || '');
   },
 
   async expectOverviewFieldVisible(label) {
-    await expect(
-      this.page
-        .locator('.overview-field')
-        .filter({ has: this.page.locator('.overview-label', { hasText: new RegExp(`^${escapeRegExp(label)}$`, 'i') }) })
-        .first()
-    ).toBeVisible({ timeout: this.timeout });
+    await expect(this.getOverviewField(label)).toBeVisible({ timeout: this.timeout });
   },
 
   async expectOverviewValue(label, expectedValue) {
@@ -53,7 +44,7 @@ const bulkDeploymentDetailOverview = {
     ];
 
     for (const badge of badges) {
-      const locator = this.page.getByText(badge, { exact: true }).first();
+      const locator = this.getStatusBadgeText(badge);
       if (await locator.isVisible().catch(() => false)) {
         return badge;
       }
@@ -95,8 +86,8 @@ const bulkDeploymentDetailOverview = {
   },
 
   async expectAuditInfoVisible() {
-    await expect(this.page.getByText(new RegExp(T.CREATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });
-    await expect(this.page.getByText(new RegExp(T.LAST_UPDATED_BY, 'i'))).toBeVisible({ timeout: this.timeout });
+    await expect(this.getCreatedByText()).toBeVisible({ timeout: this.timeout });
+    await expect(this.getLastUpdatedByText()).toBeVisible({ timeout: this.timeout });
   },
 };
 

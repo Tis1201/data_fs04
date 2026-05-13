@@ -29,11 +29,11 @@ test.describe('Section 7 — Devices tab modals (TC-BULK-DEVICES-001,007,008,011
 
     await test.step('Import CSV dialog with template and disabled Import', async () => {
       const dialog = await bulkPage.openImportCsvModal();
-      await expect(dialog.getByText(T.CSV_TEMPLATE)).toBeVisible();
-      await expect(dialog.getByText(T.UPLOAD_FILE)).toBeVisible();
-      const importBtn = dialog.getByRole('button', { name: /^import$/i });
+      await expect(bulkPage.getDialogText(dialog, T.CSV_TEMPLATE)).toBeVisible();
+      await expect(bulkPage.getDialogText(dialog, T.UPLOAD_FILE)).toBeVisible();
+      const importBtn = bulkPage.getImportDialogButton(dialog);
       await expect(importBtn).toBeDisabled();
-      await dialog.getByRole('button', { name: T.CANCEL }).click();
+      await bulkPage.getCancelButton(dialog).click();
       await expect(dialog).toBeHidden({ timeout: bulkPage.timeout }).catch(() => {});
     });
   });
@@ -46,9 +46,9 @@ test.describe('Section 7 — Devices tab modals (TC-BULK-DEVICES-001,007,008,011
     await test.step('Assign by tag dialog with tag search and disabled Add', async () => {
       const dialog = await bulkPage.openAssignByTagModal();
       await expect(bulkPage.getTagSearchInput()).toBeVisible();
-      const addBtn = dialog.getByRole('button', { name: new RegExp(`^${T.ADD}$`) });
+      const addBtn = bulkPage.getAddButton(dialog);
       await expect(addBtn).toBeDisabled();
-      await dialog.getByRole('button', { name: T.CANCEL }).click();
+      await bulkPage.getCancelButton(dialog).click();
       await expect(dialog).toBeHidden({ timeout: bulkPage.timeout }).catch(() => {});
     });
   });

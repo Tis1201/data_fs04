@@ -18,16 +18,12 @@ const bulkDeploymentCreateEdit = {
 
   async setFutureSchedule(date, time = '09:00') {
     await this.selectDropdown(T.FORM.SCHEDULE_LABEL, T.FORM.FUTURE);
-    await this.page.locator('input[type="date"]').last().fill(date);
-    await this.page.locator('input[type="time"]').last().fill(time);
+    await this.getDateInput().fill(date);
+    await this.getTimeInput().fill(time);
   },
 
   async setSwitch(label, enabled) {
-    const switchButton = this.page
-      .locator('.toggle-card')
-      .filter({ hasText: label })
-      .getByRole('switch')
-      .first();
+    const switchButton = this.getSwitchByLabel(label);
     const checked = await switchButton.getAttribute('aria-checked');
     if ((checked === 'true') !== enabled) {
       await switchButton.click();
@@ -100,7 +96,7 @@ const bulkDeploymentCreateEdit = {
 
   async saveEditExpectDetail() {
     const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
-    const saveButton = dialog.getByRole('button', { name: T.SAVE_CHANGES });
+    const saveButton = this.getSaveChangesButton(dialog);
     await expect(saveButton).toBeEnabled({ timeout: this.timeout });
     await saveButton.click();
     await expect(dialog).toBeHidden({ timeout: this.timeout });
@@ -110,13 +106,13 @@ const bulkDeploymentCreateEdit = {
 
   async saveEditExpectBlocked() {
     const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
-    await expect(dialog.getByRole('button', { name: T.SAVE_CHANGES })).toBeDisabled({ timeout: this.timeout });
+    await expect(this.getSaveChangesButton(dialog)).toBeDisabled({ timeout: this.timeout });
     await expect(dialog).toBeVisible({ timeout: this.timeout });
   },
 
   async cancelEdit() {
     const dialog = this.dialogByTitle(T.DIALOG_EDIT_DEPLOYMENT);
-    await dialog.getByRole('button', { name: T.CANCEL }).click();
+    await this.getCancelButton(dialog).click();
     await expect(dialog).toBeHidden({ timeout: this.timeout });
   },
 };

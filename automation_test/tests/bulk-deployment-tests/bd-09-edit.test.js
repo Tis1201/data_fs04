@@ -9,9 +9,9 @@ test.describe('TC-BULK-EDIT — Edit Deployment modal', () => {
     test.setTimeout(4 * 60 * 1000);
     const { bulkPage } = await createDraftOpenDetail(page, { name: `Bulk EditOpen ${Date.now()}` });
     const dialog = await bulkPage.openEditDeploymentModal();
-    await expect(dialog.getByRole('heading', { name: T.DIALOG_EDIT_DEPLOYMENT })).toBeVisible();
-    await expect(dialog.getByRole('button', { name: T.SAVE_CHANGES })).toBeVisible();
-    await expect(dialog.getByRole('button', { name: T.CANCEL })).toBeVisible();
+    await expect(bulkPage.getDialogHeading(dialog, T.DIALOG_EDIT_DEPLOYMENT)).toBeVisible();
+    await expect(bulkPage.getSaveChangesButton(dialog)).toBeVisible();
+    await expect(bulkPage.getCancelButton(dialog)).toBeVisible();
     await bulkPage.cancelEdit();
   });
 

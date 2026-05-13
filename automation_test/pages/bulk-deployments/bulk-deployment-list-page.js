@@ -10,10 +10,10 @@ const bulkDeploymentListPage = {
     await this.gotoList();
     await this.waitForListReady();
 
-    const staleDialogs = this.page.getByRole('dialog');
+    const staleDialogs = this.getDialogList();
     if (await staleDialogs.count() > 0) {
       for (const dialog of await staleDialogs.all()) {
-        const closeBtn = dialog.getByRole('button', { name: /close|cancel|×/i }).first();
+        const closeBtn = this.getDialogCloseButton(dialog);
         if (await closeBtn.isVisible().catch(() => false)) {
           await closeBtn.click();
           await expect(dialog).toBeHidden({ timeout: 5000 }).catch(() => {});
@@ -70,37 +70,32 @@ const bulkDeploymentListPage = {
     await this.gotoList();
     await this.waitForListReady();
     await this.searchDeployment(name);
-    await this.page.getByRole('link', { name }).first().click();
+    await this.getLinkByName(name).click();
     await this.waitForPageReady();
   },
 
   async clickListColumnHeader(columnName) {
-    await this.page.locator('thead th').filter({ hasText: columnName }).first().click();
+    await this.getTableHeaderByName(columnName).click();
     await this.waitForToastOrNetwork();
   },
 
   async getListCellText(rowText, columnId) {
     const row = this.rowByText(rowText);
     await expect(row).toBeVisible({ timeout: this.timeout });
-    return normalizeText((await row.locator(`td[data-ds-col-id="${columnId}"]`).first().textContent()) || '');
+    return normalizeText((await this.getTableCell(row, columnId).textContent()) || '');
   },
 
   async openRowActionMenu(rowText) {
     await this.page.keyboard.press('Escape').catch(() => {});
     const macAddress = extractMacAddress(rowText);
     const row = macAddress
-      ? this.page
-          .locator('tbody tr')
-          .filter({ hasText: new RegExp(`${escapeRegExp(rowText)}|${escapeRegExp(macAddress)}`) })
-          .first()
+      ? this.getTableRowsByText(new RegExp(`${escapeRegExp(rowText)}|${escapeRegExp(macAddress)}`)).first()
       : this.rowByText(rowText);
     await expect(row).toBeVisible({ timeout: this.timeout });
-    const trigger = row
-      .locator('td[data-ds-col-id="actions"] button[aria-haspopup="menu"], td[data-ds-col-id="actions"] button')
-      .last();
+    const trigger = this.getRowActionTrigger(row);
     await expect(trigger).toBeVisible({ timeout: this.timeout });
     await trigger.scrollIntoViewIfNeeded().catch(() => {});
-    const menu = this.page.getByRole('menu').last();
+    const menu = this.getMenu();
     await trigger.click().catch(async () => {
       await trigger.click({ force: true });
     });
@@ -112,13 +107,13 @@ const bulkDeploymentListPage = {
 
   async selectRowAction(rowText, actionName) {
     await this.openRowActionMenu(rowText);
-    await this.page.getByRole('menuitem', { name: new RegExp(`^${escapeRegExp(actionName)}$`) }).click();
+    await this.getMenuItemByName(actionName).click();
     await this.waitForToastOrNetwork();
   },
 
   async getRowActionLabels(rowText) {
     await this.openRowActionMenu(rowText);
-    const labels = await this.page.getByRole('menuitem').evaluateAll((items) =>
+    const labels = await this.getMenuItems().evaluateAll((items) =>
       items.map((item) => (item.textContent || '').replace(/\s+/g, ' ').trim())
     );
     await this.page.keyboard.press('Escape').catch(() => {});
@@ -139,7 +134,7 @@ const bulkDeploymentListPage = {
     const dialog = this.dialogByTitle(T.DIALOG_DEPLOYMENT_CONFIRM);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     if (!confirm) {
-      await dialog.getByRole('button', { name: T.CANCEL }).click();
+      await this.getCancelButton(dialog).click();
       await expect(dialog).toBeHidden({ timeout: this.timeout });
       return;
     }
@@ -152,7 +147,7 @@ const bulkDeploymentListPage = {
         { timeout: this.timeout }
       )
       .catch(() => null);
-    await dialog.getByRole('button', { name: T.CONFIRM }).click();
+    await this.getConfirmButton(dialog).click();
     await responsePromise;
     await this.waitForToastOrNetwork();
   },
@@ -165,11 +160,11 @@ const bulkDeploymentListPage = {
     const dialog = this.dialogByTitle(T.DIALOG_DELETE_DEPLOYMENT);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
     if (!confirm) {
-      await dialog.getByRole('button', { name: T.CANCEL }).click();
+      await this.getCancelButton(dialog).click();
       await expect(dialog).toBeHidden({ timeout: this.timeout });
       return;
     }
-    await dialog.getByRole('button', { name: T.DELETE }).click();
+    await this.getDeleteDialogButton(dialog).click();
     await this.waitForToastOrNetwork();
   },
 };

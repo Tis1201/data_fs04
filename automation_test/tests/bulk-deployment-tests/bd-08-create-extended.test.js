@@ -118,7 +118,7 @@ test.describe('TC-BULK-CREATE / VERSION — extended create flows', () => {
     await bd.gotoList();
     await bd.waitForListReady();
     await bd.searchDeployment(shared);
-    const rows = bd.page.locator('tbody tr').filter({ hasText: shared });
+    const rows = bd.getTableRowsByText(shared);
     expect(await rows.count()).toBeGreaterThanOrEqual(2);
   });
 

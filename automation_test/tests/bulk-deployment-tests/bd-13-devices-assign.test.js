@@ -1,5 +1,5 @@
 const { createBulkTest, bulkTestData } = require('./bd-shared');
-const { T, createDraftOpenDetail, createDraftWithAssignments } = require('../../pages/bulk-deployments/flows');
+const { createDraftOpenDetail, createDraftWithAssignments } = require('../../pages/bulk-deployments/flows');
 
 const test = createBulkTest();
 const expect = test.expect;
@@ -54,7 +54,7 @@ test.describe('TC-BULK-DEVICES assign / TC-BULK-CREATE-025~027', () => {
     });
     const dialog = await bulkPage.openAddDeviceModal();
     await expect(bulkPage.getAddDeviceSearchInput()).toBeVisible();
-    await dialog.getByRole('button', { name: T.CANCEL }).click();
+    await bulkPage.getCancelButton(dialog).click();
     await expect(dialog).toBeHidden({ timeout: bulkPage.timeout }).catch(() => {});
   });
 

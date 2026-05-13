@@ -50,13 +50,13 @@ test.describe('E2E — Bulk Deployment action twice', () => {
       await bulkPage.openAddAppModal();
       await bulkPage.selectAppInModal(app);
       const dialog = bulkPage.dialogByTitle(T.DIALOG_ADD_APP);
-      await dialog.getByRole('button', { name: T.ASSIGN }).click();
+      await bulkPage.getAssignButton(dialog).click();
       await bulkPage.waitForToastOrNetwork();
     });
 
     await test.step('Verify app appears once in table', async () => {
       await bulkPage.openAppsTab();
-      await expect(bulkPage.page.locator('tbody tr').filter({ hasText: app })).toHaveCount(1);
+      await expect(bulkPage.getTableRowsByText(app)).toHaveCount(1);
     });
   });
 
@@ -77,13 +77,13 @@ test.describe('E2E — Bulk Deployment action twice', () => {
       await bulkPage.openAddDeviceModal();
       await bulkPage.selectDeviceInModal(device);
       const dialog = bulkPage.dialogByTitle(T.DIALOG_ADD_DEVICE);
-      await dialog.getByRole('button', { name: new RegExp(`^${T.ADD}$`) }).click();
+      await bulkPage.getAddButton(dialog).click();
       await bulkPage.waitForToastOrNetwork();
     });
 
     await test.step('Verify device appears once in table', async () => {
       await bulkPage.openDevicesTab();
-      await expect(bulkPage.page.locator('tbody tr').filter({ hasText: device })).toHaveCount(1);
+      await expect(bulkPage.getTableRowsByText(device)).toHaveCount(1);
     });
   });
 });

@@ -53,7 +53,7 @@ test.describe('E2E — Bulk Deployment list sort and search', () => {
     await test.step('Open list page ready for sort assertions', async () => {
       await bd.gotoList();
       await bd.waitForListReady();
-      await expect(page.locator('tbody tr').first()).toBeVisible();
+      await expect(bd.getFirstTableRow()).toBeVisible();
     });
 
     for (const column of sortableColumns) {
@@ -82,7 +82,7 @@ test.describe('E2E — Bulk Deployment list sort and search', () => {
 
     await test.step('Click Actions header and verify sort key does not change to actions', async () => {
       const before = getSortStateFromUrl(page.url());
-      await page.locator('thead th').filter({ hasText: T.LIST_COL_ACTIONS }).first().click();
+      await bd.getTableHeaderByName(T.LIST_COL_ACTIONS).click();
       await bd.waitForUiSettled();
       const after = getSortStateFromUrl(page.url());
 

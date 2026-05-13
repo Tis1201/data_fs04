@@ -7,13 +7,13 @@ const T = BULK_DEPLOYMENT.UI_TEXT;
 /** Devices tab: empty state, table rows, CSV/tag modals, add/remove device. */
 const bulkDeploymentDevices = {
   async expectDevicesEmptyState() {
-    await expect(this.page.getByText(T.NO_DEVICE_EMPTY)).toBeVisible({ timeout: this.timeout });
+    await expect(this.getNoDeviceEmptyText()).toBeVisible({ timeout: this.timeout });
   },
 
   deviceRowByNameOrMac(deviceNameOrMac) {
     const macAddress = extractMacAddress(deviceNameOrMac);
     if (macAddress) {
-      return this.page.locator('tbody tr').filter({ hasText: macAddress }).first();
+      return this.getTableRowsByText(macAddress).first();
     }
     return this.rowByText(deviceNameOrMac);
   },
@@ -38,20 +38,18 @@ const bulkDeploymentDevices = {
 
   async openDeviceDetailFromDevicesTab(deviceNameOrMac) {
     const row = await this.expectDeviceRowVisible(deviceNameOrMac);
-    const detailLink = row.locator('a[href*="/devices/"]').first();
+    const detailLink = this.getDeviceDetailLink(row);
     await expect(detailLink).toBeVisible({ timeout: this.timeout });
     await detailLink.click();
     await this.page.waitForURL(/\/user\/iot\/devices\/[^/?#]+/, { timeout: this.timeout });
-    const deploymentsTab = this.page
-      .getByRole('button', { name: 'Deployments', exact: true })
-      .or(this.page.getByRole('tab', { name: 'Deployments' }));
+    const deploymentsTab = this.getDeviceDetailDeploymentsTab();
     await expect(deploymentsTab).toBeVisible({ timeout: this.timeout });
   },
 
   async getDeviceDeploymentStatusText(deviceNameOrMac) {
     await this.openDevicesTab();
     const row = await this.expectDeviceRowVisible(deviceNameOrMac);
-    const statusCell = row.locator('td[data-ds-col-id="deploymentStatus"]').first();
+    const statusCell = this.getDeviceDeploymentStatusCell(row);
     await expect(statusCell).toBeVisible({ timeout: this.timeout });
     return normalizeText((await statusCell.textContent()) || '');
   },
@@ -96,17 +94,8 @@ const bulkDeploymentDevices = {
       await searchInput.fill('');
       await searchInput.fill(searchTerm);
 
-      const exactNameOption = this.page
-        .locator('.device-selector-option')
-        .filter({
-          has: this.page.locator('.device-selector-option-name', {
-            hasText: new RegExp(escapeRegExp(deviceName)),
-          }),
-        })
-        .first();
-      const macOption = macAddress
-        ? this.page.locator('.device-selector-option').filter({ hasText: macAddress }).first()
-        : exactNameOption;
+      const exactNameOption = this.getDeviceSelectorOptionByDeviceName(deviceName);
+      const macOption = macAddress ? this.getDeviceSelectorOptionByMac(macAddress) : exactNameOption;
 
       await expect
         .poll(
@@ -114,7 +103,7 @@ const bulkDeploymentDevices = {
             const exactVisible = await exactNameOption.isVisible().catch(() => false);
             const macVisible = await macOption.isVisible().catch(() => false);
             const emptyVisible = await this.getNoDevicesFoundText().isVisible().catch(() => false);
-            const loadingVisible = await this.page.getByText(/Loading/i).isVisible().catch(() => false);
+            const loadingVisible = await this.getLoadingText().isVisible().catch(() => false);
             return exactVisible || macVisible || (emptyVisible && !loadingVisible);
           },
           {
@@ -133,8 +122,7 @@ const bulkDeploymentDevices = {
         break;
       }
 
-      const resultTexts = await this.page
-        .locator('.device-selector-option, .device-selector-empty')
+      const resultTexts = await this.getDeviceSelectorResultsOrEmpty()
         .evaluateAll((items) => items.map((item) => (item.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean))
         .catch(() => []);
       lastResultSummary = resultTexts.length ? resultTexts.join('; ') : T.NO_DEVICES_FOUND;
@@ -149,10 +137,9 @@ const bulkDeploymentDevices = {
     }
 
     await option.click();
-    const selectedDevice = this.page
-      .locator('.device-selector-selected-name')
-      .filter({ hasText: macAddress ? new RegExp(`${escapeRegExp(deviceName)}|${escapeRegExp(macAddress)}`) : deviceName })
-      .first();
+    const selectedDevice = this.getDeviceSelectorSelectedName(
+      macAddress ? new RegExp(`${escapeRegExp(deviceName)}|${escapeRegExp(macAddress)}`) : deviceName
+    );
     if (!(await selectedDevice.isVisible().catch(() => false))) {
       await option.dispatchEvent('click');
     }
@@ -165,7 +152,7 @@ const bulkDeploymentDevices = {
       await this.selectDeviceInModal(deviceName);
     }
     const dialog = this.dialogByTitle(T.DIALOG_ADD_DEVICE);
-    const addButton = dialog.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ADD)}$`) });
+    const addButton = this.getAddButton(dialog);
     await expect(addButton).toBeEnabled({ timeout: this.timeout });
     await addButton.click();
     await this.waitForToastOrNetwork();
@@ -179,7 +166,7 @@ const bulkDeploymentDevices = {
     await this.selectRowAction(deviceName, T.REMOVE);
     const dialog = this.dialogByTitle(T.DIALOG_REMOVE_DEVICE);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: T.REMOVE }).click();
+    await this.getRemoveButton(dialog).click();
     await this.waitForToastOrNetwork();
     await this.expectDeviceRowHidden(deviceName);
   },
@@ -195,7 +182,7 @@ const bulkDeploymentDevices = {
   async addFirstAvailableDevice(searchKeyword = '') {
     await this.openDevicesTab();
     await this.addDeviceButton.click();
-    await expect(this.page.getByText(T.ADD_DEVICE, { exact: true }).last()).toBeVisible({ timeout: this.timeout });
+    await expect(this.getExactText(T.ADD_DEVICE).last()).toBeVisible({ timeout: this.timeout });
 
     const searchInput = this.getAddDeviceSearchInput();
     await expect(searchInput).toBeVisible({ timeout: this.timeout });
@@ -206,16 +193,16 @@ const bulkDeploymentDevices = {
       await searchInput.click();
     }
 
-    const option = this.page.locator('.device-selector-option').filter({ hasNotText: 'Select All' }).first();
+    const option = this.getFirstSelectableDeviceOption();
     await expect(option).toBeVisible({ timeout: this.timeout });
-    const selectedName = normalizeText((await option.locator('.device-selector-option-name').first().textContent()) || '');
+    const selectedName = normalizeText((await this.getDeviceSelectorOptionName(option).textContent()) || '');
     await option.click();
-    await expect(this.page.getByText(T.SELECTED_ONE_ITEMS)).toBeVisible({ timeout: this.timeout });
+    await expect(this.getSelectedOneItemsText()).toBeVisible({ timeout: this.timeout });
 
-    const addButton = this.page.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ADD)}$`) }).last();
+    const addButton = this.getLastAddButton();
     await expect(addButton).toBeEnabled({ timeout: this.timeout });
     await addButton.dispatchEvent('click');
-    await expect(this.page.getByText(selectedName, { exact: true }).first()).toBeVisible({ timeout: this.timeout });
+    await expect(this.getFirstExactText(selectedName)).toBeVisible({ timeout: this.timeout });
     return selectedName;
   },
 

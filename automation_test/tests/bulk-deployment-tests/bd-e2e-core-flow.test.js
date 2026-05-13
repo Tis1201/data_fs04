@@ -156,15 +156,13 @@ test.describe('E2E — Bulk Deployment core flow', () => {
     });
 
     await test.step('Verify Device Deployments tab shows the same device-level status', async () => {
-      const deploymentsTab = page
-        .getByRole('button', { name: 'Deployments', exact: true })
-        .or(page.getByRole('tab', { name: 'Deployments' }));
+      const deploymentsTab = bulkPage.getDeviceDetailDeploymentsTab();
       await deploymentsTab.click();
 
-      const deploymentRow = page.locator('tbody tr').filter({ hasText: name }).first();
+      const deploymentRow = bulkPage.rowByText(name);
       await expect(deploymentRow).toBeVisible({ timeout: bulkTestData.publishFlowTimeoutMs });
 
-      const statusCell = deploymentRow.locator('td[data-ds-col-id="status"]').first();
+      const statusCell = bulkPage.getDeploymentStatusCell(deploymentRow);
       if ((await statusCell.count()) > 0) {
         await expect(statusCell).toContainText(bulkDeviceStatus, { timeout: bulkTestData.publishFlowTimeoutMs });
       } else {

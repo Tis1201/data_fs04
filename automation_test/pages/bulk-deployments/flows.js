@@ -369,40 +369,32 @@ async function assertOverviewKeyFieldsVisible(bd) {
  * Assert Add App modal structure: TC-BULK-APPS-001 / TC-BULK-DEVICES-001 pattern.
  */
 async function assertAddAppModalStructure(bd, dialog) {
-  await expect(dialog.getByRole('heading', { name: T.DIALOG_ADD_APP })).toBeVisible();
+  await expect(bd.getDialogHeading(dialog, T.DIALOG_ADD_APP)).toBeVisible();
   await expect(bd.getAddAppSearchInput()).toBeVisible();
-  await expect(dialog.getByText(T.SELECTED_ZERO_ITEMS)).toBeVisible();
-  await expect(dialog.getByRole('button', { name: T.ASSIGN })).toBeDisabled();
-  await expect(dialog.getByRole('button', { name: T.CANCEL })).toBeVisible();
+  await expect(bd.getDialogText(dialog, T.SELECTED_ZERO_ITEMS)).toBeVisible();
+  await expect(bd.getAssignButton(dialog)).toBeDisabled();
+  await expect(bd.getCancelButton(dialog)).toBeVisible();
 }
 
 async function assertAddAppModalInvalidSearch(bd, keyword) {
   await bd.searchAppInAddModal(keyword);
   await expect(bd.getNoAppsMatchText()).toBeVisible({ timeout: bd.timeout });
   const dialog = bd.dialogByTitle(T.DIALOG_ADD_APP);
-  await expect(dialog.getByRole('button', { name: T.ASSIGN })).toBeDisabled();
+  await expect(bd.getAssignButton(dialog)).toBeDisabled();
 }
 
 async function assertAddDeviceModalShell(bd, dialog) {
-  await expect(dialog.getByRole('heading', { name: T.DIALOG_ADD_DEVICE })).toBeVisible();
+  await expect(bd.getDialogHeading(dialog, T.DIALOG_ADD_DEVICE)).toBeVisible();
   await expect(bd.getAddDeviceSearchInput()).toBeVisible();
   await expect(bd.getAddDeviceSelectedCount()).toBeVisible();
-  await expect(
-    dialog.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ADD)}$`) })
-  ).toBeDisabled();
+  await expect(bd.getAddButton(dialog)).toBeDisabled();
 }
 
 async function assertAddDeviceModalInvalidSearch(bd, keyword) {
   await bd.searchDeviceInAddModal(keyword);
   await expect(bd.getNoDevicesFoundText()).toBeVisible({ timeout: bd.timeout });
   const dialog = bd.dialogByTitle(T.DIALOG_ADD_DEVICE);
-  await expect(
-    dialog.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ADD)}$`) })
-  ).toBeDisabled();
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  await expect(bd.getAddButton(dialog)).toBeDisabled();
 }
 
 module.exports = {

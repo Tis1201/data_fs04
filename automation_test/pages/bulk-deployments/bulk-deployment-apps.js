@@ -1,13 +1,13 @@
 const { expect } = require('@playwright/test');
 const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
-const { escapeRegExp, normalizeText } = require('./bulk-deployment-pom-utils');
+const { normalizeText } = require('./bulk-deployment-pom-utils');
 
 const T = BULK_DEPLOYMENT.UI_TEXT;
 
 /** Apps tab: empty state, add/remove app, search in Add App modal. */
 const bulkDeploymentApps = {
   async expectAppsEmptyState() {
-    await expect(this.page.getByText(T.NO_APP_EMPTY)).toBeVisible({ timeout: this.timeout });
+    await expect(this.getNoAppEmptyText()).toBeVisible({ timeout: this.timeout });
   },
 
   async openAddAppModal() {
@@ -25,32 +25,25 @@ const bulkDeploymentApps = {
     await searchInput.fill(appName);
 
     await expect.poll(async () => {
-      const loadingCount = await this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count();
-      const loadingText = await this.page.locator('.add-app-result-option, .empty-state, [class*="empty"]').filter({ hasText: /loading/i }).count();
+      const loadingCount = await this.getLoadingLocator().count();
+      const loadingText = await this.getAddAppLoadingText().count();
       return loadingCount + loadingText;
     }, {
       timeout: this.timeout,
       message: `Waiting for app search results to finish loading for "${appName}"`,
     }).toBe(0).catch(() => {});
 
-    const option = this.page
-      .locator('.add-app-result-option')
-      .filter({
-        has: this.page.locator('.add-app-result-option-text', {
-          hasText: new RegExp(`^${escapeRegExp(appName)}$`),
-        }),
-      })
-      .first();
+    const option = this.getAppResultOptionByExactName(appName);
 
     if (!(await option.isVisible().catch(() => false))) {
-      await expect.poll(async () => this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count(), {
+      await expect.poll(async () => this.getLoadingLocator().count(), {
         timeout: 3000,
         message: `Waiting before retry for app "${appName}"`,
       }).toBe(0).catch(() => {});
       await searchInput.fill('');
       await searchInput.fill(appName);
       await expect.poll(async () => {
-        const loadingCount = await this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count();
+        const loadingCount = await this.getLoadingLocator().count();
         return loadingCount;
       }, {
         timeout: this.timeout,
@@ -59,8 +52,7 @@ const bulkDeploymentApps = {
     }
 
     if (!(await option.isVisible().catch(() => false))) {
-      const resultTexts = await this.page
-        .locator('.add-app-result-option, .empty-state, [class*="empty"]')
+      const resultTexts = await this.getAddAppResultsOrEmpty()
         .evaluateAll((items) => items.map((item) => (item.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean))
         .catch(() => []);
       throw new Error(
@@ -69,9 +61,7 @@ const bulkDeploymentApps = {
       );
     }
     await option.click();
-    const selectedApp = this.page
-      .locator('.add-app-selected-name', { hasText: new RegExp(`^${escapeRegExp(appName)}$`) })
-      .first();
+    const selectedApp = this.getAddAppSelectedNameByExactName(appName);
     if (!(await selectedApp.isVisible().catch(() => false))) {
       await option.dispatchEvent('click');
     }
@@ -84,7 +74,7 @@ const bulkDeploymentApps = {
       await this.selectAppInModal(appName);
     }
     const dialog = this.dialogByTitle(T.DIALOG_ADD_APP);
-    const assignButton = dialog.getByRole('button', { name: T.ASSIGN });
+    const assignButton = this.getAssignButton(dialog);
     await expect(assignButton).toBeEnabled({ timeout: this.timeout });
     await assignButton.click();
     await this.waitForToastOrNetwork();
@@ -104,7 +94,7 @@ const bulkDeploymentApps = {
 
     await expect
       .poll(async () => {
-        const loadingCount = await this.page.locator('[aria-busy="true"], .loading, [class*="loading"]').count();
+        const loadingCount = await this.getLoadingLocator().count();
         return loadingCount;
       }, {
         timeout: this.timeout,
@@ -113,16 +103,12 @@ const bulkDeploymentApps = {
       .toBe(0)
       .catch(() => {});
 
-    const exactOption = this.page.locator('.add-app-result-option').filter({
-      has: this.page.locator('.add-app-result-option-text', {
-        hasText: new RegExp(`^${escapeRegExp(matcher)}$`),
-      }),
-    }).first();
+    const exactOption = this.getAppResultOptionByExactName(matcher);
 
     if (await exactOption.isVisible().catch(() => false)) {
       await exactOption.click();
     } else {
-      const loose = this.page.locator('.add-app-result-option').filter({ hasText: matcher }).first();
+      const loose = this.getAppResultOptionByName(matcher);
       await expect(loose).toBeVisible({
         timeout: this.timeout,
         message: `No Add App result matched "${matcher}"`,
@@ -130,9 +116,9 @@ const bulkDeploymentApps = {
       await loose.click();
     }
 
-    const selectedApp = this.page.locator('.add-app-selected-name').filter({ hasText: matcher }).first();
+    const selectedApp = this.getAddAppSelectedNameByText(matcher);
     if (!(await selectedApp.isVisible().catch(() => false))) {
-      await expect(this.page.locator('.add-app-selected-name').first()).toBeVisible({ timeout: this.timeout });
+      await expect(this.getFirstAddAppSelectedName()).toBeVisible({ timeout: this.timeout });
     }
   },
 
@@ -142,12 +128,12 @@ const bulkDeploymentApps = {
       await this.selectAppInModalFlexible(m);
     }
     const dialog = this.dialogByTitle(T.DIALOG_ADD_APP);
-    const assignButton = dialog.getByRole('button', { name: T.ASSIGN });
+    const assignButton = this.getAssignButton(dialog);
     await expect(assignButton).toBeEnabled({ timeout: this.timeout });
     await assignButton.click();
     await this.waitForToastOrNetwork();
     for (const m of matchers) {
-      await expect(this.page.locator('tbody tr').filter({ hasText: m }).first()).toBeVisible({ timeout: this.timeout });
+      await expect(this.rowByText(m)).toBeVisible({ timeout: this.timeout });
     }
   },
 
@@ -156,7 +142,7 @@ const bulkDeploymentApps = {
     await this.selectRowAction(appName, T.REMOVE);
     const dialog = this.dialogByTitle(T.DIALOG_REMOVE_APP);
     await expect(dialog).toBeVisible({ timeout: this.timeout });
-    await dialog.getByRole('button', { name: T.REMOVE }).click();
+    await this.getRemoveButton(dialog).click();
     await this.waitForToastOrNetwork();
     await expect(this.rowByText(appName)).toHaveCount(0, { timeout: this.timeout });
   },
@@ -176,7 +162,7 @@ const bulkDeploymentApps = {
     await this.openAppsTab();
     await this.dismissBlockingDialogs();
     await this.addAppButton.click();
-    await expect(this.page.getByText(T.ADD_APP, { exact: true }).last()).toBeVisible({ timeout: this.timeout });
+    await expect(this.getExactText(T.ADD_APP).last()).toBeVisible({ timeout: this.timeout });
 
     const searchInput = this.getAddAppSearchInput();
     await expect(searchInput).toBeVisible({ timeout: this.timeout });
@@ -189,13 +175,13 @@ const bulkDeploymentApps = {
 
     const option = this.getAppResultOptions().first();
     await expect(option).toBeVisible({ timeout: this.timeout });
-    const selectedName = normalizeText((await option.locator('.add-app-result-option-text').first().textContent()) || '');
+    const selectedName = normalizeText((await this.getAppResultOptionText(option).textContent()) || '');
     await option.click();
 
-    const assignButton = this.page.getByRole('button', { name: new RegExp(`^${escapeRegExp(T.ASSIGN)}$`) }).last();
+    const assignButton = this.getLastAssignButton();
     await expect(assignButton).toBeEnabled({ timeout: this.timeout });
     await assignButton.click();
-    await expect(this.page.getByText(selectedName, { exact: true }).first()).toBeVisible({ timeout: this.timeout });
+    await expect(this.getFirstExactText(selectedName)).toBeVisible({ timeout: this.timeout });
     return selectedName;
   },
 };

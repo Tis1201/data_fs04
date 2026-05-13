@@ -1,22 +1,19 @@
 const { expect } = require('@playwright/test');
 const { BULK_DEPLOYMENT } = require('../../constants/bulk-deployment.constants');
-const { escapeRegExp, normalizeText } = require('./bulk-deployment-pom-utils');
+const { normalizeText } = require('./bulk-deployment-pom-utils');
 
 const T = BULK_DEPLOYMENT.UI_TEXT;
 
 /** Batches tab metrics and empty state. */
 const bulkDeploymentBatches = {
   async expectBatchesEmptyState() {
-    await expect(this.page.getByText(T.NO_BATCH_EMPTY)).toBeVisible({ timeout: this.timeout });
+    await expect(this.getNoBatchEmptyText()).toBeVisible({ timeout: this.timeout });
   },
 
   async getBatchMetricValue(label) {
-    const metric = this.page
-      .locator('.batches-datas-wrap')
-      .filter({ has: this.page.locator('.batches-datas-label', { hasText: new RegExp(`^${escapeRegExp(label)}$`) }) })
-      .first();
+    const metric = this.getBatchMetric(label);
     await expect(metric).toBeVisible({ timeout: this.timeout });
-    const text = normalizeText((await metric.locator('.batches-datas-value').textContent()) || '0');
+    const text = normalizeText((await this.getBatchMetricValueLocator(metric).textContent()) || '0');
     return Number.parseInt(text, 10);
   },
 

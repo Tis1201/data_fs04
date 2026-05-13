@@ -34,10 +34,10 @@ test.describe('TC-BULK-APPS table & remove', () => {
     await bulkPage.openAddAppModal();
     await bulkPage.selectAppInModal(app);
     const dialog = bulkPage.dialogByTitle(T.DIALOG_ADD_APP);
-    await dialog.getByRole('button', { name: T.ASSIGN }).click();
+    await bulkPage.getAssignButton(dialog).click();
     await bulkPage.waitForToastOrNetwork();
     await bulkPage.openAppsTab();
-    await expect(bulkPage.page.locator('tbody tr').filter({ hasText: app })).toHaveCount(1);
+    await expect(bulkPage.getTableRowsByText(app)).toHaveCount(1);
   });
 
   test('TC-BULK-APPS-008: Apps table column headers', async ({ page }) => {

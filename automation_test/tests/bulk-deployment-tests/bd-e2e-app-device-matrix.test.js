@@ -1,4 +1,4 @@
-const { createBulkE2ETest, bulkTestData, T } = require('./bd-e2e-shared');
+const { createBulkE2ETest, bulkTestData } = require('./bd-e2e-shared');
 const {
   createDraftOpenDetail,
 } = require('../../pages/bulk-deployments/flows');
@@ -34,7 +34,7 @@ test.describe('E2E — Bulk app/device matrix (valid, non-existent, same)', () =
       const dialog = await bulkPage.openAddAppModal();
       await bulkPage.searchAppInAddModal(`zz_no_app_${Date.now()}`);
       await expect(bulkPage.getNoAppsMatchText()).toBeVisible();
-      await expect(dialog.getByRole('button', { name: T.ASSIGN })).toBeDisabled();
+      await expect(bulkPage.getAssignButton(dialog)).toBeDisabled();
     });
   });
 
@@ -65,7 +65,7 @@ test.describe('E2E — Bulk app/device matrix (valid, non-existent, same)', () =
       const dialog = await bulkPage.openAddDeviceModal();
       await bulkPage.searchDeviceInAddModal(`zz_no_device_${Date.now()}`);
       await expect(bulkPage.getNoDevicesFoundText()).toBeVisible({ timeout: bulkPage.timeout });
-      await expect(dialog.getByRole('button', { name: new RegExp(`^${T.ADD}$`) })).toBeDisabled();
+      await expect(bulkPage.getAddButton(dialog)).toBeDisabled();
     });
   });
 });
