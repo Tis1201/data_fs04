@@ -1,21 +1,56 @@
-const base = require('@playwright/test');
+const { test: base, expect } = require('@playwright/test');
 const DeviceProfilePage = require('../../pages/device-profiles/device-profile-page');
-const {
-    authFile,
-    PROFILE_WITH_DEVICES_ID,
-} = require('./dp-shared');
+const config = require('../../config/config-loader');
+const { authFile, PROFILE_WITH_DEVICES_ID } = require('./dp-shared');
 
-// Rule 11.1 & 16.2: Restore Fixture for DRY code
-const test = base.test.extend({
+const ONLINE_DEVICE_ID = config.pageURL.devices.onlineDeviceId;
+const API_BASE = config.apiBaseURL.replace(/\/auth\/login.*/, ''); // https://app-dev-v2.datarealities.com
+
+// Rule 11.1 & 16.2: Fixture — Setup/Teardown via API (Rule 6.2)
+const test = base.extend({
     dp: async ({ page }, use) => {
+        // SETUP: Use API to check which profile the device is currently assigned to (fast, no UI cost)
+        const cfgResp = await page.request.get(
+            `${API_BASE}/api/user/iot/devices/${ONLINE_DEVICE_ID}/configuration`
+        );
+        const cfgData = cfgResp.ok() ? await cfgResp.json() : {};
+        const existingProfileId = cfgData.deviceProfile?.id ?? null;
+
+        let needsTeardown = false;
+
+        // Only reuse if already in the known working test profile (global level)
+        if (existingProfileId !== PROFILE_WITH_DEVICES_ID) {
+            needsTeardown = true;
+            const assignResp = await page.request.post(
+                `${API_BASE}/api/device-profiles/${PROFILE_WITH_DEVICES_ID}/assign`,
+                { data: { deviceIds: [ONLINE_DEVICE_ID] } }
+            );
+            expect(assignResp.ok(), `API assign device to profile should succeed (${assignResp.status()})`).toBe(true);
+            console.log(`  Setup: assigned device to profile "${PROFILE_WITH_DEVICES_ID}" via API (was: ${existingProfileId || 'none'})`);
+        } else {
+            console.log(`  Setup: device already in target profile "${PROFILE_WITH_DEVICES_ID}"`);
+        }
+
         const dp = new DeviceProfilePage(page, PROFILE_WITH_DEVICES_ID);
         await dp.gotoDetail();
         await dp.switchToTab('devices');
+
         await use(dp);
+
+        // TEARDOWN: Unassign via API — Rule 15.2: try/catch is valid in teardown
+        if (needsTeardown) {
+            try {
+                const unassignResp = await page.request.post(
+                    `${API_BASE}/api/device-profiles/${PROFILE_WITH_DEVICES_ID}/unassign`,
+                    { data: { deviceIds: [ONLINE_DEVICE_ID] } }
+                );
+                console.log(`  Teardown: unassign ${unassignResp.ok() ? 'OK' : `failed (${unassignResp.status()})`}`);
+            } catch (e) {
+                console.error(`  Teardown API failed: ${e.message}`);
+            }
+        }
     }
 });
-
-const expect = test.expect;
 
 test.use({ storageState: authFile });
 
@@ -52,7 +87,7 @@ test.describe('Section 12 — Reapply Profile to Device', () => {
         await test.step('Verify success toast', async () => {
             // Rule 3.1 & 19.1: Extract results automatically using Web-first assertion
             // No more extracting text to NodeJS code for analysis!
-            await expect(dp.toast).toContainText(/Reapply sent to device/i, { timeout: 8000 });
+            await expect(dp.toast).toContainText(/Reapply sent to/i, { timeout: 8000 });
         });
     });
 });

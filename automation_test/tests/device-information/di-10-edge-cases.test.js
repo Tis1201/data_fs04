@@ -14,7 +14,7 @@ test.describe('Section 10 — Edge Cases', () => {
     test.beforeAll(beforeAllCapture);
     test.afterEach(afterEachRestore);
 
-    test('TC-INFO-024: Long name and special characters display correctly (XSS prevention)', async ({ page }) => {
+    test('TC-INFO-020: Long name and special characters display correctly (XSS prevention)', async ({ page }) => {
         const dp = new DeviceDetailPage(page, ETHERNET_DEVICE_ID);
         await dp.gotoDeviceDetail();
 
@@ -24,7 +24,7 @@ test.describe('Section 10 — Edge Cases', () => {
         });
 
         await test.step('Input XSS string and save', async () => {
-            // Lắng nghe sự kiện Dialog: Nếu app bị dính XSS và bật alert, test sẽ văng lỗi ngay lập tức!
+            // Listen for dialog events: if the app is vulnerable to XSS and fires an alert, the test will fail immediately!
             page.on('dialog', dialog => {
                 throw new Error(`CRITICAL VULNERABILITY: XSS payload executed! Dialog message: ${dialog.message()}`);
             });
@@ -39,7 +39,7 @@ test.describe('Section 10 — Edge Cases', () => {
 
             const saveBtn = dp.modal.getByRole('button', { name: /Save|Update|Submit/i }).first();
 
-            // Chờ API gọi xong khi save
+            // Wait for API response when saving
             const [response] = await Promise.all([
                 page.waitForResponse(res => res.url().includes('/devices/') && res.status() === 200),
                 saveBtn.click()
@@ -50,7 +50,7 @@ test.describe('Section 10 — Edge Cases', () => {
         await test.step('Verify page renders safely without executing script', async () => {
             const xssString = '<script>alert("xss")</script> <h1>Test</h1>';
             
-            // NẾU AN TOÀN: Chuỗi XSS sẽ hiển thị nguyên xi thành text trên màn hình (đã bị escape)
+            // IF SAFE: The XSS string should be rendered as plain text on screen (properly escaped)
             await expect.poll(async () => {
                 const fields = await dp.extractAllFieldValues();
                 return fields['Device Name'];
@@ -58,7 +58,7 @@ test.describe('Section 10 — Edge Cases', () => {
         });
     });
 
-    test('TC-INFO-025: Page displays correctly after browser refresh', async ({ page }) => {
+    test('TC-INFO-021: Page displays correctly after browser refresh', async ({ page }) => {
         const dp = new DeviceDetailPage(page, ETHERNET_DEVICE_ID);
         await dp.gotoDeviceDetail();
 

@@ -5,7 +5,7 @@ const expect = test.expect;
 
 test.describe('Section 4 — Technical Details', () => {
 
-    test('TC-INFO-009: Technical Details — UI fields + Terminal cross-verify', async ({ dp }) => {
+    test('TC-INFO-008: Technical Details — UI fields + Terminal cross-verify', async ({ dp }) => {
         test.setTimeout(180000);
 
         let fields;
