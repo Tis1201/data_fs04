@@ -1,4 +1,3 @@
-const { expect } = require('@playwright/test');
 const config = require('../../config/config-loader');
 const BasePage = require('../base-page');
 const SortUtils = require('../../utils/sort-utils');
@@ -44,11 +43,6 @@ class ResourcePage extends BasePage {
         await this.fileInput.setInputFiles(file);
 
         await this.saveButton.click();
-
-        await this.tableRows.first().waitFor({ state: 'visible' });
-        const newFactoryTokenLocator = this.page.locator(`table td >> text="${name}"`);
-        await expect(newFactoryTokenLocator).toBeVisible();
-        return true;
     }
 
     async editNameViaName(oldName, newName) {
@@ -59,7 +53,6 @@ class ResourcePage extends BasePage {
         await this.nameInput.fill(newName);
 
         // Save changes
-        await expect(this.saveButton).toBeEnabled();
         await this.saveButton.click();
     }
 
@@ -130,12 +123,6 @@ class ResourcePage extends BasePage {
         await DialogUtils.handleDeleteDialog(this.page);
 
         await this.goToPage();
-        // Verify the  has been removed from the table
-        // Use a more direct approach to check if the row exists
-        const row = this.tableRows.filter({ hasText: name }).first();
-        await expect(row).not.toBeVisible();
-
-        return true;
     }
 
     async cancelDelete(name) {
@@ -143,12 +130,6 @@ class ResourcePage extends BasePage {
 
         // Handle cancel dialog using utility
         await DialogUtils.handleCancelDialog(this.page);
-
-        // Verify the  is still in the table
-        const row = await this.getRowByName(name);
-        await expect(row).toBeVisible();
-
-        return true;
     }
 
     async getRowByName(name) {

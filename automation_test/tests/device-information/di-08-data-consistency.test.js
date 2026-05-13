@@ -5,7 +5,7 @@ const expect = test.expect;
 
 test.describe('Section 8 — Data Consistency Cross-check', () => {
 
-    test('TC-INFO-019: Detail page data matches device list page', async ({ dp, page }) => {
+    test('TC-INFO-016: Detail page data matches device list page', async ({ dp, page }) => {
         let detailName;
         let detailStatus;
         await test.step('Navigate to detail page and wait for data to render', async () => {
@@ -28,7 +28,7 @@ test.describe('Section 8 — Data Consistency Cross-check', () => {
         });
     });
 
-    test('TC-INFO-020: Duplicated fields are consistent between General and Network cards', async ({ dp }) => {
+    test('TC-INFO-017: Duplicated fields are consistent between General and Network cards', async ({ dp }) => {
         let fields;
         await test.step('Wait for both General and Network cards to fully load', async () => {
             await expect.poll(async () => {

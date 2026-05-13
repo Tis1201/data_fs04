@@ -3,19 +3,19 @@
  * Pure getters / extractors stay in `device-profile-listing.js`.
  */
 const listingActions = {
-    /**
-     * Improved searchFor — uses fill() directly without clear() to avoid debounce issues.
-     */
     async searchFor(searchTerm) {
         await this.searchInput.click();
-        await this.searchInput.fill(searchTerm);
-        await this.page.waitForLoadState('domcontentloaded');
+        await this.page.keyboard.press('Control+a');
+        await this.page.keyboard.press('Backspace');
+        await this.searchInput.pressSequentially(searchTerm, { delay: 50 });
+        await this.page.waitForLoadState('networkidle');
     },
 
     async clearSearch() {
         await this.searchInput.click();
-        await this.searchInput.fill('');
-        await this.page.waitForLoadState('domcontentloaded');
+        await this.page.keyboard.press('Control+a');
+        await this.page.keyboard.press('Backspace');
+        await this.page.waitForLoadState('networkidle');
     },
 
     async openFilter() {
