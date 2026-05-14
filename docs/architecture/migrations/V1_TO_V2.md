@@ -28,9 +28,10 @@ main-v2 (v2 production - when ready)
 
 ## Pipeline Configuration
 
-### Bitbucket Pipelines
+Configure your CI (for example GitHub Actions workflows under `.github/workflows/`) so branch pushes trigger the right deploys:
 
 ```yaml
+# Illustrative shape — adapt to your workflow syntax (e.g. GitHub Actions)
 pipelines:
   branches:
     # V1 Pipelines
@@ -95,7 +96,7 @@ git push origin main-v2
 
 ### 2. Update Pipeline Configuration
 
-Add `develop-v2` and `main-v2` triggers to `bitbucket-pipelines.yml` with:
+Add `develop-v2` and `main-v2` triggers in your CI configuration (for example a GitHub Actions workflow) with:
 - Separate deployment environments (e.g., `dev-v2.example.com`)
 - Separate infrastructure if needed (databases, message queues, etc.)
 - **Updated Docker Build Step**: Ensure `IMAGE_TAG` includes `v2-` prefix for v2 branches.
